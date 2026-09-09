@@ -14,7 +14,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use crate::archive::import::ImportEvent;
-use crate::error::{Details, Diagnostic, codes};
+use crate::error::{Details, Diagnostic, Warning, codes};
 use crate::records::association::Association;
 use crate::records::case::Case;
 use crate::records::document;
@@ -64,13 +64,19 @@ pub struct Plan {
     /// Objects that would become unreferenced, left because no purge was asked
     /// for.
     pub purge_not_requested: u64,
+    /// How many references on records this deletion keeps are not digests at
+    /// all. Any at all retains every candidate object, because such a
+    /// reference names something unknown and the unknown may be any of them.
+    pub malformed_references: u64,
 }
 
 /// The bare hexadecimal digest of a reference, when it is one at all.
 ///
 /// A record field is free text until it is checked. Only a value of the
 /// documented form reaches the plan, so nothing else is ever joined into an
-/// object path.
+/// object path. `None` says only that the value is not a path this archive
+/// can resolve; on a record the deletion keeps, it never says the record
+/// references nothing, and [`plan_objects`] counts it instead.
 fn hex(value: &str) -> Option<&str> {
     value
         .strip_prefix(DIGEST_PREFIX)
@@ -261,40 +267,31 @@ fn doomed_receipts<'a>(
 /// It survives when a remaining submission or receipt still names it, and it
 /// survives without a purge whatever else is true, because objects go only by
 /// an explicit purge (`docs/archive-layout.md`).
-fn plan_objects(
+fn plan_objects<'a>(
     plan: &mut Plan,
-    submissions: &[Submission],
-    receipts: &[Receipt],
+    submissions: &'a [Submission],
+    receipts: &'a [Receipt],
     going: &BTreeSet<&str>,
     going_receipts: &BTreeSet<&str>,
     purge: bool,
 ) {
-    let mut candidates: BTreeSet<&str> = BTreeSet::new();
-    let mut remaining: BTreeSet<&str> = BTreeSet::new();
+    let mut references = References::default();
     for submission in submissions {
-        let target = if going.contains(submission.id.as_str()) {
-            &mut candidates
-        } else {
-            &mut remaining
-        };
+        let surviving = !going.contains(submission.id.as_str());
         for artefact in &submission.artefacts {
-            if let Some(hex) = hex(&artefact.digest) {
-                target.insert(hex);
-            }
+            references.record(plan, surviving, &artefact.digest);
         }
     }
     for receipt in receipts {
-        let target = if going_receipts.contains(receipt.id.as_str()) {
-            &mut candidates
-        } else {
-            &mut remaining
-        };
-        if let Some(hex) = hex(&receipt.artefact_digest) {
-            target.insert(hex);
-        }
+        let surviving = !going_receipts.contains(receipt.id.as_str());
+        references.record(plan, surviving, &receipt.artefact_digest);
     }
-    for digest in candidates {
-        if remaining.contains(digest) {
+    // A reference that is not a digest names something this archive cannot
+    // resolve, and the deletion cannot tell which object it meant. Every
+    // candidate may be the one, so every candidate is retained.
+    let unknown = plan.malformed_references > 0;
+    for digest in references.candidates {
+        if unknown || references.remaining.contains(digest) {
             plan.referenced_elsewhere += 1;
         } else if purge {
             plan.objects.push(digest.to_owned());
@@ -304,12 +301,66 @@ fn plan_objects(
     }
 }
 
+/// The digests the scan saw, split by whether the record naming one is going.
+#[derive(Debug, Default)]
+struct References<'a> {
+    /// Digests only records this deletion removes reference.
+    candidates: BTreeSet<&'a str>,
+    /// Digests a record this deletion keeps still references.
+    remaining: BTreeSet<&'a str>,
+}
+
+impl<'a> References<'a> {
+    /// File one stored reference, or count one that is not a digest at all.
+    ///
+    /// A malformed reference on a record that is going says nothing: the
+    /// record and its claim both leave, and no object was ever a candidate
+    /// because of it. On a record that survives it is the opposite, and the
+    /// asymmetry is the whole point: the record still asserts that it
+    /// references some artefact, so it is counted as a reference to an
+    /// unknown object rather than silently dropped as a reference to none.
+    fn record(&mut self, plan: &mut Plan, surviving: bool, value: &'a str) {
+        match (hex(value), surviving) {
+            (Some(hex), true) => {
+                self.remaining.insert(hex);
+            }
+            (Some(hex), false) => {
+                self.candidates.insert(hex);
+            }
+            (None, true) => plan.malformed_references += 1,
+            (None, false) => {}
+        }
+    }
+}
+
+/// The degradation reported when a surviving record's reference is not a
+/// digest.
+///
+/// It is a warning rather than a refusal: the deletion still removes every
+/// record it planned to remove, and only the purge is held back. The count is
+/// the whole of it, exactly as every other deletion report: naming the record
+/// would say which surviving record points at content the user asked to
+/// purge, and naming the value would echo a stored field
+/// (`docs/error-contract.md`).
+#[must_use]
+pub fn malformed_references(malformed_count: u64) -> Warning {
+    Diagnostic::new(
+        codes::RECORD_MALFORMED,
+        "A record this deletion keeps references an artefact by something that is not a digest, so no object was purged.",
+        Details::new()
+            .text("stage", "delete")
+            .int("malformed_count", malformed_count),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::records::association::{Candidate, Evidence};
+    use crate::records::submission::ArtefactRef;
 
     const DIGEST: &str = "a002fd0595c559505437ce754971d911b703373addf2b59e425ec057d631614f";
+    const OTHER: &str = "b113fe1606d66a616548df8650a82a022c814484bee3c60af536fd168e742725";
 
     fn id(seed: u8) -> String {
         format!("{seed:02x}").repeat(16)
@@ -351,6 +402,110 @@ mod tests {
             label: None,
             record_kind: "receipt".to_owned(),
         }
+    }
+
+    fn submission(seed: u8, case: u8, digests: &[&str]) -> Submission {
+        Submission {
+            archive_schema_version: 1,
+            artefacts: digests
+                .iter()
+                .map(|digest| ArtefactRef {
+                    digest: (*digest).to_owned(),
+                    role: None,
+                })
+                .collect(),
+            case_id: id(case),
+            created_at: "2026-01-15T10:00:00Z".to_owned(),
+            description: "The user states they sent this.".to_owned(),
+            id: id(seed),
+            record_kind: "submission".to_owned(),
+            stated_date: None,
+        }
+    }
+
+    /// The set of digests one plan would unlink, for a scan of these records.
+    fn objects(submissions: &[Submission], receipts: &[Receipt], purge: bool) -> Plan {
+        let going = BTreeSet::from([submissions[0].id.as_str()]);
+        let going_receipts = BTreeSet::new();
+        let mut plan = Plan::default();
+        plan_objects(
+            &mut plan,
+            submissions,
+            receipts,
+            &going,
+            &going_receipts,
+            purge,
+        );
+        plan
+    }
+
+    /// A reference that is not a digest at all, on a record that survives,
+    /// says the record points at something this archive cannot resolve. The
+    /// deletion cannot tell which object it meant, so no object may go.
+    #[test]
+    fn a_malformed_reference_on_a_surviving_record_retains_every_object() {
+        let qualified = format!("sha256:{DIGEST}");
+        let other = format!("sha256:{OTHER}");
+        let submissions = vec![
+            submission(1, 9, &[&qualified, &other]),
+            submission(2, 8, &["not-a-digest"]),
+        ];
+        let plan = objects(&submissions, &[], true);
+        assert_eq!(plan.malformed_references, 1);
+        assert!(
+            plan.objects.is_empty(),
+            "a purge never proceeds past a reference it cannot resolve"
+        );
+        assert_eq!(plan.referenced_elsewhere, 2, "every candidate is retained");
+        assert_eq!(plan.purge_not_requested, 0);
+    }
+
+    /// The same reference on a record that is going says nothing: the record
+    /// and its claim both leave, so nothing is retained for it.
+    #[test]
+    fn a_malformed_reference_on_a_departing_record_retains_nothing() {
+        let qualified = format!("sha256:{DIGEST}");
+        let submissions = vec![
+            submission(1, 9, &[&qualified, "not-a-digest"]),
+            submission(2, 8, &[]),
+        ];
+        let plan = objects(&submissions, &[], true);
+        assert_eq!(plan.malformed_references, 0);
+        assert_eq!(plan.objects, vec![DIGEST.to_owned()]);
+        assert_eq!(plan.referenced_elsewhere, 0);
+    }
+
+    /// A surviving receipt reaches the same rule as a surviving submission,
+    /// and it holds without a purge too: an object that may be referenced is
+    /// retained for that reason rather than for the absent purge.
+    #[test]
+    fn a_surviving_receipt_reaches_the_same_rule_with_or_without_a_purge() {
+        let qualified = format!("sha256:{DIGEST}");
+        let submissions = vec![submission(1, 9, &[&qualified]), submission(2, 8, &[])];
+        let receipts = vec![receipt(0x30, "sha256:not a digest")];
+        for purge in [true, false] {
+            let plan = objects(&submissions, &receipts, purge);
+            assert_eq!(plan.malformed_references, 1);
+            assert!(plan.objects.is_empty());
+            assert_eq!(plan.referenced_elsewhere, 1);
+            assert_eq!(plan.purge_not_requested, 0);
+        }
+    }
+
+    #[test]
+    fn a_malformed_reference_is_reported_as_a_count_and_nothing_else() {
+        let warning = malformed_references(2);
+        assert_eq!(warning.code, codes::RECORD_MALFORMED);
+        assert!(!warning.is_retryable());
+        let json = serde_json::to_value(&warning).unwrap();
+        assert_eq!(json["details"]["malformed_count"], 2);
+        assert_eq!(json["details"]["stage"], "delete");
+        assert_eq!(json["details"]["bucket"], "record");
+        assert_eq!(
+            json["details"].as_object().unwrap().len(),
+            3,
+            "the count, the stage, and the bucket, and never the value itself"
+        );
     }
 
     #[test]
