@@ -4,10 +4,11 @@ Discovery note for [roadmap](roadmap.md) milestones 1 and 2. It records what
 authoritative public sources actually state about one candidate receipt type,
 proposes the smallest useful local case model, and lists what remains unknown.
 
-Nothing here is implemented. The scaffold still exposes only help, version, and
-`capabilities`; see [architecture](architecture.md). This note does not claim a
-universal e-Papír receipt format, does not describe a submission API, and does
-not assert conformance with any government service.
+Nothing in this note is implemented. The tool exposes help, version,
+`capabilities`, and the fifteen operations `capabilities` reports, none of
+which parses a receipt; see [architecture](architecture.md). This note does
+not claim a universal e-Papír receipt format, does not describe a submission
+API, and does not assert conformance with any government service.
 
 All retrievals below were performed on 2026-09-09 by following the entry points
 in [references](references.md). Sources are linked, never copied into this

@@ -15,9 +15,9 @@ tests that merely duplicate the implementation.
 ## Fixtures
 
 Public fixtures live under `tests/fixtures/` and must be wholly synthetic and
-redistributable under the fixture directory's CC0 policy. The scaffold contains
-no correspondence fixture. Record each future fixture's generator or source,
-intended case, and expected outcome in that directory's README.
+redistributable under the fixture directory's CC0 policy. The repository
+contains no correspondence fixture. Record each future fixture's generator or
+source, intended case, and expected outcome in that directory's README.
 
 Never derive fixtures from private correspondence, even after redaction.
 Generate any needed cryptographic test keys at runtime and never commit keys or

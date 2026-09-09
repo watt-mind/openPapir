@@ -51,7 +51,7 @@ tokens into either configuration file.
 `report_only: true` keeps automatic dispatch disabled. The human-launched
 Claude workflow performs explicit claims and delegates using its installed
 agent tools. Do not run a second coordinator for the same project or hand
-the same queue to the central event runtime. The current scaffold has no
+the same queue to the central event runtime. This repository has no
 event-runtime worktree lifecycle scripts; unattended dispatch has not been
 configured. Plain Git worktrees suffice for the manual stateless CLI flow.
 
