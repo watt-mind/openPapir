@@ -37,6 +37,8 @@ note's numbered proposals):
 - Atomic writes: an interrupted import leaves the whole artefact or nothing (5).
 - Owner-only permissions, with refusal to widen them (6).
 - Bounded input, refused before allocation (7).
+- Prevent path traversal, symlink escape, and unintended overwrites of stored
+  files.
 - A recorded schema version, refusal on newer versions, forward migrations that
   never rewrite originals (8).
 - Export as a copy restorable without openPapir; reviewed backup and deletion
@@ -107,8 +109,9 @@ one implicitly as a side effect of another operation.
 
 `papir-archive.json` is the marker and the first file written when an archive
 is created. It records the archive schema version, the archive's own opaque
-identifier, and the creating version of openPapir. A root that contains
-anything else but no marker is refused, not adopted.
+identifier, and the creating version of openPapir. openPapir never adopts a
+directory that has no marker; an existing empty directory may be initialised
+explicitly.
 
 Identifiers are 128-bit values from a cryptographically secure random source,
 rendered as 32 lowercase hex characters, and used as the record filename.
@@ -214,15 +217,40 @@ destination path, is known only once the bytes have been read. That directory
 is inside the archive root, so the rename stays on one filesystem; a
 cross-device error abandons the write and the archive is refused as
 misconfigured. Both directories are `fsync`ed after the rename. A leftover
-staging file is never adopted — staging files are removed on startup — so an
-interrupted import leaves the complete object or nothing.
+staging file is never adopted, so an interrupted import leaves the complete
+object or nothing.
 
 A single advisory `lock` file admits one writer at a time; a second writer
 refuses rather than waiting indefinitely. Concurrent readers are safe because
-no file is ever modified in place.
+no file is ever modified in place. Staging files are removed only by a process
+that already holds the writer lock, after acquiring it, never on startup by any
+process that happens to open the archive: a reader must not delete a file the
+current writer is still filling. The lock file records the holder's process
+identifier, host, and start time. A lock whose holder is provably gone is taken
+over only by an explicit user action that says what it found; it is never
+broken silently, and never on a timeout. The exact recovery flow, including
+what counts as proof, belongs to the artefact-import issue.
 
-**Windows degradation.** Two guarantees weaken and must be reported rather than
-assumed:
+### Path safety
+
+No path inside the archive root may be a symbolic link: not the root, not a
+directory within it, not an object, not a record. The rule is enforced when the
+path is opened or renamed, using the platform's no-follow flag, rather than by
+a stat call beforehand — a pre-check is a time-of-check-to-time-of-use bug, not
+a defence. The single-filesystem check likewise does not follow links. Every
+path openPapir uses is derived from the archive root plus its own fixed
+directory names plus a digest or an identifier; a filename supplied by the user
+is stored as an attribute and never joined into a path, so traversal segments
+in an imported name cannot escape the root. A path that violates any of this is
+refused and reported; it is never repaired, resolved, or followed.
+
+Export applies the same rules outward: openPapir never follows a symbolic link
+in the export destination, never overwrites an existing file there, and refuses
+and reports instead of replacing anything it did not create.
+
+### Windows degradation
+
+Two guarantees weaken and must be reported rather than assumed:
 
 - Directory `fsync` has no portable equivalent, so the durability of the rename
   itself after a power loss is weaker than on POSIX. The file content is still
@@ -275,9 +303,10 @@ history, not an anomaly.
 
 Before recording a duplicate the stored object's byte length is compared with
 the incoming length; a mismatch means the store is damaged and is reported as
-such rather than overwritten. The stored object is not fully re-read on every
-import, for cost reasons; an explicit whole-archive integrity check is a
-candidate follow-up.
+such rather than overwritten. A matching length is not evidence that the bytes
+are identical, only that nothing obvious is wrong; the stored object is not
+re-read on every import, for cost reasons, so the whole-archive integrity check
+below — which re-digests objects — is the real answer to a damaged store.
 
 ## Association records
 
@@ -318,8 +347,13 @@ re-encodes, or normalises an original. The result is restorable without
 openPapir: the files are the files, the sidecars are readable JSON.
 
 A backup is a copy of the whole archive root taken while no openPapir process
-holds the lock; `cache/` may be omitted. Encryption at rest is not designed
-here; see the deferred question below.
+holds the lock; `cache/` may be omitted. Ordinary copy tooling routinely widens
+permissions on restore, which the owner-only rule would then refuse. The
+documented remedy is an explicit repair action that narrows an archive's
+permissions back to owner-only and reports every path it changed. It is a
+repair, not an escape hatch: there is no flag that makes openPapir accept wide
+permissions, and the repair only narrows, never widens. Encryption at rest is
+not designed here; see the deferred question below.
 
 ## Deletion
 
@@ -329,13 +363,14 @@ references them. Each retained object is reported with the record still
 referencing it, and each object with no remaining reference is reported as an
 orphan; a purge never leaves an unreported orphan.
 
-Deletion is real: the record files are removed. The event recorded afterwards
-holds counts and record kinds only — no filenames, digests, or titles — because
-a digest is a fingerprint of the deleted content and keeping one would defeat
-the purge. openPapir keeps no immutable audit log of a user's own
-correspondence; here privacy outweighs auditability. Deletion does not erase
-data from the storage medium and must not claim to; backups already taken are
-outside openPapir's reach.
+Deletion is real: the record files are removed. The deletion summary — counts
+and record kinds only, no filenames, digests, or titles — is reported to the
+user and **not persisted**, because a digest is a fingerprint of the deleted
+content and storing one would defeat the purge. There is therefore no
+`records/deletions/` directory. openPapir keeps no immutable audit log of a
+user's own correspondence; here privacy outweighs auditability. Deletion does
+not erase data from the storage medium and must not claim to; backups already
+taken are outside openPapir's reach.
 
 ## Schema versioning and migration
 
