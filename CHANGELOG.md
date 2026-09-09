@@ -57,6 +57,10 @@ matches the observable difference. See the Documentation section of
 
 ### Changed
 
+- Tracked Markdown no longer uses em-dashes in prose, per the Documentation
+  style rules in `CONTRIBUTING.md`. The three design documents are rewritten
+  with periods, commas, colons, or parentheses; no decision, code name, cap
+  value, status label, link, or JSON example changed.
 - `docs/index.md` is now a two-table index that gives every document under
   `docs/` and every root policy file a one-line purpose.
 - `AGENTS.md` gains a repository layout table naming what lives at each path
