@@ -4,17 +4,21 @@
 //!
 //! This crate owns the local case archive. Today that means the archive root
 //! and its marker, the content-addressed artefact store, the atomic write
-//! procedure, the single-writer lock, the input caps, and the import-event
-//! records that import writes. Cases, submissions, receipts, associations,
-//! derived metadata, and verification results are designed in
+//! procedure, the single-writer lock, the input caps, the import-event
+//! records that import writes, and the case and submission records. Receipts,
+//! associations, derived metadata, and verification results are designed in
 //! `docs/archive-layout.md` and are not implemented.
 //!
 //! # Status
 //!
-//! Two operations are implemented, `archive.init` and `import`, and they are
-//! the two [`capabilities`] reports. Everything else in the design stays a
-//! plan: no export, no deletion, no integrity check, no matching, no receipt
-//! parsing, and no verification of any kind.
+//! Six operations are implemented, `archive.init`, `import`, `case.create`,
+//! `case.list`, `case.show`, and `submission.add`, and they are the six
+//! [`capabilities`] reports. Everything else in the design stays a plan: no
+//! export, no deletion, no editing, no integrity check, no matching, no
+//! receipt parsing, and no verification of any kind. A case and a submission
+//! are the user's own local organisation: openPapir sends nothing, so a
+//! submission is always user-asserted and asserts no delivery, receipt by an
+//! authority, authenticity, or legal effect.
 //!
 //! # Capabilities contract
 //!
@@ -39,15 +43,25 @@ pub mod archive;
 pub mod clock;
 pub mod error;
 pub mod ident;
+pub mod records;
 
 pub use archive::import::{Artefact, Imported, import};
 pub use archive::{Created, init};
 pub use error::{Diagnostic, Failure, Outcome, Warning};
+pub use records::case::{Case, CaseCreated, CaseList, CaseView};
+pub use records::submission::{ArtefactRef, Submission, SubmissionAdded};
 
 use serde::Serialize;
 
 /// The operations that can process input today.
-const OPERATIONS: &[&str] = &["archive.init", "import"];
+const OPERATIONS: &[&str] = &[
+    "archive.init",
+    "import",
+    "case.create",
+    "case.list",
+    "case.show",
+    "submission.add",
+];
 
 /// Machine-readable implementation status; never a verification verdict.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -77,7 +91,17 @@ mod tests {
     #[test]
     fn capabilities_report_exactly_the_implemented_operations() {
         let reported = capabilities();
-        assert_eq!(reported.operations, ["archive.init", "import"]);
+        assert_eq!(
+            reported.operations,
+            [
+                "archive.init",
+                "import",
+                "case.create",
+                "case.list",
+                "case.show",
+                "submission.add"
+            ]
+        );
         assert_eq!(reported.project, "openPapir");
         assert_eq!(reported.stage, "scaffold");
     }

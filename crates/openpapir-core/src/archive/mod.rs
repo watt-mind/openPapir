@@ -26,16 +26,22 @@ pub const SUPPORTED_SCHEMA_VERSION: u32 = 1;
 pub const MARKER_FILE: &str = "papir-archive.json";
 /// The directory holding import-event records, relative to the root.
 pub const IMPORTS_DIR: &str = "records/imports";
+/// The directory holding case records, relative to the root.
+pub const CASES_DIR: &str = crate::records::CASES_DIR;
+/// The directory holding submission records, relative to the root.
+pub const SUBMISSIONS_DIR: &str = crate::records::SUBMISSIONS_DIR;
 /// The disposable, rebuildable index directory, relative to the root.
 pub const CACHE_DIR: &str = "cache";
 
 /// The directories an archive holds, relative to its root.
-const LAYOUT_DIRS: [&str; 6] = [
+const LAYOUT_DIRS: [&str; 8] = [
     "objects",
     "objects/sha256",
     "objects/incoming",
     "records",
     IMPORTS_DIR,
+    CASES_DIR,
+    SUBMISSIONS_DIR,
     CACHE_DIR,
 ];
 

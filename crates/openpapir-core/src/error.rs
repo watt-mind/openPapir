@@ -47,6 +47,8 @@ pub mod codes {
     pub const INPUT_CAP_RECORD_SIZE: &str = "input.cap.record_size";
     /// A supplied original filename exceeds the attribute cap.
     pub const INPUT_CAP_FILENAME_LENGTH: &str = "input.cap.filename_length";
+    /// A user-supplied record field exceeds its own length cap.
+    pub const INPUT_CAP_FIELD_LENGTH: &str = "input.cap.field_length";
 
     /// A path that must not be a symbolic link is one.
     pub const PATH_SYMLINK: &str = "path.symlink";
@@ -60,6 +62,11 @@ pub mod codes {
 
     /// A write was interrupted before its publish step.
     pub const WRITE_INTERRUPTED: &str = "write.interrupted";
+
+    /// A reference names no record or object in this archive.
+    pub const RECORD_NOT_FOUND: &str = "record.not_found";
+    /// A stored record document cannot be read as a valid record.
+    pub const RECORD_MALFORMED: &str = "record.malformed";
 
     /// A duplicate import found a stored object of a different length.
     pub const INTEGRITY_LENGTH_MISMATCH: &str = "integrity.length_mismatch";
@@ -360,6 +367,7 @@ mod tests {
             (codes::INPUT_CAP_IMPORT_FILES, Bucket::Input, 3),
             (codes::INPUT_CAP_RECORD_SIZE, Bucket::Input, 3),
             (codes::INPUT_CAP_FILENAME_LENGTH, Bucket::Input, 3),
+            (codes::INPUT_CAP_FIELD_LENGTH, Bucket::Input, 3),
             (codes::PATH_SYMLINK, Bucket::Path, 3),
             (codes::PATH_OVERWRITE, Bucket::Path, 3),
             (codes::PATH_CROSS_DEVICE, Bucket::Path, 3),
@@ -372,6 +380,8 @@ mod tests {
             (codes::ARCHIVE_MULTIPLE_FILESYSTEMS, Bucket::Archive, 4),
             (codes::LOCK_HELD, Bucket::Lock, 4),
             (codes::WRITE_INTERRUPTED, Bucket::Write, 4),
+            (codes::RECORD_NOT_FOUND, Bucket::Record, 4),
+            (codes::RECORD_MALFORMED, Bucket::Record, 4),
             (codes::INTEGRITY_LENGTH_MISMATCH, Bucket::Integrity, 4),
             (codes::PLATFORM_FILESYSTEM_UNSUPPORTED, Bucket::Platform, 5),
             (codes::PLATFORM_NO_DIRECTORY_FSYNC, Bucket::Platform, 5),
