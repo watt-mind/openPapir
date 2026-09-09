@@ -863,14 +863,7 @@ fn a_surviving_record_whose_reference_is_not_a_digest_stops_the_purge() {
         "the case and its submission"
     );
 
-    // Windows reports its own platform degradations alongside this one, so
-    // the warning is found by its code rather than by its position.
-    let warning = envelope["warnings"]
-        .as_array()
-        .expect("a warnings array")
-        .iter()
-        .find(|warning| warning["code"] == "record.malformed")
-        .expect("the malformed reference is reported");
+    let warning = malformed_warning(&envelope).expect("the malformed reference is reported");
     assert_eq!(warning["details"]["bucket"], "record");
     assert_eq!(warning["details"]["stage"], "delete");
     assert_eq!(warning["details"]["malformed_count"], 1);
@@ -884,6 +877,88 @@ fn a_surviving_record_whose_reference_is_not_a_digest_stops_the_purge() {
         imports, 2,
         "no import event went with an object that stayed"
     );
+}
+
+/// The same hand-edited archive, deleted without `--purge`. No object was
+/// going to be unlinked, so the reference the archive cannot resolve decided
+/// nothing here: the candidate keeps `purge_not_requested`, the reason that
+/// actually held it, and the warning that says a purge was held back is not
+/// raised on a command that asked for no purge.
+#[test]
+fn without_a_purge_a_malformed_reference_leaves_the_reason_and_the_warning_alone() {
+    let fixture = Fixture::new();
+    let own = fixture.import("own.bin", FIRST);
+    let case_id = fixture.case("A local matter");
+    fixture.submission(&case_id, &own);
+    let other = fixture.import("other.bin", SECOND);
+    let receipt = fixture.receipt(&other);
+    rewrite_reference(&fixture, &receipt, "sha256:not-a-digest");
+
+    let output = fixture.delete(&case_id, false);
+    assert!(output.status.success());
+    let envelope = stdout_json(&output);
+    assert_eq!(envelope["ok"], true);
+    assert_private(&envelope);
+    let data = &envelope["data"];
+    assert_eq!(data["purge"], false);
+    assert_eq!(data["objects_removed"], 0);
+    assert_eq!(
+        retained(data),
+        vec![
+            ("purge_not_requested".to_owned(), 1),
+            ("records_retained".to_owned(), 0),
+            ("referenced_elsewhere".to_owned(), 0),
+            ("unremovable".to_owned(), 0),
+        ],
+        "the object stayed because no purge was asked for"
+    );
+    assert!(
+        malformed_warning(&envelope).is_none(),
+        "nothing was held back, so nothing is reported"
+    );
+    assert!(fixture.object(&own).is_file(), "the bytes are still here");
+    assert!(fixture.object(&other).is_file());
+}
+
+/// A hand-edited document elsewhere in the archive does not follow every
+/// later deletion around. A purge of a case with no artefact of its own had
+/// nothing for the unresolvable reference to hold back, so the deletion is
+/// reported without it.
+#[test]
+fn a_purge_with_no_candidate_of_its_own_carries_no_malformed_warning() {
+    let fixture = Fixture::new();
+    let other = fixture.import("other.bin", SECOND);
+    let receipt = fixture.receipt(&other);
+    rewrite_reference(&fixture, &receipt, "sha256:not-a-digest");
+    let case_id = fixture.case("A local matter with no artefact");
+
+    let output = fixture.delete(&case_id, true);
+    assert!(output.status.success());
+    let envelope = stdout_json(&output);
+    assert_eq!(envelope["ok"], true);
+    assert_private(&envelope);
+    let data = &envelope["data"];
+    assert_eq!(data["objects_retained_total"], 0);
+    assert_eq!(data["records_removed_total"], 1, "the case document alone");
+    assert!(
+        malformed_warning(&envelope).is_none(),
+        "the reference changed nothing for this case"
+    );
+    assert!(fixture.object(&other).is_file());
+}
+
+/// The `record.malformed` warning of one envelope, if it carries one.
+///
+/// An envelope with nothing to report omits `warnings` altogether. Where it
+/// is there, Windows reports its own platform degradations alongside this
+/// one, so the warning is found by its code rather than by its position.
+fn malformed_warning(envelope: &Value) -> Option<Value> {
+    envelope["warnings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|warning| warning["code"] == "record.malformed")
+        .cloned()
 }
 
 /// Replace one stored receipt's artefact reference, keeping the document's

@@ -396,11 +396,7 @@ mod tests {
             fs::set_permissions(&stored, fs::Permissions::from_mode(0o600)).unwrap();
         }
         #[cfg(not(unix))]
-        {
-            let mut permissions = fs::metadata(&stored).unwrap().permissions();
-            permissions.set_readonly(false);
-            fs::set_permissions(&stored, permissions).unwrap();
-        }
+        paths::clear_read_only(&stored).unwrap();
         fs::write(&stored, b"damaged store").unwrap();
         let refusal = import(root.path(), &[inputs.path().join("a.txt")]).unwrap_err();
         assert_eq!(refusal.error.code, codes::INTEGRITY_LENGTH_MISMATCH);

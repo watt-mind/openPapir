@@ -805,9 +805,15 @@ fn make_writable(path: &Path) {
     }
     #[cfg(not(unix))]
     {
-        let mut permissions = fs::metadata(path).unwrap().permissions();
-        permissions.set_readonly(false);
-        fs::set_permissions(path, permissions).unwrap();
+        // On Windows clearing the read-only attribute clears it for everyone
+        // rather than for the owner alone, and it is what makes the file
+        // writable here; owner-only access stays the access-control list.
+        #[allow(clippy::permissions_set_readonly_false)]
+        {
+            let mut permissions = fs::metadata(path).unwrap().permissions();
+            permissions.set_readonly(false);
+            fs::set_permissions(path, permissions).unwrap();
+        }
     }
 }
 

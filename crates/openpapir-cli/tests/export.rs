@@ -848,3 +848,114 @@ fn human_repair_output_reports_counts_and_no_path() {
         "no archive path reaches human output"
     );
 }
+
+/// The stage table of a document: each stage, and the set of paths it names.
+///
+/// The table is the one whose header is `Stage | What it names`, wherever it
+/// sits and however it is indented, so a document may keep it inside a list.
+/// Each cell is a sentence listing paths, so the paths are its comma-separated
+/// clauses with the joining `and` and the closing full stop removed. Comparing
+/// sets rather than sentences lets the two documents order their clauses
+/// differently while still naming the same paths.
+fn stage_table(markdown: &str) -> BTreeMap<String, Vec<String>> {
+    let mut rows: Vec<Vec<String>> = Vec::new();
+    let mut inside = false;
+    for line in markdown.lines() {
+        let line = line.trim();
+        if line.starts_with("| Stage | What it names |") {
+            assert!(!inside, "a document holds exactly one stage table");
+            inside = true;
+            continue;
+        }
+        if !inside {
+            continue;
+        }
+        if !line.starts_with('|') {
+            inside = false;
+            continue;
+        }
+        let cells: Vec<&str> = line.trim_matches('|').split('|').map(str::trim).collect();
+        assert_eq!(cells.len(), 2, "the stage table has two columns");
+        if cells[0].chars().all(|c| c == '-') {
+            continue;
+        }
+        rows.push(vec![cells[0].to_owned(), cells[1].to_owned()]);
+    }
+    assert!(!rows.is_empty(), "the stage table was found");
+    let mut table = BTreeMap::new();
+    for row in rows {
+        let stage = row[0].trim_matches('`').to_owned();
+        let mut paths: Vec<String> = row[1]
+            .trim_end_matches('.')
+            .split(',')
+            .map(|clause| {
+                clause
+                    .trim()
+                    .trim_start_matches("and ")
+                    .trim()
+                    .to_lowercase()
+            })
+            .collect();
+        paths.sort();
+        assert!(
+            table.insert(stage, paths).is_none(),
+            "each stage appears once"
+        );
+    }
+    table
+}
+
+fn doc(name: &str) -> String {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../docs")
+        .join(name);
+    fs::read_to_string(&path).expect("the document is readable")
+}
+
+#[test]
+fn both_documents_name_the_same_paths_for_each_write_stage() {
+    let contract = stage_table(&doc("error-contract.md"));
+    let architecture = stage_table(&doc("architecture.md"));
+    assert_eq!(
+        contract, architecture,
+        "docs/error-contract.md and docs/architecture.md must list the same \
+         paths for each write stage"
+    );
+    let documented: Vec<&str> = contract.keys().map(String::as_str).collect();
+    let mut implemented: Vec<&str> = openpapir_core::export::repair::Stage::ALL
+        .iter()
+        .map(|stage| stage.as_str())
+        .collect();
+    implemented.sort_unstable();
+    assert_eq!(
+        documented, implemented,
+        "the tables name exactly the stages the implementation can report"
+    );
+}
+
+#[test]
+fn every_kind_the_repair_walks_maps_to_a_documented_stage() {
+    use openpapir_core::export::repair::{KINDS, Kind, Stage};
+
+    let stages: Vec<&str> = Stage::ALL.iter().map(|stage| stage.as_str()).collect();
+    for kind in [
+        Kind::Cache,
+        Kind::Directory,
+        Kind::Marker,
+        Kind::Object,
+        Kind::Record,
+        Kind::Root,
+        Kind::Staging,
+    ] {
+        assert!(
+            stages.contains(&kind.stage().as_str()),
+            "{} maps to a stage the write bucket names",
+            kind.name()
+        );
+    }
+    assert_eq!(
+        KINDS,
+        ["cache", "directory", "marker", "object", "record", "root"],
+        "the report's kind names and their order do not change"
+    );
+}

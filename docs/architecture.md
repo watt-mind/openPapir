@@ -764,12 +764,11 @@ openat-style walk that holds a directory handle for every component would
 close that gap, and is not implemented; it would need a per-platform
 implementation for a destination the archive does not own.
 
-An interrupted write in the destination reports the stage it was in:
-`object_write` while copying a stored object or making the directory the
-copies go in, `record_write` while writing a record document or its
-directory, and `marker_write` for the destination itself and for
-`manifest.json`, which describe the export rather than any one record
-([error contract](error-contract.md)).
+An interrupted write in the destination reports the stage it was in, from the
+one table of [write stages](#write-stages): the copies and the directory they
+go in are an object write, a record document and its directory a record write,
+and the destination itself and its `manifest.json` a marker write, because
+they describe the export rather than any one record.
 
 The archive's own publish step, a hard link into place, is deliberately not
 used outside the root. A destination may be a filesystem that cannot create a
@@ -919,11 +918,9 @@ narrowed. Changing a link's permissions changes its target's, and a link out
 of the archive would be a file the archive does not own.
 
 A path the repair cannot read or cannot narrow is `write.interrupted`, and its
-`stage` is the kind of path the repair was inspecting: `object_write` for a
-stored object, a fan-out directory it cannot list, or a leftover staging
-file, `marker_write` for the marker, and `record_write` for a record
-document, a cached file, a layout directory, a fan-out directory it cannot
-narrow, or the root ([error contract](error-contract.md)).
+`stage` is the kind of path the repair was inspecting, read from the one table
+of [write stages](#write-stages). The kind is a closed set, so a path the
+repair walks never reaches a stage by falling through a default.
 
 `data` reports counts by kind, in a fixed order, including the kinds nothing
 changed for, so a caller reads a count rather than testing for a key.
@@ -1000,14 +997,32 @@ is not a digest at all. openPapir validates a digest on every write, so no
 command writes such a record, but a document edited outside openPapir can
 hold one, and the plan must read it as a reference to an object it cannot
 identify rather than as a reference to nothing. The deletion therefore cannot
-tell which object that record meant, so it purges none of them: every object
-the purge had considered is retained with the reason `referenced_elsewhere`,
-with or without `--purge`, and the number of such references is reported as a
-`record.malformed` warning carrying `stage` and `malformed_count`. The
-records the deletion planned to remove still go, `ok` stays `true`, and the
-same reference on a record that is **going** changes nothing, because that
-record and its claim both leave. The count is the whole of the warning: the
-record that holds the reference is not named, and neither is the value.
+tell which object that record meant, so a purge unlinks none of them: every
+object `--purge` would otherwise have removed is retained with the reason
+`referenced_elsewhere` instead. The records the deletion planned to remove
+still go, `ok` stays `true`, and the same reference on a record that is
+**going** changes nothing, because that record and its claim both leave.
+
+The number of such references is reported as a `record.malformed` warning
+carrying `stage` and `malformed_count`, and **only when the reference held an
+object of this deletion back**: `--purge` was given and this case had a
+candidate the purge would otherwise have removed. The scan reads the whole
+archive, so one hand-edited document anywhere would otherwise attach the
+warning to every later deletion, including ones with no candidate and ones
+that asked for no purge, and describe the archive rather than the command the
+user ran. The warning's text says `for this case` for the same reason.
+Finding such a document wherever it sits is `archive check`'s work, not
+`case delete`'s. The count is the whole of the warning: the record that holds
+the reference is not named, and neither is the value.
+
+Without `--purge` nothing was going to be unlinked, so the unresolvable
+reference decided nothing: a candidate no remaining record names keeps
+`purge_not_requested`, the reason that actually held it, exactly as in an
+archive with no such document. `referenced_elsewhere` is reserved for a
+candidate a remaining record names outright, and, for the unresolvable
+reference, for one a purge would otherwise have removed. Nothing is more
+removable for either rule: with `--purge` the retained set is unchanged, and
+without it no object is ever unlinked.
 
 An association may name submissions in more than one case. When one of them is
 going and another remains, the association has to stay, because it still
@@ -1122,8 +1137,8 @@ a count rather than testing for a key. The four reasons are fixed:
 
 | Reason | Meaning |
 | --- | --- |
-| `purge_not_requested` | The object would have become unreferenced, and `--purge` was not given. |
-| `referenced_elsewhere` | A submission or receipt that remains still references the object, or references an artefact by something that is not a digest, which may be any of them. |
+| `purge_not_requested` | The object would have become unreferenced, and `--purge` was not given. A document elsewhere in the archive whose reference is not a digest does not change that, because no purge was going to unlink anything. |
+| `referenced_elsewhere` | A submission or receipt that remains still references the object; or `--purge` was given and a record that remains references an artefact by something that is not a digest, which may be any of them. The second half is reserved for a purge: it is the reason only where the object would otherwise have been removed. |
 | `records_retained` | A record document would not go, so the object pass never ran and none of these objects was attempted. The record pass is all or nothing, so this normally means nothing at all was unlinked. |
 | `unremovable` | `--purge` was given and the unlink did not succeed. |
 
@@ -1204,6 +1219,24 @@ description: >-
 | Copies outward | An export writes only into a destination outside the archive root, creates every file there with create-new semantics, follows no symbolic link, replaces nothing, and re-digests every copy before it is published. A destination the export itself created is removed again when the export fails. |
 | Path safety | Input files are opened with the platform's no-follow flag, `O_NOFOLLOW` on Unix and `FILE_FLAG_OPEN_REPARSE_POINT` on Windows, and no path is stat-ed before it is opened. Symbolic links inside the archive are refused, on Windows together with NTFS junctions and every other reparse point, and a user-supplied filename is never joined into a path. |
 | Single writer | A `lock` file recording the holder's process identifier, host, and start time admits one writer. A second writer refuses with `lock.held` rather than waiting. |
+
+### Write stages
+
+A `write.interrupted` refusal carries a `stage`, the kind of path that was
+being written, never the module that reported it. The three stages and the
+paths each one names are the same set the
+[error contract](error-contract.md) lists, and a test parses both tables and
+holds them to it.
+
+| Stage | What it names |
+| --- | --- |
+| `object_write` | A stored object or an exported copy of one, the directory a copy is created in, a fan-out directory the repair cannot list, and a leftover staging file inside the object store. |
+| `record_write` | A record document, the directory one is written into, a cached file, a layout directory, a fan-out directory the repair cannot narrow, and the archive root. |
+| `marker_write` | The archive marker, and outside the archive the export destination itself and its `manifest.json`. |
+
+The kinds of path the repair walks are a closed set in the implementation, and
+each one names its stage: no kind falls through to `record_write` by default,
+so a kind added without a decided stage does not compile.
 
 ## Input caps
 
@@ -1437,7 +1470,7 @@ changes the exit code.
 | `platform.no_directory_fsync` | The directory entry a publish created may not be durable, although the file content was flushed. Emitted where the platform has no directory flush, and also where the flush was attempted and failed, with `stage`. |
 | `platform.owner_only_via_acl` | Owner-only access is an access-control list rather than a permission bit, so it depends on the filesystem. Emitted on Windows. |
 | `platform.no_follow_after_open` | The no-follow flag opens the link itself rather than failing, so the refusal comes from the handle openPapir opened, and the reparse tag is not distinguished. Emitted on Windows, once per archive opened. |
-| `record.malformed` | A record `case delete` keeps names an artefact by something that is not a digest, so the archive cannot say which object it means. Emitted by `case delete`, with `stage` and `malformed_count`. Every object the purge had considered is retained as `referenced_elsewhere`, and the records the deletion planned to remove still go. |
+| `record.malformed` | A record `case delete` keeps names an artefact by something that is not a digest, so the archive cannot say which object it means. Emitted by `case delete`, with `stage` and `malformed_count`, and only where it held an object of that deletion back: `--purge` was given and this case had a candidate the purge would otherwise have removed. Those objects are retained as `referenced_elsewhere`, and the records the deletion planned to remove still go. Without `--purge` a candidate keeps `purge_not_requested` and no warning is emitted. |
 | `platform.replace_while_open` | A purge could not unlink an object now because another process holds it open, so the removal is deferred to the user closing it. Emitted by `case delete` on platforms that defer an unlink, with `stage`, and with `read_only_restored` only where the read-only attribute was actually cleared; its absence says it never was. The object is counted as `unremovable` and the command still reports what it did remove. Reported once however many objects deferred, carrying the worst outcome any of them saw. |
 
 On Windows a no-follow open carries `FILE_FLAG_OPEN_REPARSE_POINT`, so the

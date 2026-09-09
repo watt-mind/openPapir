@@ -368,7 +368,12 @@ followed ([archive-layout](archive-layout.md)).
   | --- | --- |
   | `object_write` | A stored object or an exported copy of one, the directory a copy is created in, a fan-out directory the repair cannot list, and a leftover staging file inside the object store. |
   | `record_write` | A record document, the directory one is written into, a cached file, a layout directory, a fan-out directory the repair cannot narrow, and the archive root. |
-  | `marker_write` | The archive marker, and outside the archive the export destination itself and its `manifest.json`, which describe the export rather than any one record. |
+  | `marker_write` | The archive marker, and outside the archive the export destination itself and its `manifest.json`. |
+
+  The destination and its `manifest.json` describe the export rather than any
+  one record, which is why they are a marker write. [Architecture](architecture.md#write-stages)
+  repeats this table for the implementation, and a test holds the two to the
+  same set of paths per stage.
 
   A refusal in an export destination carries `scope` `export_destination` and
   never an `archive_path` ([architecture](architecture.md)).
@@ -406,10 +411,18 @@ followed ([archive-layout](archive-layout.md)).
   bytes are never allocated. `case delete` also emits the code as a
   **warning**, never as an error, for a readable record it keeps that names
   an artefact by something that is not a digest: the archive cannot say which
-  object such a record means, so every object the purge had considered is
-  retained as `referenced_elsewhere` while the records the deletion planned
-  to remove still go. Details there are `bucket`, `stage` (`delete`), and
-  `malformed_count`; the record and the value it holds are never named
+  object such a record means, so every object `--purge` would otherwise have
+  removed is retained as `referenced_elsewhere` while the records the
+  deletion planned to remove still go. The warning is emitted only where that
+  held an object of this deletion back, which needs `--purge` and a candidate
+  the purge would otherwise have removed, and its message says
+  `for this case`: the scan reads the whole archive, so one hand-edited
+  document would otherwise warn on every later deletion, including ones with
+  no candidate and ones that asked for no purge. Reporting such a document
+  wherever it sits is `archive check`'s work. Without `--purge` the candidate
+  keeps `purge_not_requested`, because no purge was going to unlink it.
+  Details there are `bucket`, `stage` (`delete`), and `malformed_count`; the
+  record and the value it holds are never named
   ([architecture](architecture.md)).
 - **`record.inconsistent`**: record, not retryable. **Added additively by the
   receipt and association records.** A record's fields exist and are each
@@ -516,7 +529,10 @@ would name belongs to an archive the refusal is not about.
   refusal at all, because the purge was never entitled to remove it: it is
   reported in `data` as a retained object with the reason
   `referenced_elsewhere`, alongside `purge_not_requested` for an object left
-  because no purge was asked for. Reporting the identifier of a record that
+  because no purge was asked for. `referenced_elsewhere` is reserved for an
+  object a purge would otherwise have removed, so a deletion without `--purge`
+  reports `purge_not_requested` for a candidate no remaining record names,
+  whatever else the archive holds. Reporting the identifier of a record that
   survived would also say which surviving record points at content the user
   asked to purge, which the privacy rule below does not allow.
   `case delete` is the second command whose `data` survives a failure: the

@@ -424,9 +424,7 @@ fn retry_unlink(path: &Path, warnings: &mut Vec<Warning>) -> bool {
         note(warnings, replace_while_open(None));
         return false;
     };
-    let mut writable = original.clone();
-    writable.set_readonly(false);
-    if fs::set_permissions(path, writable).is_ok() {
+    if paths::clear_read_only(path).is_ok() {
         if fs::remove_file(path).is_ok() {
             return true;
         }
