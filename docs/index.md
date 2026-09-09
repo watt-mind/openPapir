@@ -4,7 +4,8 @@
 - [Roadmap and discovery gates](roadmap.md)
 - [Receipt evidence and local case model decisions](receipt-discovery.md)
 - [Local archive layout and storage design](archive-layout.md)
-- [Import error, JSON, and exit-code contract](error-contract.md)
+- [Import and association error, JSON, and exit-code
+  contract](error-contract.md)
 - [Testing and fixture policy](testing.md)
 - [References and evidence policy](references.md)
 - [Contributing](../CONTRIBUTING.md)

@@ -29,8 +29,9 @@ The proposed model and its open questions are drafted in
 are proposals, not decisions. Its follow-up 3 is answered by
 [local archive layout and storage design](archive-layout.md), which decides the
 storage technology, the on-disk layout, and the record shapes for review, and
-records which of that note's questions stay open. Its follow-up 5 is answered
-by [import error, JSON, and exit-code contract](error-contract.md), which
+records which of that note's questions stay open. Follow-up 5 of the archive
+layout document is answered by
+[import error, JSON, and exit-code contract](error-contract.md), which
 specifies the JSON envelope, the error-code catalogue, and the exit-code
 mapping for review. No part of any of these documents is implemented.
 

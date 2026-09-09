@@ -45,7 +45,8 @@ keeps the five existing keys and adds two:
   Present and possibly empty when `ok` is `true`; `{}` when `ok` is `false`.
 - `verified` — boolean.
 - `error` — object or absent. Present exactly when `ok` is `false`.
-- `warnings` — array, possibly absent. Allowed only when `ok` is `true`.
+- `warnings` — array, possibly absent. Allowed whether `ok` is `true` or
+  `false`; a degradation observed before a failure is still reported.
 
 Exactly one JSON object is written to stdout, on one line, and nothing else.
 Human-readable output goes to stdout only in the non-`--json` form; diagnostic
@@ -68,9 +69,19 @@ at any time within a `schema_version`.
 ### The `warnings` array
 
 Each entry has the same three keys as `error` and the same bounds. Warnings
-report a condition that did not stop the command: the named platform
-degradations, and nothing else until this document names more. A warning never
-changes `ok` and never changes the exit code.
+report a condition that did not stop the command at the point it was observed:
+the named platform degradations, and nothing else until this document names
+more. A warning never changes `ok` and never changes the exit code.
+
+`warnings` may accompany an `error`. A degradation observed before a later
+failure is still reported, because
+[archive-layout](archive-layout.md) requires that each named weakening be
+reported and never silently accepted; a failed command must not swallow the
+degradation it already observed. The array is therefore independent of `ok`:
+`ok` says whether the command did its work, `warnings` says what was weaker
+than the design promises, and neither implies the other. Standing degradations
+of an archive are re-reported by archive health output on every run, so a
+warning lost with a crashed process is recoverable by asking again.
 
 ### Compatibility rule for `schema_version`
 
@@ -218,8 +229,11 @@ unknown or when including it would breach the privacy rule.
 - **`archive.multiple_filesystems`** — archive, not retryable. The archive
   root spans more than one filesystem, which the atomic write procedure
   forbids. Details: `bucket`, `archive_path`.
-- **`archive.marker_malformed`** — archive, not retryable. The marker file
-  exists but cannot be read as a valid marker. Details: `bucket`.
+- **`archive.marker_malformed`** — archive, not retryable. **Reserved.** The
+  marker file exists but cannot be read as a valid marker.
+  [archive-layout](archive-layout.md) fixes what the marker records but not
+  what happens when it is unreadable, so the condition is deferred to the
+  artefact-import issue and only the code is fixed here. Details: `bucket`.
 
 ### `input` — bounds refused before allocation
 
@@ -291,16 +305,22 @@ followed ([archive-layout](archive-layout.md)).
   before its rename. The staging file is abandoned and never adopted, so the
   archive holds the complete artefact or nothing. Details: `bucket`,
   `stage` (`object` or `record`).
-- **`write.incomplete`** — archive, not retryable. A write completed fewer
-  bytes than expected, or a stream ended early. The partial file is removed.
-  Details: `bucket`, `stage`, `expected_bytes`, `observed_bytes`.
+- **`write.incomplete`** — archive, not retryable. **Reserved.** A write
+  completed fewer bytes than expected, or a stream ended early, and the
+  partial file is removed. The design states only that an interrupted import
+  leaves the complete artefact or nothing; how a short write is distinguished
+  from an interruption is deferred to the artefact-import issue. Details:
+  `bucket`, `stage`, `expected_bytes`, `observed_bytes`.
 
 ### `record` — record documents
 
-- **`record.malformed`** — archive, not retryable. A record file exists but is
-  not valid JSON, is missing a required field, or names a record kind this
-  build does not know. Details: `bucket`, `archive_path`, `record_kind` when
-  it is readable. Never the record's content.
+- **`record.malformed`** — archive, not retryable. **Reserved.** A record file
+  exists but is not valid JSON, is missing a required field, or names a record
+  kind this build does not know. [archive-layout](archive-layout.md) fixes the
+  record shapes but decides no behaviour for a record that violates them, so
+  the condition is deferred to the artefact-import issue. Details: `bucket`,
+  `archive_path`, `record_kind` when it is readable. Never the record's
+  content.
 
 ### `integrity` — stored bytes disagree with what is recorded
 
@@ -387,7 +407,8 @@ likewise never a contract value; if it appears it is `internal` by definition
 and a bug.
 
 A command that reports several failures still exits with one code: the highest
-in the order `internal` > `platform` > `archive` > `input`/`path` > `usage`.
+of the exit-code groups above, in the order `6` > `5` > `4` > `3` > `2`. That
+covers all twelve buckets, because every bucket maps to exactly one group.
 The envelope's single `error` object names the first refusal; the rest, when a
 command is defined to continue past one, appear in `data` as counts and code
 buckets, never as an expanded per-input list of names.
@@ -398,7 +419,9 @@ buckets, never as an expanded per-input list of names.
 each be reported at the point of the write and in archive health output, never
 silently accepted and never described as equivalent. Each is a **warning
 inside a successful envelope**: `ok` stays `true`, the exit code stays `0`,
-and the operation is not retried or downgraded.
+and the operation is not retried or downgraded. A degradation observed before
+a later step fails is still reported, in the `warnings` array of the failing
+envelope; it is never dropped because the command ended badly.
 
 - **`platform.no_directory_fsync`** — the directory entry created by a rename
   may not be durable after power loss, although the file content was flushed.
@@ -504,6 +527,10 @@ shape follows the association record:
 }
 ```
 
+`receipt_id` here is openPapir's own minted receipt-record identifier, which
+the privacy rule allows, as distinct from any receipt identifier issued by an
+authority, which is never emitted.
+
 `submission_id` is `null` for `unassociated` and `candidate`; `candidates`
 holds one entry for `associated`, several for `candidate` and
 `contradictory`, and none for `unassociated`. `confidence` is the closed
@@ -541,7 +568,9 @@ Never, by default and with no flag to enable it:
   and any export destination.
 - Payload bytes, excerpts, extracted text, or parsed field values.
 - Signer information, certificate data, subject or issuer names.
-- Any government identifier or receipt identifier, however obtained.
+- Any government identifier, or any receipt identifier issued by an
+  authority, as distinct from openPapir's own minted receipt-record
+  identifier, which is allowed.
 - User-supplied titles, labels, descriptions, and notes.
 - Hostnames, usernames, or process owners.
 
