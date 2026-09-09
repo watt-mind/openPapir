@@ -296,7 +296,7 @@ mod tests {
             // environment does not always grant. Saying so keeps a missing
             // privilege from reading as a pass.
             eprintln!(
-                "skipped the planted-link case: this process may not create a Windows symbolic link"
+                "skipped the reparse-point case: this process may not create a Windows symbolic link"
             );
             return;
         }
