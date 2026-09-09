@@ -544,7 +544,7 @@ The consistency rules below are enforced before anything is written. Each
 refusal is the additive `record.inconsistent`, whose `details` carry
 `record_kind` and `rule` and nothing else:
 
-| Rule | Refused because |
+| Rule | Violation reported |
 | --- | --- |
 | `unassociated_has_candidates` | `unassociated` was given a candidate. |
 | `candidate_requires_candidates` | `candidate` was given no candidate. |
