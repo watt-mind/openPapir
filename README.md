@@ -3,9 +3,11 @@
 A proposed local-first Rust library and CLI for organising Hungarian government
 correspondence: cases, submissions, attachments, and receipts.
 
-**Status: scaffold.** The executable reports its capabilities, help, and
-version. Case storage, package import, receipt matching, signature verification,
-and government delivery are not implemented. There is no published release.
+**Status: early.** The executable reports its capabilities, creates a local
+archive, and imports files into a content-addressed store that preserves the
+original bytes. Case storage, receipt matching, association, export, deletion,
+signature verification, and government delivery are not implemented. There is
+no published release.
 
 openPapir is an independent open-source project. It is not the government's
 e-Papír service, is not affiliated with its operators, and does not submit
@@ -19,9 +21,11 @@ Build from this checkout with Rust 1.88 or newer:
 cargo run --locked -p openpapir-cli -- --help
 cargo run --locked -p openpapir-cli -- --version
 cargo run --locked -p openpapir-cli -- capabilities --json
+cargo run --locked -p openpapir-cli -- archive init ./my-archive --json
+cargo run --locked -p openpapir-cli -- import --archive ./my-archive ./a-file --json
 ```
 
-The last command reports the current implementation honestly:
+The capabilities command reports the current implementation honestly:
 
 ```json
 {
@@ -31,14 +35,20 @@ The last command reports the current implementation honestly:
   "data": {
     "project": "openPapir",
     "stage": "scaffold",
-    "operations": []
+    "operations": ["archive.init", "import"]
   },
   "verified": false
 }
 ```
 
-An empty operation list means no correspondence operations are available.
-`verified: false` means no cryptographic verification was performed.
+The operation list names exactly what can process input today. `archive init`
+needs an existing, empty directory and refuses to adopt anything else.
+`import` stores each file's bytes unchanged, records one import event per
+input, and reports a re-import of the same bytes as a duplicate rather than an
+error. `verified: false` means no cryptographic verification was performed: a
+digest identifies bytes, and says nothing about authenticity or delivery.
+The full contract, including the error codes and exit codes, is in
+[architecture and CLI contract](docs/architecture.md).
 
 ## Intended responsibilities
 
