@@ -10,8 +10,7 @@ use openpapir_core::archive::Created;
 use openpapir_core::archive::import::Imported;
 use openpapir_core::{
     Association, AssociationCreated, AssociationHistory, Case, CaseCreated, CaseList, CaseView,
-    Deleted, Exported, Receipt, ReceiptAdded, ReceiptList, Repaired, Submission,
-    SubmissionAdded,
+    Deleted, Exported, Receipt, ReceiptAdded, ReceiptList, Repaired, Submission, SubmissionAdded,
 };
 
 /// The lines `archive init` prints when it succeeds.

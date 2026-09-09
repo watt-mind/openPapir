@@ -575,8 +575,43 @@ fn a_refused_record_unlink_stops_the_purge_before_it_touches_an_object() {
     );
     assert_eq!(stdout_json(&checked)["data"]["orphan_objects"], 0);
 
-    let text = String::from_utf8(fixture.delete(&case_id, true).stdout).expect("stdout is UTF-8");
-    assert!(text.contains("delete.records_retained") || text.contains("records_retained"));
+    // With the directory writable again the same invocation finishes the job,
+    // so the refusal cost the user nothing but the retry.
+    let retry = fixture.delete(&case_id, true);
+    assert!(retry.status.success(), "the retry does the work");
+    assert_eq!(retry.status.code(), Some(0));
+    let data = stdout_json(&retry)["data"].clone();
+    assert_eq!(data["records_retained"], 0);
+    assert_eq!(
+        removed(&data),
+        vec![
+            ("association".to_owned(), 0),
+            ("case".to_owned(), 1),
+            ("import_event".to_owned(), 1),
+            ("receipt".to_owned(), 0),
+            ("submission".to_owned(), 2),
+        ]
+    );
+    assert_eq!(data["records_removed_total"], 4);
+    assert_eq!(
+        data["objects_removed"], 1,
+        "only the case's own object goes"
+    );
+    assert_eq!(
+        retained(&data),
+        vec![
+            ("purge_not_requested".to_owned(), 0),
+            ("records_retained".to_owned(), 0),
+            ("referenced_elsewhere".to_owned(), 1),
+            ("unremovable".to_owned(), 0),
+        ]
+    );
+    assert!(!fixture.object(&own).exists(), "the purged bytes are gone");
+    assert!(
+        fixture.object(&shared).is_file(),
+        "the object the other case references is kept"
+    );
+    assert!(fixture.check().status.success(), "and the archive is clean");
 }
 
 /// On Windows an unlink another process defers is reported as a warning
