@@ -70,8 +70,14 @@ pub mod codes {
     /// A record's fields break a consistency rule of the archive design.
     pub const RECORD_INCONSISTENT: &str = "record.inconsistent";
 
-    /// A duplicate import found a stored object of a different length.
+    /// A stored object's bytes no longer digest to its own path.
+    pub const INTEGRITY_DIGEST_MISMATCH: &str = "integrity.digest_mismatch";
+    /// A stored object's length differs from the length recorded for it.
     pub const INTEGRITY_LENGTH_MISMATCH: &str = "integrity.length_mismatch";
+    /// A record names a record or object this archive does not hold.
+    pub const INTEGRITY_DANGLING_REFERENCE: &str = "integrity.dangling_reference";
+    /// A stored object is referenced by no record in this archive.
+    pub const INTEGRITY_ORPHAN_OBJECT: &str = "integrity.orphan_object";
 
     /// The filesystem cannot express owner-only access.
     pub const PLATFORM_FILESYSTEM_UNSUPPORTED: &str = "platform.filesystem_unsupported";
@@ -385,7 +391,10 @@ mod tests {
             (codes::RECORD_NOT_FOUND, Bucket::Record, 4),
             (codes::RECORD_MALFORMED, Bucket::Record, 4),
             (codes::RECORD_INCONSISTENT, Bucket::Record, 4),
+            (codes::INTEGRITY_DIGEST_MISMATCH, Bucket::Integrity, 4),
             (codes::INTEGRITY_LENGTH_MISMATCH, Bucket::Integrity, 4),
+            (codes::INTEGRITY_DANGLING_REFERENCE, Bucket::Integrity, 4),
+            (codes::INTEGRITY_ORPHAN_OBJECT, Bucket::Integrity, 4),
             (codes::PLATFORM_FILESYSTEM_UNSUPPORTED, Bucket::Platform, 5),
             (codes::PLATFORM_NO_DIRECTORY_FSYNC, Bucket::Platform, 5),
             (codes::PLATFORM_OWNER_ONLY_VIA_ACL, Bucket::Platform, 5),

@@ -14,7 +14,7 @@ The Rust edition 2024 workspace has an MSRV of 1.88 and two unpublished crates:
 
 | Crate | Current responsibility |
 | --- | --- |
-| `openpapir-core` | The local archive: marker, artefact store, atomic writes, single-writer lock, input caps, path safety, import-event records, and the case, submission, receipt, and association records. |
+| `openpapir-core` | The local archive: marker, artefact store, atomic writes, single-writer lock, input caps, path safety, import-event records, the case, submission, receipt, and association records, and the read-only whole-archive integrity check. |
 | `openpapir-cli` | Argument parsing, the response envelope, and the exit-code mapping. |
 
 Only these invocations are supported:
@@ -24,6 +24,7 @@ openpapir --help
 openpapir --version
 openpapir capabilities [--json]
 openpapir archive init <root> [--json]
+openpapir archive check --archive <root> [--json]
 openpapir import --archive <root> <file>... [--json]
 openpapir case create --archive <root> --title <t> [--notes <n>] [--json]
 openpapir case list --archive <root> [--json]
@@ -35,16 +36,17 @@ openpapir association create --archive <root> --receipt <receipt-id> --outcome <
 openpapir association list --archive <root> --receipt <receipt-id> [--json]
 ```
 
-Ten operations are implemented, `archive.init`, `import`, `case.create`,
+Eleven operations are implemented, `archive.init`, `import`, `case.create`,
 `case.list`, `case.show`, `submission.add`, `receipt.add`, `receipt.list`,
-`association.create`, and `association.list`, and those are the ten names
-`capabilities` reports. Everything else in
+`association.create`, `association.list`, and `archive.check`, and those are
+the eleven names `capabilities` reports. Everything else in
 [local archive layout and storage design](archive-layout.md) and
 [import error, JSON, and exit-code contract](error-contract.md) remains a
 design: no derived-metadata or verification records; no automatic matching, no
-receipt parsing, and no export, deletion, editing, integrity check, or
-migration. openPapir reads no artefact bytes, so an association is only ever
-the user's own assertion.
+receipt parsing, and no export, deletion, editing, repair, or migration.
+openPapir reads artefact bytes only to re-digest a stored object during the
+integrity check, and never to form an opinion about what an artefact says, so
+an association is only ever the user's own assertion.
 
 ## The response envelope
 
@@ -58,7 +60,7 @@ never shares stdout with the JSON object.
 | `schema_version` | The envelope's version, currently `1`, independent of `archive_schema_version`. |
 | `ok` | `true` only when the command completed its stated work. |
 | `command` | The invoked command's stable name: `capabilities`, `archive.init`, or `import`. |
-| `data` | The command's result. `{}` when `ok` is `false`. |
+| `data` | The command's result. `{}` when `ok` is `false`, except `archive check`, whose report is the result the user asked for and stays in `data` beside the error. |
 | `verified` | Always `false`. No cryptographic check is implemented. |
 | `error` | Present exactly when `ok` is `false`: `code`, `message`, `details`. |
 | `warnings` | Present only when a platform degradation was observed. |
@@ -68,7 +70,7 @@ within a `schema_version`. `details` carries at most 16 keys, whose values are
 strings, integers, booleans, or arrays of at most 16 such scalars, and always
 carries `bucket`. Changes within `schema_version` are additive only.
 
-The capabilities response is unchanged in shape and now lists the six
+The capabilities response is unchanged in shape and now lists the eleven
 implemented operations:
 
 ```json
@@ -89,7 +91,8 @@ implemented operations:
       "receipt.add",
       "receipt.list",
       "association.create",
-      "association.list"
+      "association.list",
+      "archive.check"
     ]
   },
   "verified": false
@@ -183,6 +186,115 @@ content-addressed artefact store and records one import event per input.
 
 A duplicate adds `previous_import_count` and `first_imported_at` to the
 artefact entry and still exits `0`.
+
+## `archive check`
+
+`openpapir archive check --archive <root>` re-digests every stored object and
+compares what the artefact store holds with what the records claim. It is
+read-only in the strongest sense the design allows: it takes no writer lock,
+so a held lock never stops it; it opens every file read-only and with the
+platform's no-follow flag; and it creates, renames, removes, and repairs
+nothing, including a leftover staging file, which it counts and leaves alone.
+Opening an archive to check it differs from opening one to write to it in
+exactly that way: no missing layout directory is created and no directory
+entry is flushed, so the check completes on a root the user cannot write to
+and reports what the archive holds rather than repairing its shape. A layout
+directory that is absent is read as empty. The refusal of a layout directory
+that is a symbolic link is kept, because a reader that walked a linked
+`records/<kind>` would read outside the archive.
+
+A re-computed digest is a storage-layer identity. A check that finds nothing
+says the stored bytes are the bytes their paths name and that every reference
+resolves inside this archive. It says nothing about authenticity, origin,
+delivery, or legal effect, so `verified` stays `false` whatever the outcome.
+
+The check reads the records first, keeping only fixed-size keys (a 32-byte
+digest, a 16-byte identifier) rather than the documents, then streams each
+object through SHA-256 in 64 KiB chunks, then resolves every reference. Its
+memory therefore grows with the number of records and objects an archive
+holds, never with their size.
+
+| Condition | Code |
+| --- | --- |
+| A stored object's bytes no longer digest to its own path. | `integrity.digest_mismatch` |
+| An entry under `objects/` whose name is not a digest, or which is filed under fan-out directories that do not match its name. | `integrity.digest_mismatch` |
+| A stored object's byte length differs from every import event that names it. | `integrity.length_mismatch` |
+| A record names a digest, case, submission, receipt, import event, or association this archive does not hold. | `integrity.dangling_reference` |
+| A stored object that no import event, receipt, or submission references. | `integrity.orphan_object` |
+| A record document that cannot be read as a record of its kind. | `record.malformed` |
+| A symbolic link, or any other non-regular file, inside `objects/`. | `path.symlink` |
+
+`data` is the whole-archive integrity report of
+[error-contract](error-contract.md): counts and stable codes only. It never
+carries the path, the name, or the digest of a damaged object, and neither
+does the `error` object derived from it, because the count answers the only
+question the privacy rule allows an answer to.
+
+```json
+{
+  "schema_version": 1,
+  "ok": true,
+  "command": "archive.check",
+  "data": {
+    "bytes_digested": 16,
+    "objects_checked": 1,
+    "orphan_objects": 0,
+    "objects_unchecked": 0,
+    "problems": [
+      { "code": "integrity.dangling_reference", "count": 0 },
+      { "code": "integrity.digest_mismatch", "count": 0 },
+      { "code": "integrity.length_mismatch", "count": 0 },
+      { "code": "integrity.orphan_object", "count": 0 },
+      { "code": "path.symlink", "count": 0 },
+      { "code": "record.malformed", "count": 0 }
+    ],
+    "records_checked": 1,
+    "staging_files": 0
+  },
+  "verified": false
+}
+```
+
+`problems` lists every code the check can report, including the ones it did
+not see, ordered by code, so a caller reads a count rather than testing for a
+key's presence. `objects_unchecked` counts what the check could not read: an
+object over the single-file cap, an entry whose metadata could not be read,
+and each directory under `objects/` that could not be listed, including the
+store itself. None of them is reported as damage, because the check did not
+read them to say so, and a digest under a directory that could not be listed
+is not counted as a dangling reference either: an object the check could not
+look for is not an object the archive does not hold. Whether a directory is
+absent or merely unreadable is taken from the failure itself, because a
+directory the process cannot search reports as missing when it is asked
+whether it exists. `staging_files` counts what `objects/incoming/` still holds.
+
+A clean archive exits `0` with `ok` `true`. When the check finds something,
+`ok` is `false`, the report stays in `data`, and `error` names the first
+problem in this fixed precedence:
+
+`path.symlink`, `record.malformed`, `integrity.digest_mismatch`,
+`integrity.length_mismatch`, `integrity.dangling_reference`,
+`integrity.orphan_object`.
+
+The order runs from what stopped the check reading something, through what it
+read and disbelieved, to what is merely unreferenced, and it is fixed so that
+one archive always reports one code. The exit code is the highest of the
+buckets' groups, as the contract requires of any command that reports several
+conditions: `4` whenever a `record` or `integrity` condition was found, and
+`3` for an archive whose only complaint is a link inside the store.
+
+Human output prints the same counts in the same order and no path.
+
+```text
+Checked 1 object(s) and 1 record(s); 16 byte(s) digested.
+No problem found.
+Orphan object(s): 0. Object(s) not digested: 0. Leftover staging file(s): 0.
+The check read the archive and changed nothing. A digest identifies bytes only: a passing check is storage integrity, never authenticity, delivery, or legal effect.
+```
+
+An archive that cannot be opened at all is a refusal rather than a report,
+with the codes `archive init` and `import` already use, and `data` is then
+`{}` like any other refusal.
 
 ## Records
 
@@ -537,7 +649,7 @@ emitted.
 | `0` | Success, including a duplicate import and a warning | |
 | `2` | `usage` | `usage.arguments`, `usage.archive_root_missing` |
 | `3` | `input`, `path` | the six cap codes above, `path.symlink`, `path.overwrite`, `path.cross_device` |
-| `4` | `archive`, `lock`, `write`, `record`, `integrity` | `record.not_found`, `record.malformed`, `record.inconsistent`, `archive.marker_missing`, `archive.marker_malformed`, `archive.adopt_refused`, `archive.schema_newer`, `archive.schema_older`, `archive.permissions_wide`, `archive.multiple_filesystems`, `lock.held`, `write.interrupted`, `integrity.length_mismatch` |
+| `4` | `archive`, `lock`, `write`, `record`, `integrity` | `record.not_found`, `record.malformed`, `record.inconsistent`, `archive.marker_missing`, `archive.marker_malformed`, `archive.adopt_refused`, `archive.schema_newer`, `archive.schema_older`, `archive.permissions_wide`, `archive.multiple_filesystems`, `lock.held`, `write.interrupted`, `integrity.digest_mismatch`, `integrity.length_mismatch`, `integrity.dangling_reference`, `integrity.orphan_object` |
 | `5` | `platform` | None. The named degradations are warnings, and `platform.filesystem_unsupported` is not detected yet. |
 | `6` | `internal` | `internal.unexpected` |
 
@@ -545,15 +657,15 @@ An invocation the argument parser rejects exits `2` with the parser's usage
 text on stderr and no envelope, as it did before.
 
 Every other code in [error-contract](error-contract.md) is unimplemented,
-including all `export` and `delete` codes, `lock.stale`, `path.traversal`,
-`write.incomplete`, `integrity.digest_mismatch`, and
-`integrity.orphan_object`.
+including all `export` and `delete` codes, `lock.stale`, `path.traversal`, and
+`write.incomplete`.
 
 ### Decisions this implementation had to make
 
 The error contract deferred four conditions to an implementing change, listed
-first below. `record.not_found` is not one of them: it is a new code, added
-additively under the contract's compatibility rule. They are decided as
+first below, and the integrity check decided two more. `record.not_found` is
+not one of them: it is a new code, added additively under the contract's
+compatibility rule. They are decided as
 follows, and no other reserved code became reachable:
 
 1. A marker that cannot be read is `archive.marker_malformed`. It is reported,
@@ -590,6 +702,28 @@ follows, and no other reserved code became reachable:
    [`association create`](#association-create). It is a separate code from
    `record.not_found`, which answers a different question: a reference that
    names nothing, rather than a set of fields that cannot be true together.
+
+7. A stored object that no import event, receipt, or submission references is
+   `integrity.orphan_object`, which decides the condition the contract
+   reserved: an orphan is a report entry with a count, and it is the last
+   problem in the check's precedence rather than a refusal of anything. The
+   check never removes one.
+8. A record that names a digest, case, submission, receipt, import event, or
+   association this archive does not hold is the additive
+   `integrity.dangling_reference`, an `integrity` refusal that exits `4` and
+   is never retryable. Its `details` carry `record_kind`, `reference_kind`,
+   and `path_count`, and nothing else: no identifier, no digest, and no path.
+9. An entry under `objects/` whose name is not a digest, or whose name does
+   not match the fan-out directories it sits in, is a malformed object entry
+   and counts as `integrity.digest_mismatch`, because an object's expected
+   digest is its own path and such an entry disagrees with the path it has.
+   An object the check could not read, because it exceeds the single-file cap
+   or the open failed, is counted in `objects_unchecked` and is never
+   reported as damaged: the check did not read the bytes to say so.
+10. `archive check` is the one command whose `data` is not `{}` when `ok` is
+    `false`. Its stated work is to produce the report, which it completed, so
+    the counts stay in `data` and the error names the first of them. Every
+    other command keeps the contract's original rule.
 
 Permissions are never repaired as a side effect. `archive init` narrows the
 supplied root once, deliberately, as part of creating the archive; after that
@@ -660,7 +794,9 @@ Receipt states must remain independently expressible:
 | Matched | Evidence associates the receipt with a submission. |
 | Authenticity verified | A specified cryptographic check passed in context. |
 
-The first two are implemented, and each asserts nothing beyond itself. An
+The first two are implemented, and each asserts nothing beyond itself. The
+integrity check re-digests stored bytes, which is a storage-layer identity
+check and never the third state. An
 association is the user's own statement: openPapir reads no artefact bytes, so
 automatic matching and derived metadata remain design requirements with no
 code behind them. Verification has no code behind it at all. An association

@@ -5,10 +5,11 @@ then [specification.md](specification.md) for the single index of scope,
 implemented behaviour, decided designs, and deferred contracts.
 
 The implementation is early: help, version, capabilities reporting, archive
-creation, artefact import, and the case, submission, receipt, and
-user-asserted association records exist. Every document below separates
-implemented behaviour from plans, and the remaining correspondence workflows,
-including automatic matching and any receipt parsing, are not available yet.
+creation, artefact import, the case, submission, receipt, and user-asserted
+association records, and the read-only whole-archive integrity check exist.
+Every document below separates implemented behaviour from plans, and the
+remaining correspondence workflows, including automatic matching and any
+receipt parsing, are not available yet.
 
 Every file under `docs/` appears in the first table. The rules that keep these
 documents correct, including which document each kind of change must update,

@@ -14,6 +14,8 @@
 //! - `openpapir --version`, the crate version.
 //! - `openpapir capabilities [--json]`, the implementation status.
 //! - `openpapir archive init <root> [--json]`, archive creation.
+//! - `openpapir archive check --archive <root> [--json]`, the read-only
+//!   whole-archive integrity check.
 //! - `openpapir import --archive <root> <file>... [--json]`, artefact import.
 //! - `openpapir case create|list|show ... [--json]`, the user's own cases.
 //! - `openpapir submission add ... [--json]`, what the user states they sent.
@@ -23,8 +25,10 @@
 //!   about whether a receipt relates to a submission.
 //!
 //! There is no automatic matching, no derived metadata, no receipt parsing,
-//! no export, no deletion, no editing of a stored record, no integrity check,
-//! no signature verification, and no government delivery.
+//! no export, no deletion, no editing of a stored record, no repair, no
+//! signature verification, and no government delivery. The integrity check
+//! re-digests stored bytes, which is a storage-layer identity check and never
+//! a cryptographic verification.
 //!
 //! # Envelope and exit codes
 //!
@@ -52,9 +56,9 @@ mod report;
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
-use openpapir_core::error::{Failure, Outcome};
+use openpapir_core::error::{Diagnostic, Failure, Outcome};
 use openpapir_core::records;
-use openpapir_core::{Capabilities, capabilities};
+use openpapir_core::{Capabilities, Report, capabilities};
 use serde::Serialize;
 
 #[derive(Parser)]
@@ -117,6 +121,15 @@ enum Command {
 
 #[derive(Subcommand)]
 enum ArchiveCommand {
+    /// Check the whole archive against what its records claim, read-only.
+    Check {
+        /// The archive root, which is always supplied explicitly.
+        #[arg(long, value_name = "ROOT")]
+        archive: PathBuf,
+        /// Emit one JSON object instead of human-readable text.
+        #[arg(long)]
+        json: bool,
+    },
     /// Create an archive in an existing, empty directory.
     Init {
         /// The archive root, which must exist and be empty.
@@ -281,6 +294,15 @@ fn main() {
             json,
             report::created,
         ),
+        Command::Archive {
+            command: ArchiveCommand::Check { archive, json },
+        } => emit_with_problems(
+            "archive.check",
+            openpapir_core::check(&archive),
+            json,
+            report::integrity,
+            integrity_problem,
+        ),
         Command::Import {
             archive,
             json,
@@ -417,6 +439,18 @@ fn run_association(command: AssociationCommand) -> i32 {
     }
 }
 
+/// The first problem an integrity report holds, and the exit code it maps to.
+///
+/// The check completed its stated work, so the report stays in `data`; the
+/// error names the first problem in the fixed precedence the contract
+/// documents, and the exit code is the highest group of the buckets the
+/// report's problems belong to.
+fn integrity_problem(report: &Report) -> Option<(Diagnostic, i32)> {
+    report
+        .first_problem()
+        .map(|error| (error, report.exit_code()))
+}
+
 /// The two lines `capabilities` prints without `--json`.
 fn capability_lines(data: &Capabilities) -> Vec<String> {
     vec![
@@ -439,12 +473,37 @@ fn emit<T: Serialize>(
     json: bool,
     human: fn(&T) -> Vec<String>,
 ) -> i32 {
+    emit_with_problems(command, result, json, human, |_| None)
+}
+
+/// Print one envelope for a command that may complete and still find
+/// problems, and return the process exit code.
+///
+/// A command whose stated work is to look for problems reports them in `data`
+/// and names the first of them in `error`, so the counts the user asked for
+/// survive the refusal. `problem` returns nothing for every other command.
+fn emit_with_problems<T: Serialize>(
+    command: &str,
+    result: Result<Outcome<T>, Failure>,
+    json: bool,
+    human: fn(&T) -> Vec<String>,
+    problem: fn(&T) -> Option<(Diagnostic, i32)>,
+) -> i32 {
     match result {
         Ok(outcome) => {
+            let found = problem(&outcome.data);
+            let (found, code) = match found {
+                Some((error, code)) => (Some(error), code),
+                None => (None, 0),
+            };
             if json {
                 println!(
                     "{}",
-                    envelope::success(command, &outcome.data, &outcome.warnings)
+                    match &found {
+                        Some(error) =>
+                            envelope::problem(command, &outcome.data, error, &outcome.warnings),
+                        None => envelope::success(command, &outcome.data, &outcome.warnings),
+                    }
                 );
             } else {
                 for line in human(&outcome.data) {
@@ -453,8 +512,11 @@ fn emit<T: Serialize>(
                 for warning in &outcome.warnings {
                     eprintln!("warning {}: {}", warning.code, warning.message);
                 }
+                if let Some(error) = &found {
+                    eprintln!("error {}: {}", error.code, error.message);
+                }
             }
-            0
+            found.map_or(0, |_| code)
         }
         Err(failure) => {
             if json {

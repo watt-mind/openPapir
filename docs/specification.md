@@ -42,14 +42,15 @@ provenance of every association recorded, without uploading anything.
 ## Implemented today
 
 The executable creates a local archive, imports files into it, organises what
-it holds into cases and submissions, and records receipts and the user's own
-assertions about them. These invocations exist and nothing else:
+it holds into cases and submissions, records receipts and the user's own
+assertions about them, and checks the whole archive against what its records
+claim. These invocations exist and nothing else:
 
 | Invocation | Result |
 | --- | --- |
 | `openpapir --help` | Usage text from the argument parser. |
 | `openpapir --version` | The crate version. |
-| `openpapir capabilities [--json]` | The project, its stage, and the ten implemented operations. |
+| `openpapir capabilities [--json]` | The project, its stage, and the eleven implemented operations. |
 | `openpapir archive init <root> [--json]` | Creates an archive in an existing, empty directory: the marker first, then the owner-only layout. |
 | `openpapir import --archive <root> <file>... [--json]` | Stores each file's original bytes in the content-addressed artefact store and records one import event per input. |
 | `openpapir case create --archive <root> --title <t> [--notes <n>] [--json]` | Records one case, the user's own folder of related correspondence. |
@@ -60,6 +61,7 @@ assertions about them. These invocations exist and nothing else:
 | `openpapir receipt list --archive <root> [--json]` | Lists every receipt in the archive. |
 | `openpapir association create --archive <root> --receipt <receipt-id> --outcome <outcome> [--candidate <submission-id>:<confidence>:<statement>]... [--supersedes <association-id>] [--json]` | Records what the user asserts about one receipt, with one of the four outcomes. |
 | `openpapir association list --archive <root> --receipt <receipt-id> [--json]` | Lists one receipt's whole association history, newest first. |
+| `openpapir archive check --archive <root> [--json]` | Re-digests every stored object and reports, in counts only, what disagrees with the records. It takes no lock and changes nothing. |
 
 The exact envelope, the storage guarantees, the input caps, the implemented
 error codes, the exit-code mapping, and the privacy rule that binds all output
@@ -78,11 +80,14 @@ to a submission, with one of the four outcomes `unassociated`, `candidate`,
 supersession.
 
 Automatic matching and derived metadata remain unimplemented, and so does
-every extractor: openPapir reads no artefact bytes, so it forms no opinion of
-its own and every association carries `created_by` `user`. No derived-metadata
-or verification record exists, and there is no export, deletion, editing of a
-stored record, integrity check, migration, receipt parsing, signature
-verification, or government delivery.
+every extractor: openPapir reads artefact bytes only to re-digest a stored
+object during the integrity check and never to form an opinion of its own, so
+every association carries `created_by` `user`. The integrity check is
+read-only: it repairs nothing, removes nothing, and a passing check is
+storage integrity rather than authenticity. No derived-metadata or
+verification record exists, and there is no export, deletion, editing of a
+stored record, repair, migration, receipt parsing, signature verification, or
+government delivery.
 
 ## Decided designs, awaiting implementation
 
@@ -95,14 +100,13 @@ and none of them changes the capabilities output.
 | [local archive layout and storage design](archive-layout.md) | The storage technology, the on-disk layout, the record shapes, and the deletion, permission, and atomic-write semantics of the local archive. |
 | [import and association error, JSON, and exit-code contract](error-contract.md) | How a command extends the JSON envelope with an error object and warnings, the stable error-code catalogue, and the exit-code mapping. |
 
-Archive creation, artefact import, and the case, submission, receipt, and
-user-asserted association records are the parts of those two documents that
-are now implemented, and their contract has
-moved to [architecture and CLI contract](architecture.md). The rest of both
-documents, including derived metadata, verification results, automatic
-association, export, deletion, migration, and the integrity check, is still
-only decided. A record shape or
-code named there is a proposal, not a promised schema. It becomes a contract
+Archive creation, artefact import, the case, submission, receipt, and
+user-asserted association records, and the whole-archive integrity check are
+the parts of those two documents that are now implemented, and their contract
+has moved to [architecture and CLI contract](architecture.md). The rest of
+both documents, including derived metadata, verification results, automatic
+association, export, deletion, and migration, is still only decided. A record
+shape or code named there is a proposal, not a promised schema. It becomes a contract
 only when the implementing pull request adds it to
 [architecture and CLI contract](architecture.md).
 

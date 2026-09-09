@@ -832,7 +832,8 @@ fn capabilities_report_exactly_the_implemented_operations() {
             "receipt.add",
             "receipt.list",
             "association.create",
-            "association.list"
+            "association.list",
+            "archive.check"
         ])
     );
 }

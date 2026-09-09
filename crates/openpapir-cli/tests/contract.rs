@@ -26,7 +26,7 @@ fn capabilities_are_honest_and_machine_readable() {
                     "archive.init", "import",
                     "case.create", "case.list", "case.show", "submission.add",
                     "receipt.add", "receipt.list",
-                    "association.create", "association.list"
+                    "association.create", "association.list", "archive.check"
                 ]
             },
             "verified": false
@@ -42,7 +42,7 @@ fn human_status_names_only_what_is_implemented() {
     let text = String::from_utf8(output.stdout).unwrap();
     assert!(text.contains(concat!(
         "archive.init, import, case.create, case.list, case.show, submission.add, ",
-        "receipt.add, receipt.list, association.create, association.list"
+        "receipt.add, receipt.list, association.create, association.list, archive.check"
     )));
     assert!(text.contains("Nothing is verified"));
 }

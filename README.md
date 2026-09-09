@@ -6,11 +6,12 @@ correspondence: cases, submissions, attachments, and receipts.
 **Status: scaffold**, which is the stage the tool itself reports. The
 executable reports its capabilities, creates a local archive, imports files
 into a content-addressed store that preserves the original bytes, organises
-what it holds into cases and submissions, and records receipts together with
-the user's own assertions about whether a receipt relates to a submission.
-Automatic matching, derived metadata, receipt parsing, export, deletion,
-editing of a stored record, signature verification, and government delivery
-are not implemented. There is no published release.
+what it holds into cases and submissions, records receipts together with the
+user's own assertions about whether a receipt relates to a submission, and
+checks a whole archive against what its records claim without changing
+anything. Automatic matching, derived metadata, receipt parsing, export,
+deletion, editing of a stored record, repair, signature verification, and
+government delivery are not implemented. There is no published release.
 
 openPapir is an independent open-source project. It is not the government's
 e-Papír service, is not affiliated with its operators, and does not submit
@@ -34,6 +35,7 @@ cargo run --locked -p openpapir-cli -- receipt add --archive ./my-archive --arte
 cargo run --locked -p openpapir-cli -- receipt list --archive ./my-archive --json
 cargo run --locked -p openpapir-cli -- association create --archive ./my-archive --receipt <receipt-id> --outcome candidate --candidate "<submission-id>:moderate:The reference matches." --json
 cargo run --locked -p openpapir-cli -- association list --archive ./my-archive --receipt <receipt-id> --json
+cargo run --locked -p openpapir-cli -- archive check --archive ./my-archive --json
 ```
 
 The capabilities command reports the current implementation honestly:
@@ -56,7 +58,8 @@ The capabilities command reports the current implementation honestly:
       "receipt.add",
       "receipt.list",
       "association.create",
-      "association.list"
+      "association.list",
+      "archive.check"
     ]
   },
   "verified": false
@@ -71,7 +74,9 @@ error. Every record is the user's own local record: openPapir sends nothing
 and reads no artefact bytes, so a submission is what the user states they
 sent, a receipt is an artefact the user believes to be one, an association is
 what the user asserts about it, and a date they supply is stored verbatim and
-never read as a delivery or receipt date.
+never read as a delivery or receipt date. `archive check` re-digests what the
+store holds and reports counts only; it takes no lock, changes nothing, and a
+passing check is storage integrity rather than authenticity.
 `verified: false` means no cryptographic verification was performed: a
 digest identifies bytes, and says nothing about authenticity or delivery.
 The full contract, including the error codes and exit codes, is in

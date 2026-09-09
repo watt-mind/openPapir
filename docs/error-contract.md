@@ -3,11 +3,12 @@
 ## Status and scope
 
 This document is a **specification for review**, and parts of it now have code
-behind them: archive creation, artefact import, and the case, submission,
-receipt, and association records emit the envelope below and the codes
-[architecture](architecture.md) lists. Architecture is the canonical
-description of implemented behaviour. Every other command name, flag, field
-name, error code, and exit code below is **proposed**.
+behind them: archive creation, artefact import, the case, submission, receipt,
+and association records, and the read-only whole-archive integrity check emit
+the envelope below and the codes [architecture](architecture.md) lists.
+Architecture is the canonical description of implemented behaviour. Every
+other command name, flag, field name, error code, and exit code below is
+**proposed**.
 
 It is follow-up 5 of the
 [receipt evidence and local case model note](receipt-discovery.md), and the
@@ -44,7 +45,11 @@ keeps the five existing keys and adds two:
 - `ok`: boolean. `true` only when the command completed its stated work.
 - `command`: string, the invoked command's stable name.
 - `data`: object. Command results, including outcomes that are not errors.
-  Present and possibly empty when `ok` is `true`; `{}` when `ok` is `false`.
+  Present and possibly empty when `ok` is `true`; `{}` when `ok` is `false`,
+  unless a command's own contract names a report it carries with its refusal.
+  The whole-archive integrity check is that command and, so far, the only
+  one: its counts are the result the user asked for, so they stay in `data`
+  while `error` names the first problem those counts describe.
 - `verified`: boolean.
 - `error`: object or absent. Present exactly when `ok` is `false`.
 - `warnings`: array, possibly absent. Allowed whether `ok` is `true` or
@@ -286,7 +291,9 @@ followed ([archive-layout](archive-layout.md)).
   symbolic link is one: the archive root, a directory inside it, an object, a
   record, or a component of an export destination. Details: `bucket`,
   `archive_path` when the path is inside the archive; otherwise `bucket` and
-  `scope` (`archive` or `export_destination`) only.
+  `scope` (`archive` or `export_destination`) only. The whole-archive
+  integrity check adds `path_count` additively and omits `archive_path`,
+  because it may find several such paths and may name none of them.
 - **`path.traversal`**: input, not retryable. A path derivation would leave
   the archive root. Reserved: user-supplied filenames are stored as attributes
   and never joined into a path, so this is a defence-in-depth code for a
@@ -378,19 +385,43 @@ followed ([archive-layout](archive-layout.md)).
 
 ### `integrity`: stored bytes disagree with what is recorded
 
-- **`integrity.digest_mismatch`**: archive, not retryable. A stored object's
-  bytes no longer digest to its own path. The object is reported as damaged
-  and never overwritten. Details: `bucket`, `archive_path`, `digest`
-  (the expected digest, which is already the object's path).
+- **`integrity.digest_mismatch`**: archive, not retryable. **Implemented by
+  the whole-archive integrity check.** A stored object's bytes no longer
+  digest to its own path. The object is reported as damaged and never
+  overwritten, repaired, or removed. An entry under `objects/` whose name is
+  not a digest, or which is filed under fan-out directories that do not match
+  its name, is a malformed object entry and reports the same code, because an
+  object's expected digest is its own path and such an entry disagrees with
+  the path it has. Details: `bucket`, `archive_path`, `digest` (the expected
+  digest, which is already the object's path). The whole-archive check omits
+  both and carries `count` instead: it may find several damaged objects, and
+  naming one of them would publish the path and digest of a file the report
+  otherwise reduces to a count.
 - **`integrity.length_mismatch`**: archive, not retryable. On a duplicate
   import the stored object's byte length differs from the incoming length,
   which means the store is damaged; it is reported, never overwritten
-  ([archive-layout](archive-layout.md)). Details: `bucket`, `archive_path`,
-  `expected_bytes`, `observed_bytes`.
-- **`integrity.orphan_object`**: archive, not retryable as an error but
-  normally a report entry, not a failure. Reserved for the case where an
-  orphan must stop an operation; the whole-archive integrity report carries
-  orphan counts instead (see below). Details: `bucket`, `count`.
+  ([archive-layout](archive-layout.md)). The whole-archive check reports the
+  same code where a stored object's length differs from every import event
+  that names it. Details: `bucket`, `archive_path`, `expected_bytes`,
+  `observed_bytes`; the whole-archive check carries `count` alone, for the
+  reason above.
+- **`integrity.orphan_object`**: archive, not retryable. **Decided by the
+  whole-archive integrity check.** A stored object that no import event, no
+  receipt, and no submission references. It is a report entry with a count
+  rather than a refusal of anything: the check names it only when nothing
+  ahead of it in the precedence below was found, and it never removes an
+  orphan, because removal is the explicit purge the deletion design describes
+  and no code here implements. Details: `bucket`, `count`.
+- **`integrity.dangling_reference`**: archive, not retryable. **Added
+  additively by the whole-archive integrity check.** A record names a digest,
+  case, submission, receipt, import event, or association this archive does
+  not hold. It is the mirror of `integrity.orphan_object`, which is an object
+  no record names, and a separate code from `record.not_found`, which answers
+  a reference the user supplied rather than one already stored. Details:
+  `bucket`, `record_kind` (the kind of record that held the reference),
+  `reference_kind` (how it was named, such as `artefact_digest` or `case_id`),
+  and `path_count`, the number of dangling references found. Nothing else: no
+  identifier, no digest, and no path.
 
 ### `export`: writing outside the archive
 
@@ -495,33 +526,76 @@ environment cannot provide owner-only access at all, the outcome is the
 
 ## Whole-archive integrity report
 
-The integrity check re-digests stored objects and reports damage and orphans
-([archive-layout](archive-layout.md)). Its `data` is **counts and buckets
-only**, never a list of damaged paths, digests, or record titles:
+The integrity check re-digests stored objects and reports damage, orphans, and
+references that resolve nowhere ([archive-layout](archive-layout.md)). It is
+implemented as `archive check`
+([architecture](architecture.md)), which is the canonical description. Its
+`data` is **counts and buckets only**, never a list of damaged paths, digests,
+or record titles:
 
 ```json
 {
   "schema_version": 1,
   "ok": true,
-  "command": "integrity",
+  "command": "archive.check",
   "data": {
-    "objects_checked": 412,
-    "records_checked": 907,
+    "bytes_digested": 16,
+    "objects_checked": 1,
+    "orphan_objects": 0,
+    "objects_unchecked": 0,
     "problems": [
-      { "code": "integrity.digest_mismatch", "count": 1 },
+      { "code": "integrity.dangling_reference", "count": 0 },
+      { "code": "integrity.digest_mismatch", "count": 0 },
+      { "code": "integrity.length_mismatch", "count": 0 },
+      { "code": "integrity.orphan_object", "count": 0 },
+      { "code": "path.symlink", "count": 0 },
       { "code": "record.malformed", "count": 0 }
     ],
-    "orphan_objects": 3
+    "records_checked": 1,
+    "staging_files": 0
   },
   "verified": false
 }
 ```
 
-`ok` is `true` when the check ran to completion, even when it found damage:
-the check succeeded at its job. A check that could not run (a held lock, a
-newer schema version) is an error in its own bucket. `verified` stays `false`
-because re-digesting is a storage-layer identity check, not a cryptographic
-verification.
+`problems` lists every code the check can report, including the ones it did
+not see, ordered by code, so a caller reads a count rather than testing for a
+key. `objects_unchecked` and `staging_files` were added additively by the
+implementation. The first counts what the check could not read: an object
+over the single-file cap, an entry whose metadata could not be read, and each
+directory under `objects/` that could not be listed, including the store
+itself. The second counts what `objects/incoming/` still holds. Neither is
+damage, and the check removes neither. A digest under a directory that could
+not be listed is left uncounted rather than reported as a dangling reference,
+because an object the check could not look for is not an object the archive
+does not hold.
+
+`ok` is `true` and the exit code `0` when the check found nothing. When it
+found something, the check still completed its stated work, so the report
+stays in `data` while `ok` becomes `false` and `error` names the first problem
+in this fixed precedence:
+
+`path.symlink`, `record.malformed`, `integrity.digest_mismatch`,
+`integrity.length_mismatch`, `integrity.dangling_reference`,
+`integrity.orphan_object`.
+
+The order runs from what stopped the check reading something, through what it
+read and disbelieved, to what is merely unreferenced, and it is fixed so that
+one archive always reports one code. The exit code is the highest of the
+buckets' groups, as this document already requires of a command that reports
+several conditions: `4` whenever a `record` or `integrity` condition was
+found, and `3` for an archive whose only complaint is a link inside the store.
+
+The `error` object carries counts and kinds and no path, name, or digest,
+even where the same code carries `archive_path` elsewhere. A check that could
+not run at all (a missing marker, a newer schema version) is an error in its
+own bucket with an empty `data`, exactly like any other refusal. A held writer
+lock is not such a condition: the check never takes the lock and never waits
+for a writer. Neither is a root the user cannot write to, or a layout
+directory that is absent: the check opens the archive without creating or
+flushing anything and reads a missing directory as an empty one. `verified`
+stays `false` because re-digesting is a storage-layer identity check, not a
+cryptographic verification.
 
 ## Results that are not errors
 
@@ -645,6 +719,11 @@ lists exactly which codes are emitted; where the two disagree, architecture is
 authoritative and this page is a defect. `capabilities --json` reports the
 implemented operations, and `verified` stays `false` in every envelope.
 
+The whole-archive integrity check is implemented, so the report above, the
+precedence between its codes, `integrity.digest_mismatch`,
+`integrity.length_mismatch`, `integrity.dangling_reference`, and
+`integrity.orphan_object` are contract rather than proposal.
+
 The receipt and user-asserted association records are implemented, so the four
 association outcomes and the association shape above are contract rather than
 proposal, and `record.inconsistent` is emitted. Automatic association,
@@ -653,10 +732,9 @@ this build writes carries `kind` `user_assertion` and `source` `user`, and
 every association carries `created_by` `user`.
 
 Everything else here is still a proposal, including every `export` and
-`delete` code, `lock.stale`, `path.traversal`, `write.incomplete`,
-`integrity.digest_mismatch`, `integrity.orphan_object`, and the whole-archive
-integrity report. Agreeing a code here creates
-no capability and no obligation on a user's archive.
+`delete` code, `lock.stale`, `path.traversal`, and `write.incomplete`.
+Agreeing a code here creates no capability and no obligation on a user's
+archive.
 
 ## Origin and unblocked work
 
@@ -671,7 +749,8 @@ written and reviewed:
   outcome shape and the rule that no outcome is an error, and is now
   implemented for user-asserted associations
   ([architecture](architecture.md)).
-- **Whole-archive integrity check**: has the counts-and-buckets report shape.
+- **Whole-archive integrity check**: implemented as `archive check`, with the
+  counts-and-buckets report shape above.
 - **Derived-metadata staleness and recompute-on-request**: has the record
   and cap codes it needs.
 - **Export, backup, and the permission-repair action**: has
@@ -688,10 +767,10 @@ verification code is specified here for that reason.
 It fixes wire names, not behaviour, and no capability follows from it. It
 assumes the archive design as written; if a review changes an adoption rule, a
 cap, a lock semantic, or the deletion rule, the affected codes change with it.
-`lock.stale`, `path.traversal`, `integrity.orphan_object`, and
-`write.incomplete` are reserved against conditions the design has not fully
-decided; `archive.marker_malformed` and `record.malformed` have since been
-decided by the implementations that reached them. Command names and flags
+`lock.stale`, `path.traversal`, and `write.incomplete` are reserved against
+conditions the design has not fully decided; `archive.marker_malformed`,
+`record.malformed`, and `integrity.orphan_object` have since been decided by
+the implementations that reached them. Command names and flags
 are proposals only. It fixes no field, identifier, or format of any government
 artefact, and assumes nothing about what a receipt contains, because nothing
 is yet established about that ([receipt-discovery](receipt-discovery.md)).
