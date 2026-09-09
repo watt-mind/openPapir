@@ -227,8 +227,12 @@ for a path the user named on the command line. A new value is additive.
   with `--json` it is rendered as the envelope like any other refusal, and
   without `--json` the parser's own usage text is written to stderr instead.
   `argument` is then reported only when the parser named a flag or value name
-  the build defines; a token the user invented is text they typed, so it is
-  omitted rather than echoed. `--help` and `--version` are not refusals: they
+  the recognised command or one of its parents defines; a token the user
+  invented, and a flag only another subcommand defines, are text they typed,
+  so both are omitted rather than echoed. The subcommand is recognised by
+  walking the raw arguments as the parser would, consuming each flag's value
+  with the flag, so a value that spells a subcommand name is a value and not
+  the command the envelope reports. `--help` and `--version` are not refusals: they
   are written to stdout and exit `0`.
 - **`usage.archive_root_missing`**: usage, not retryable. No archive root was
   supplied, or the supplied path does not exist. The root is always supplied
@@ -368,6 +372,18 @@ followed ([archive-layout](archive-layout.md)).
 
   A refusal in an export destination carries `scope` `export_destination` and
   never an `archive_path` ([architecture](architecture.md)).
+
+  Where the publish step's hard link was refused rather than reported
+  unsupported, the refusal also carries the additive `capability`
+  (`hard_link`) and `condition` (`link_refused`). That pair is the ambiguous
+  Unix `EPERM`: `link(2)` returns it for a filesystem that has no hard links,
+  which a FAT32 or exFAT volume mounted on Linux does, and equally for a
+  source or destination carrying the immutable or append-only attribute.
+  openPapir does not guess between them, because distinguishing them needs a
+  `statfs` or an attribute `ioctl` and the workspace forbids `unsafe`. The
+  retry hint is the code's own; where the cause is a filesystem without hard
+  links no retry succeeds, and `condition` is what tells the operator to check
+  the filesystem type and the file attributes.
 - **`write.incomplete`**: archive, not retryable. **Reserved.** A write
   completed fewer bytes than expected, or a stream ended early, and the
   partial file is removed. The design states only that an interrupted import
@@ -548,12 +564,16 @@ storage medium and no message may claim that it does.
   is a deliberate refusal, not a degradation, and not retryable: the same call
   on the same filesystem never succeeds
   ([archive-layout](archive-layout.md)). Details: `bucket`, `capability`
-  (`hard_link` or `owner_only`), `stage`. The codes that map to it are
-  whatever the platform reports for an unsupported operation: on Unix `EPERM`,
-  which `link(2)` documents as the filesystem not supporting hard links, and
-  `EOPNOTSUPP`; on Windows `ERROR_INVALID_FUNCTION` (1) and
-  `ERROR_NOT_SUPPORTED` (50). Every other failure of the same call keeps its
-  own code, so a permission or space failure is still `write.interrupted`.
+  (`hard_link` or `owner_only`), `stage`. The codes that map to it are the
+  ones that state the operation is not supported, so that no retry can
+  succeed: any error the standard library classifies as `Unsupported`, on Unix
+  `EOPNOTSUPP`, and on Windows `ERROR_INVALID_FUNCTION` (1) and
+  `ERROR_NOT_SUPPORTED` (50). Unix `EPERM` is deliberately not one of them,
+  because it does not distinguish a filesystem without hard links from an
+  immutable or append-only file; it is reported as `write.interrupted` with
+  `condition` `link_refused`, described above. Every other failure of the same
+  call keeps its own code, so a permission or space failure is still
+  `write.interrupted`.
 - **`platform.no_directory_fsync`**: platform. Used as a **warning**, never
   as an error; see below.
 - **`platform.no_follow_after_open`**: platform. Used as a **warning**, never
@@ -645,7 +665,9 @@ envelope; it is never dropped because the command ended badly.
   itself rather than failing, so the refusal comes from the handle openPapir
   opened rather than from the system call. The reparse tag is not
   distinguished either, so a junction is refused as `path.symlink` like a
-  symbolic link. Emitted on Windows. Details: `bucket`.
+  symbolic link. Emitted on Windows, where the refusal is a sentinel this
+  code raised and never another caller's error of the same kind.
+  Details: `bucket`.
 
 A warning is never omitted because the command otherwise succeeded, and
 success is never reported without the warning that applies. Where an

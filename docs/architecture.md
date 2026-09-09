@@ -1168,7 +1168,7 @@ description: >-
 | Guarantee | How it is kept |
 | --- | --- |
 | Atomic write | The content is written to a staging file inside the archive root, flushed, linked into place, and the destination directory is flushed. The staging name is then removed. |
-| Never overwrite | The publish step is a hard link, which fails rather than replacing an existing file, so a destination openPapir did not create is refused as `path.overwrite`. A filesystem that cannot create a hard link at all, FAT32 and exFAT among them, cannot host an archive and is refused as `platform.filesystem_unsupported` rather than as the retryable `write.interrupted`. |
+| Never overwrite | The publish step is a hard link, which fails rather than replacing an existing file, so a destination openPapir did not create is refused as `path.overwrite`. A filesystem that reports it cannot create a hard link at all cannot host an archive and is refused as `platform.filesystem_unsupported` rather than as the retryable `write.interrupted`. A link the system merely refused, which on Unix is the `EPERM` a FAT32 or exFAT volume and an immutable file report alike, is `write.interrupted` carrying `capability` `hard_link` and `condition` `link_refused`: it names the condition observed rather than a cause openPapir cannot prove ([error-contract](error-contract.md)). |
 | Interrupted write | A leftover staging file is never adopted, so the archive holds the complete file or nothing. |
 | One filesystem | The root and its layout directories must share one device. A cross-device publish is refused as `path.cross_device`. |
 | Owner-only | Directories are created `0o700`, files `0o600`, and stored objects become `0o400`. The root, the marker, the lock file, every layout directory, and each stored object and fan-out directory the operation touches are checked before anything is published; a wider one is refused as `archive.permissions_wide`, naming the archive-relative path. There is no override flag, and nothing is ever narrowed implicitly: an existing path is refused, not repaired. `archive repair-permissions` is the one explicit action that narrows an existing archive, and it never widens. |
@@ -1213,7 +1213,7 @@ emitted.
 | `2` | `usage` | `usage.arguments`, `usage.archive_root_missing` |
 | `3` | `input`, `path` | the six cap codes above, `path.symlink`, `path.overwrite`, `path.cross_device` |
 | `4` | `archive`, `lock`, `write`, `record`, `integrity`, `export`, `delete` | `record.not_found`, `record.malformed`, `record.inconsistent`, `archive.marker_missing`, `archive.marker_malformed`, `archive.adopt_refused`, `archive.schema_newer`, `archive.schema_older`, `archive.permissions_wide`, `archive.multiple_filesystems`, `lock.held`, `write.interrupted`, `integrity.digest_mismatch`, `integrity.length_mismatch`, `integrity.dangling_reference`, `integrity.orphan_object`, `export.destination_conflict`, `export.copy_mismatch`, `delete.objects_retained`, `delete.records_retained`, `delete.record_entangled` |
-| `5` | `platform` | `platform.filesystem_unsupported`, for a filesystem that cannot create the hard link the publish step needs. The named degradations are warnings, and the owner-only condition of the same code is not detected yet. |
+| `5` | `platform` | `platform.filesystem_unsupported`, for a filesystem that reports it cannot create the hard link the publish step needs. A link refused without saying so is `write.interrupted` at `4` instead. The named degradations are warnings, and the owner-only condition of the same code is not detected yet. |
 | `6` | `internal` | `internal.unexpected` |
 
 An invocation the argument parser rejects exits `2` as `usage.arguments`.
@@ -1223,9 +1223,13 @@ it is the parser's own usage text on stderr and no envelope. `--json` is found
 in the raw arguments, because the parse that would have reported the flag is
 the one that failed, and a token after `--` is a positional value rather than
 the flag. `details.argument` names the flag or value name the parser
-complained about, and only when this build defines it: an invented token is
-text the user typed and is never echoed. The envelope's `command` is the
-subcommand path that was recognised, or `openpapir` when none was.
+complained about, and only when the recognised command or one of its parents
+defines it: an invented token, and a flag only another subcommand defines, are
+text the user typed and are never echoed. The envelope's `command` is the
+subcommand path that was recognised, or `openpapir` when none was. The
+recognition walks the raw arguments as the parser would and consumes each
+flag's value with the flag, so `case create --title list` is `case.create` and
+not `case.list`.
 `--help` and `--version` are not refusals and still exit `0`.
 
 Every other code in [error-contract](error-contract.md) is unimplemented,
@@ -1415,7 +1419,17 @@ link rather than of the open, and openPapir refuses every reparse point as
 `path.symlink` without saying whether it was a symbolic link, an NTFS
 junction, or another tag. Refusing all of them is deliberate: the archive
 creates no reparse point of its own, so one it finds inside the archive is
-something it did not create.
+something it did not create. The refusal the handle raises is a sentinel type
+of openPapir's own, so it is told apart from any other error of the same kind
+rather than by its message.
+
+openPapir builds for Unix and Windows targets only. A target with neither
+no-follow rule fails to compile with a stated reason, because the archive has
+no weaker mode to fall back to and a pre-open check of the path would be a
+time-of-check-to-time-of-use gap rather than a defence. Among the Unix
+targets, Linux and macOS report a refused `O_NOFOLLOW` open as `ELOOP` while
+FreeBSD and DragonFly report it as `EMLINK`; both are accepted, although
+neither BSD is a target this project builds or tests for today.
 
 ## Privacy of output
 
