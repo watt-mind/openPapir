@@ -863,11 +863,17 @@ fn a_surviving_record_whose_reference_is_not_a_digest_stops_the_purge() {
         "the case and its submission"
     );
 
-    let warnings = envelope["warnings"].as_array().expect("a warnings array");
-    assert_eq!(warnings.len(), 1);
-    assert_eq!(warnings[0]["code"], "record.malformed");
-    assert_eq!(warnings[0]["details"]["stage"], "delete");
-    assert_eq!(warnings[0]["details"]["malformed_count"], 1);
+    // Windows reports its own platform degradations alongside this one, so
+    // the warning is found by its code rather than by its position.
+    let warning = envelope["warnings"]
+        .as_array()
+        .expect("a warnings array")
+        .iter()
+        .find(|warning| warning["code"] == "record.malformed")
+        .expect("the malformed reference is reported");
+    assert_eq!(warning["details"]["bucket"], "record");
+    assert_eq!(warning["details"]["stage"], "delete");
+    assert_eq!(warning["details"]["malformed_count"], 1);
 
     assert!(fixture.object(&own).is_file(), "the bytes are still here");
     assert!(fixture.object(&other).is_file());
