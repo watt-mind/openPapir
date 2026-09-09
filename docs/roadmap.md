@@ -13,6 +13,9 @@ Separately identify receipt types and their documented identifiers, relationship
 rules, and signature formats. The discovery deliverable is an evidence matrix,
 unknowns, a synthetic fixture plan, and bounded implementation issues. Stop
 short of claiming a universal e-Papír format or inventing a submission API.
+The first receipt-side result is recorded in
+[receipt evidence and local case model decisions](receipt-discovery.md), whose
+unresolved findings gate any receipt parsing work.
 
 ## 2. Design local cases
 
@@ -21,6 +24,9 @@ metadata, duplicate imports, storage limits, permissions, atomic writes, schema
 migrations, export, backup, and deletion. Decide storage technology with those
 requirements in view. Define import and association errors and their JSON/exit
 contracts. Review privacy and failure recovery before implementing persistence.
+The proposed model and its open questions are drafted in
+[receipt evidence and local case model decisions](receipt-discovery.md); they
+are proposals, not decisions.
 
 ## 3. Implement one offline workflow
 

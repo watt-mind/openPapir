@@ -28,3 +28,10 @@ Publicly accessible documentation or schemas are not automatically licensed
 for redistribution. Link sources until their terms are established. Use original
 code and synthetic fixtures, and keep uncertain requirements visible in the
 [roadmap](roadmap.md).
+
+## Recorded discovery results
+
+- [Receipt evidence and local case model decisions](receipt-discovery.md)
+  applies this policy to one candidate receipt type. It records which sources
+  were retrieved, which were unreachable, and which questions stay open;
+  redistribution terms were not established for any source consulted there.
