@@ -362,13 +362,12 @@ followed ([archive-layout](archive-layout.md)).
 
   | Stage | What it names |
   | --- | --- |
-  | `object_write` | A stored object or an exported copy of one, the directory a copy is created in, and a leftover staging file inside the object store. |
-  | `record_write` | A record document, the directory one is written into, a cached file, and a layout directory. |
+  | `object_write` | A stored object or an exported copy of one, the directory a copy is created in, a fan-out directory the repair cannot list, and a leftover staging file inside the object store. |
+  | `record_write` | A record document, the directory one is written into, a cached file, a layout directory, a fan-out directory the repair cannot narrow, and the archive root. |
   | `marker_write` | The archive marker, and outside the archive the export destination itself and its `manifest.json`, which describe the export rather than any one record. |
 
   A refusal in an export destination carries `scope` `export_destination` and
-  the additive `export_path` with it, and never an `archive_path`
-  ([architecture](architecture.md)).
+  never an `archive_path` ([architecture](architecture.md)).
 - **`write.incomplete`**: archive, not retryable. **Reserved.** A write
   completed fewer bytes than expected, or a stream ended early, and the
   partial file is removed. The design states only that an interrupted import
