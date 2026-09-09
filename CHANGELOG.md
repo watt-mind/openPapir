@@ -282,6 +282,20 @@ envelope.
 
 ### Changed
 
+- `AGENTS.md` and `SECURITY.md` describe the scope the binary actually has.
+  The agent boundaries name the fifteen implemented operations, point at
+  architecture as the implemented contract and the specification index as the
+  index of everything else, and list what remains unimplemented, including
+  receipt parsing, automatic matching, derived metadata, delegated
+  verification, migration, KRX and `.es3` handling, and any government
+  integration or delivery. The repository layout table gains the embedded
+  agent skill and the golden outputs, and names the core modules. The security
+  policy's current scope states that the tool ingests files, persists records,
+  checks integrity, exports, and deletes with an explicit purge, and still
+  contacts no service, verifies no signature, and delivers nothing. Its
+  requirements are split into those already enforced, with pointers to the
+  archive layout and the error contract, and those still ahead. No policy,
+  reporting channel, or behaviour changes.
 - The `archive check` report counts the leftover staging files the record
   directories hold, in a new additive `records_staging_files` field beside the
   existing `staging_files`, which keeps its meaning and still counts
@@ -383,6 +397,30 @@ envelope.
 
 ### Fixed
 
+- `case delete` no longer purges past a record it keeps whose artefact
+  reference is not a digest. Such a reference names an object the archive
+  cannot identify, and it was previously read as a reference to nothing, so
+  the record protected no object from a purge. Every object the purge had
+  considered is now retained with the reason `referenced_elsewhere`, with or
+  without `--purge`, and the number of such references is reported as a
+  `record.malformed` warning carrying `stage` and `malformed_count`. The
+  records the deletion planned to remove still go and `ok` stays `true`. No
+  openPapir command writes such a record, because a digest is validated on
+  every write; a document edited outside openPapir can hold one.
+- `case delete` now counts the import events a refused deletion never reached
+  in `retained_count` and in `data.records_retained`. An event that would have
+  gone with a purged object is a document the deletion planned to remove, so a
+  record pass that stopped before the object stage under-reported by exactly
+  those events, most visibly when `records/imports` was the directory the
+  probe refused.
+- `case delete` builds the path of a record document in one place, used by
+  both the all-or-nothing probe and the unlink pass, so the file the probe
+  approves and the file the pass removes cannot drift apart.
+- A repeated `platform.replace_while_open` warning from one purge now keeps
+  the copy that answers the most. A first deferral that never cleared the
+  read-only attribute, and so carries no `read_only_restored` flag, is
+  replaced by a later one that cleared it and put it back; an object left
+  writable, which reports the flag as `false`, still outranks both.
 - `case delete` no longer unlinks part of its records before refusing. The
   record pass is now all or nothing per case: before the first unlink, every
   record directory the deletion would remove an entry from is opened without

@@ -16,6 +16,12 @@
 //! cannot be read as a record of its kind therefore aborts the deletion with
 //! `record.malformed` while the archive is still exactly as it was.
 //!
+//! A record this deletion keeps whose artefact reference is not a digest at
+//! all references something the archive cannot resolve. It is read as a
+//! reference to an unknown object rather than to none, so every object the
+//! purge had considered is retained as `referenced_elsewhere` and the count
+//! of such references is reported as a `record.malformed` warning.
+//!
 //! # What is removed, and what is never removed
 //!
 //! Every removal is the unlink of one file openPapir created: a record
@@ -136,6 +142,9 @@ fn run(
     warnings.extend(archive.take_warnings());
     let _lock = WriterLock::acquire(archive.root())?;
     let plan = plan::build(archive.root(), case_id, purge)?;
+    if plan.malformed_references > 0 {
+        warnings.push(plan::malformed_references(plan.malformed_references));
+    }
     let removed = apply::run(archive.root(), &plan, warnings);
     Ok(report(&plan, &removed, purge))
 }
