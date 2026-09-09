@@ -44,9 +44,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - run: npx --yes markdownlint-cli2@0.18.1 "**/*.md" "#target" "#node_modules"
+      # Keep these four commands identical to the documentation section of
+      # scripts/check.sh, so a local run and CI accept exactly the same tree.
+      - run: >
+          npx --yes markdownlint-cli2@0.18.1 "**/*.md" "#target" "#samples"
+          "#refs" "#tmp" "#node_modules"
       - run: python3 scripts/check-doc-links.py
       - run: python3 scripts/check-file-length.py
+      - run: python3 scripts/check-prose.py
   test:
     name: Test (${{ matrix.os }})
     strategy:
@@ -76,26 +81,37 @@ jobs:
     name: Minimum supported Rust (1.88)
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # Single source for the MSRV inside this job: the toolchain selection, the
+    # banner assertion and the Cargo.toml guard all read it. Only the job name
+    # and the toolchain action pin comment still spell the version out.
+    env:
+      MSRV: 1.88.0
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@688313b0823df1393bcebb1b4add0438a6d36884 # 1.88 @ 2026-09-03
+      # The cache key has to name the MSRV: this job compiles under
+      # ${{ env.MSRV }}, not under the stable rustc the action would otherwise
+      # derive the key from, and a stable-keyed cache never hits here.
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          prefix-key: v0-rust-msrv-${{ env.MSRV }}
       # rust-toolchain.toml pins the channel to stable and overrides `rustup
-      # default`, so the MSRV steps below select 1.88.0 through RUSTUP_TOOLCHAIN.
+      # default`, so the MSRV steps below select the MSRV through
+      # RUSTUP_TOOLCHAIN.
       - name: Show the toolchain the MSRV check runs on
         env:
-          RUSTUP_TOOLCHAIN: 1.88.0
+          RUSTUP_TOOLCHAIN: ${{ env.MSRV }}
         run: |
           cargo --version
           rustc --version
-          rustc --version | grep -q '^rustc 1\.88\.'
-      - name: Check that Cargo.toml still declares 1.88 as the MSRV
-        run: grep -qx 'rust-version = "1.88"' Cargo.toml
+          rustc --version | grep -q "^rustc ${MSRV} "
+      - name: Check that Cargo.toml still declares the MSRV
+        run: grep -qx "rust-version = \"${MSRV%.*}\"" Cargo.toml
       - name: Check the workspace on the MSRV toolchain
         env:
-          RUSTUP_TOOLCHAIN: 1.88.0
+          RUSTUP_TOOLCHAIN: ${{ env.MSRV }}
         run: cargo check --workspace --all-targets --locked
   deny:
     name: Dependencies
