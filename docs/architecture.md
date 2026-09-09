@@ -103,6 +103,18 @@ within a `schema_version`. `details` carries at most 16 keys, whose values are
 strings, integers, booleans, or arrays of at most 16 such scalars, and always
 carries `bucket`. Changes within `schema_version` are additive only.
 
+`stage` is a plain string that names how far the implementation has come, and
+it is one of a small closed set: `scaffold`, `alpha`, `beta`, `stable`. It is
+not a version, not a support promise, and never a verification verdict. The
+value is `alpha` today, because the fifteen operations below are implemented
+against a local archive whose on-disk layout may still change. A move to
+another value is a release decision, recorded in `CHANGELOG.md` in the pull
+request that makes it; the set itself grows or shrinks the same way. A caller
+that branches on `stage` must treat an unknown value as "at least as far as
+the last value it knows", and a caller that needs to know what the binary can
+do reads `operations`, not `stage`. Changing the value is not a
+`schema_version` change: the field's name, type, and meaning are unchanged.
+
 The capabilities response is unchanged in shape and lists the fifteen
 implemented operations:
 
@@ -113,7 +125,7 @@ implemented operations:
   "command": "capabilities",
   "data": {
     "project": "openPapir",
-    "stage": "scaffold",
+    "stage": "alpha",
     "operations": [
       "archive.init",
       "import",

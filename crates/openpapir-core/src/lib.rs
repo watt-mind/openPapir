@@ -98,12 +98,18 @@ const OPERATIONS: &[&str] = &[
     "skill",
 ];
 
+/// The closed set of implementation stages `capabilities` may report, in
+/// order. The reported `stage` is always one of these values, and the set
+/// grows or shrinks only with a documented release decision. See the
+/// capabilities contract in `docs/architecture.md`.
+pub const STAGES: &[&str] = &["scaffold", "alpha", "beta", "stable"];
+
 /// Machine-readable implementation status; never a verification verdict.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct Capabilities {
     /// Public project name.
     pub project: &'static str,
-    /// Current implementation stage.
+    /// Current implementation stage, always one of [`STAGES`].
     pub stage: &'static str,
     /// Implemented document or workflow operations.
     pub operations: &'static [&'static str],
@@ -114,7 +120,7 @@ pub struct Capabilities {
 pub const fn capabilities() -> Capabilities {
     Capabilities {
         project: "openPapir",
-        stage: "scaffold",
+        stage: "alpha",
         operations: OPERATIONS,
     }
 }
@@ -147,6 +153,15 @@ mod tests {
             ]
         );
         assert_eq!(reported.project, "openPapir");
-        assert_eq!(reported.stage, "scaffold");
+        assert_eq!(reported.stage, "alpha");
+    }
+
+    #[test]
+    fn the_reported_stage_is_one_of_the_documented_set() {
+        assert_eq!(STAGES, ["scaffold", "alpha", "beta", "stable"]);
+        assert!(
+            STAGES.contains(&capabilities().stage),
+            "the reported stage must be one of the documented set"
+        );
     }
 }
