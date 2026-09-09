@@ -289,8 +289,9 @@ envelope.
   `docs/index.md`, `docs/releasing.md`, `docs/references.md`,
   `docs/receipt-discovery.md`, `docs/testing.md`, and `docs/factory.md` names
   the alpha stage or the repository instead of calling the project a scaffold.
-  `scaffold` survives only as the first value of the documented `stage`
-  vocabulary in [architecture](docs/architecture.md). The receipt discovery
+  In those files `scaffold` survives only as the first value of the documented
+  `stage` vocabulary in [architecture](docs/architecture.md); `AGENTS.md` and
+  `docs/orchestrator.md` are not swept here. The receipt discovery
   note no longer claims the tool exposes help, version, and `capabilities`
   alone. No behaviour, contract, or output changes.
 - `AGENTS.md` and `SECURITY.md` describe the scope the binary actually has.
