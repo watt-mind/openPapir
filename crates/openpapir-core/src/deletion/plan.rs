@@ -354,10 +354,10 @@ impl<'a> References<'a> {
 /// digest.
 ///
 /// It is a warning rather than a refusal: the deletion still removes every
-/// record it planned to remove, and only the purge is held back. The count is
-/// the whole of it, exactly as every other deletion report: naming the record
-/// would say which surviving record points at content the user asked to
-/// purge, and naming the value would echo a stored field
+/// record it planned to remove, and only the purge is held back. The counts
+/// are the whole of it, exactly as every other deletion report: naming the
+/// record would say which surviving record points at content the user asked
+/// to purge, and naming the value would echo a stored field
 /// (`docs/error-contract.md`).
 ///
 /// The scan reads the whole archive, so such a reference may sit on a record
@@ -365,14 +365,21 @@ impl<'a> References<'a> {
 /// object of this deletion back, and its text says so, because a warning on
 /// every later deletion would describe the archive rather than the command
 /// the user ran. Finding one wherever it sits is `archive check`'s work.
+///
+/// Both facts are therefore reported, because they answer different
+/// questions and either may be the larger. `malformed_count` is the
+/// archive-wide number of such references the scan read, and
+/// `withheld_count` is how many candidate objects of this deletion they held
+/// back, which is what the message's `for this case` describes.
 #[must_use]
-pub fn malformed_references(malformed_count: u64) -> Warning {
+pub fn malformed_references(malformed_count: u64, withheld_count: u64) -> Warning {
     Diagnostic::new(
         codes::RECORD_MALFORMED,
         "A record this deletion keeps references an artefact by something that is not a digest, so no object was purged for this case.",
         Details::new()
             .text("stage", "delete")
-            .int("malformed_count", malformed_count),
+            .int("malformed_count", malformed_count)
+            .int("withheld_count", withheld_count),
     )
 }
 
@@ -570,19 +577,28 @@ mod tests {
         assert_eq!(plan.purge_not_requested, 0);
     }
 
+    /// The two counts answer different questions, so each is reported under
+    /// its own name and neither is derived from the other.
     #[test]
-    fn a_malformed_reference_is_reported_as_a_count_and_nothing_else() {
-        let warning = malformed_references(2);
+    fn a_malformed_reference_is_reported_as_two_counts_and_nothing_else() {
+        let warning = malformed_references(2, 1);
         assert_eq!(warning.code, codes::RECORD_MALFORMED);
         assert!(!warning.is_retryable());
         let json = serde_json::to_value(&warning).unwrap();
-        assert_eq!(json["details"]["malformed_count"], 2);
+        assert_eq!(
+            json["details"]["malformed_count"], 2,
+            "the references the whole scan read"
+        );
+        assert_eq!(
+            json["details"]["withheld_count"], 1,
+            "the candidate objects of this case they held back"
+        );
         assert_eq!(json["details"]["stage"], "delete");
         assert_eq!(json["details"]["bucket"], "record");
         assert_eq!(
             json["details"].as_object().unwrap().len(),
-            3,
-            "the count, the stage, and the bucket, and never the value itself"
+            4,
+            "the two counts, the stage, and the bucket, and never the value itself"
         );
     }
 

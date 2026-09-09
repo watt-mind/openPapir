@@ -866,7 +866,14 @@ fn a_surviving_record_whose_reference_is_not_a_digest_stops_the_purge() {
     let warning = malformed_warning(&envelope).expect("the malformed reference is reported");
     assert_eq!(warning["details"]["bucket"], "record");
     assert_eq!(warning["details"]["stage"], "delete");
-    assert_eq!(warning["details"]["malformed_count"], 1);
+    assert_eq!(
+        warning["details"]["malformed_count"], 1,
+        "the one such reference the scan read"
+    );
+    assert_eq!(
+        warning["details"]["withheld_count"], 1,
+        "the one candidate object of this case it held back"
+    );
 
     assert!(fixture.object(&own).is_file(), "the bytes are still here");
     assert!(fixture.object(&other).is_file());
@@ -877,6 +884,59 @@ fn a_surviving_record_whose_reference_is_not_a_digest_stops_the_purge() {
         imports, 2,
         "no import event went with an object that stayed"
     );
+}
+
+/// Two cases, and both unresolvable references sit on records of the case
+/// this deletion keeps. The scan reads the whole archive, so it counts both,
+/// while only one candidate object of the deleted case was held back. The
+/// two numbers therefore differ, and each is reported under the name that
+/// says which question it answers.
+#[test]
+fn the_warning_separates_the_references_read_from_the_candidates_held_back() {
+    let fixture = Fixture::new();
+    let own = fixture.import("own.bin", FIRST);
+    let going = fixture.case("A local matter to delete");
+    fixture.submission(&going, &own);
+
+    let other = fixture.import("other.bin", SECOND);
+    let kept = fixture.case("A local matter to keep");
+    let first = fixture.submission(&kept, &other);
+    let second = fixture.submission(&kept, &other);
+    rewrite_artefact(&fixture, &first, "sha256:not-a-digest");
+    rewrite_artefact(&fixture, &second, "sha256:also-not-a-digest");
+
+    let output = fixture.delete(&going, true);
+    assert!(output.status.success(), "the records still go");
+    let envelope = stdout_json(&output);
+    assert_eq!(envelope["ok"], true);
+    assert_private(&envelope);
+
+    let data = &envelope["data"];
+    assert_eq!(data["objects_removed"], 0, "no object was purged");
+    assert_eq!(
+        retained(data),
+        vec![
+            ("purge_not_requested".to_owned(), 0),
+            ("records_retained".to_owned(), 0),
+            ("referenced_elsewhere".to_owned(), 1),
+            ("unremovable".to_owned(), 0),
+        ],
+        "the one candidate of the deleted case is retained as unknown"
+    );
+
+    let warning = malformed_warning(&envelope).expect("the malformed references are reported");
+    assert_eq!(warning["details"]["stage"], "delete");
+    assert_eq!(
+        warning["details"]["malformed_count"], 2,
+        "both references the scan read, wherever they sit"
+    );
+    assert_eq!(
+        warning["details"]["withheld_count"], 1,
+        "the single candidate object of this case they held back"
+    );
+
+    assert!(fixture.object(&own).is_file(), "the bytes are still here");
+    assert!(fixture.object(&other).is_file());
 }
 
 /// The same hand-edited archive, deleted without `--purge`. No object was
@@ -961,29 +1021,44 @@ fn malformed_warning(envelope: &Value) -> Option<Value> {
         .cloned()
 }
 
-/// Replace one stored receipt's artefact reference, keeping the document's
-/// own permissions: the archive is owner-only and the test must not widen it.
+/// Replace one stored receipt's artefact reference.
 fn rewrite_reference(fixture: &Fixture, receipt_id: &str, digest: &str) {
+    rewrite_document(fixture, "receipts", receipt_id, |stored| {
+        stored["artefact_digest"] = Value::String(digest.to_owned());
+    });
+}
+
+/// Replace the artefact reference of one stored submission's only artefact.
+fn rewrite_artefact(fixture: &Fixture, submission_id: &str, digest: &str) {
+    rewrite_document(fixture, "submissions", submission_id, |stored| {
+        stored["artefacts"][0]["digest"] = Value::String(digest.to_owned());
+    });
+}
+
+/// Edit one stored record in place, keeping the document's own permissions:
+/// the archive is owner-only and the test must not widen it.
+fn rewrite_document(fixture: &Fixture, kind: &str, id: &str, edit: impl FnOnce(&mut Value)) {
     use std::io::Write as _;
 
     let path = fixture
         .root
-        .join("records/receipts")
-        .join(format!("{receipt_id}.json"));
-    let text = fs::read_to_string(&path).expect("read the stored receipt");
-    let mut stored: Value = serde_json::from_str(&text).expect("a receipt document");
-    stored["artefact_digest"] = Value::String(digest.to_owned());
+        .join("records")
+        .join(kind)
+        .join(format!("{id}.json"));
+    let text = fs::read_to_string(&path).expect("read the stored record");
+    let mut stored: Value = serde_json::from_str(&text).expect("a record document");
+    edit(&mut stored);
     let mut file = fs::OpenOptions::new()
         .write(true)
         .truncate(true)
         .open(&path)
-        .expect("open the stored receipt for rewriting");
+        .expect("open the stored record for rewriting");
     writeln!(
         file,
         "{}",
         serde_json::to_string(&stored).expect("serialise")
     )
-    .expect("rewrite the stored receipt");
+    .expect("rewrite the stored record");
 }
 
 /// Write an owner-only file, so that holding the lock is not itself a
