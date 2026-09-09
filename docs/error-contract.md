@@ -563,11 +563,12 @@ not see, ordered by code, so a caller reads a count rather than testing for a
 key. `objects_unchecked` and `staging_files` were added additively by the
 implementation. The first counts what the check could not read: an object
 over the single-file cap, an entry whose metadata could not be read, and each
-fan-out directory that could not be listed. The second counts what
-`objects/incoming/` still holds. Neither is damage, and the check removes
-neither. A digest whose fan-out directory could not be listed is left
-uncounted rather than reported as a dangling reference, because an object the
-check could not look for is not an object the archive does not hold.
+directory under `objects/` that could not be listed, including the store
+itself. The second counts what `objects/incoming/` still holds. Neither is
+damage, and the check removes neither. A digest under a directory that could
+not be listed is left uncounted rather than reported as a dangling reference,
+because an object the check could not look for is not an object the archive
+does not hold.
 
 `ok` is `true` and the exit code `0` when the check found nothing. When it
 found something, the check still completed its stated work, so the report

@@ -25,8 +25,9 @@ matches the observable difference. See the Documentation section of
   removes, and repairs nothing, including a leftover staging file and a
   missing layout directory, which it reads as empty. It therefore completes
   on an archive whose root the user cannot write to. An entry the check could
-  not read, including a fan-out directory it could not list, is counted as
-  unchecked rather than reported as damage or as a missing object. The report
+  not read, including any directory under `objects/` it could not list, is
+  counted as unchecked rather than reported as damage or as a missing
+  object. The report
   is counts and stable codes only, and never the path, name, or digest of a
   damaged object. A clean archive exits
   `0`; otherwise the report stays in `data`, `ok` is `false`, and `error`

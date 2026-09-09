@@ -491,6 +491,37 @@ fn a_root_that_cannot_be_written_to_is_still_checked() {
     assert!(!root.join("cache").exists(), "nothing was created");
 }
 
+/// A store the check cannot list at all leaves every digest unjudged. A
+/// directory the process cannot search reports as missing when it is asked
+/// whether it exists, so the check has to decide from the failure itself.
+/// Unix-only for the same reason as the test above.
+#[test]
+#[cfg(unix)]
+fn an_unreadable_object_store_is_counted_rather_than_read_as_empty() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let (_home, root) = archive();
+    let objects = root.join("objects");
+    fs::set_permissions(&objects, fs::Permissions::from_mode(0o000))
+        .expect("withhold access to the store");
+    if fs::read_dir(root.join("objects/sha256")).is_ok() {
+        // The process can read the store anyway, which happens when the tests
+        // run with privileges that ignore the permission bits.
+        fs::set_permissions(&objects, fs::Permissions::from_mode(0o700)).unwrap();
+        return;
+    }
+    let output = check(&root);
+    fs::set_permissions(&objects, fs::Permissions::from_mode(0o700)).expect("restore access");
+    let envelope = assert_report(&output, true, None, 0);
+    let data = &envelope["data"];
+    assert_eq!(data["objects_unchecked"], 1, "the store is counted unread");
+    assert_eq!(data["objects_checked"], 0);
+    assert!(
+        problems(data).values().all(|count| *count == 0),
+        "an unread store is neither damage nor a missing object"
+    );
+}
+
 /// A fan-out directory the check cannot list leaves the objects under it
 /// unjudged rather than reported as missing. Unix-only for the same reason as
 /// the test above.

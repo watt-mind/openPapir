@@ -259,11 +259,14 @@ question the privacy rule allows an answer to.
 not see, ordered by code, so a caller reads a count rather than testing for a
 key's presence. `objects_unchecked` counts what the check could not read: an
 object over the single-file cap, an entry whose metadata could not be read,
-and each fan-out directory that could not be listed. None of them is reported
-as damage, because the check did not read them to say so, and a digest whose
-fan-out directory could not be listed is not counted as a dangling reference
-either: an object the check could not look for is not an object the archive
-does not hold. `staging_files` counts what `objects/incoming/` still holds.
+and each directory under `objects/` that could not be listed, including the
+store itself. None of them is reported as damage, because the check did not
+read them to say so, and a digest under a directory that could not be listed
+is not counted as a dangling reference either: an object the check could not
+look for is not an object the archive does not hold. Whether a directory is
+absent or merely unreadable is taken from the failure itself, because a
+directory the process cannot search reports as missing when it is asked
+whether it exists. `staging_files` counts what `objects/incoming/` still holds.
 
 A clean archive exits `0` with `ok` `true`. When the check finds something,
 `ok` is `false`, the report stays in `data`, and `error` names the first

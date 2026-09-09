@@ -11,7 +11,7 @@
 
 use std::collections::BTreeSet;
 use std::fs::{self, DirEntry};
-use std::io::Read as _;
+use std::io::{self, Read as _};
 use std::path::Path;
 
 use sha2::{Digest as _, Sha256};
@@ -71,6 +71,9 @@ impl Store {
     }
 
     /// Record that a directory naming these fan-out bytes could not be read.
+    ///
+    /// An empty prefix means the check could not tell which digests the
+    /// unread directory covers, so none of them may be judged absent.
     fn unlistable(&mut self, prefix: &[u8]) {
         self.objects_unchecked += 1;
         match prefix {
@@ -105,20 +108,29 @@ pub fn walk(root: &Path, references: &References, counts: &mut Counts) -> Store 
         ..Store::default()
     };
     let base = root.join(OBJECTS_DIR).join(ALGORITHM);
-    let Ok(first_level) = fs::read_dir(&base) else {
-        // An absent store holds nothing; one that exists and cannot be listed
-        // is unread, and no digest under it may be judged absent.
-        if base.exists() {
-            store.unlistable(&[]);
+    let first_level = match fs::read_dir(&base) {
+        Ok(entries) => entries,
+        // Only a store that is not there holds nothing. Any other failure
+        // means the store was not read, so no digest under it may be judged
+        // absent. The distinction is taken from the error itself rather than
+        // from a second look at the path, because a directory the process
+        // cannot search reports both as missing.
+        Err(error) => {
+            if error.kind() != io::ErrorKind::NotFound {
+                store.unlistable(&[]);
+            }
+            return store;
         }
-        return store;
     };
     let mut buffer = vec![0_u8; CHUNK_BYTES];
     for entry in first_level.flatten() {
         let Some(high) = fan_out(&entry, counts, &mut store) else {
             continue;
         };
-        let high_byte = fan_out_byte(&high).unwrap_or_default();
+        let Some(high_byte) = fan_out_byte(&high) else {
+            store.unlistable(&[]);
+            continue;
+        };
         let Ok(second_level) = fs::read_dir(entry.path()) else {
             store.unlistable(&[high_byte]);
             continue;
@@ -127,8 +139,12 @@ pub fn walk(root: &Path, references: &References, counts: &mut Counts) -> Store 
             let Some(low) = fan_out(&entry, counts, &mut store) else {
                 continue;
             };
+            let Some(low_byte) = fan_out_byte(&low) else {
+                store.unlistable(&[]);
+                continue;
+            };
             let Ok(objects) = fs::read_dir(entry.path()) else {
-                store.unlistable(&[high_byte, fan_out_byte(&low).unwrap_or_default()]);
+                store.unlistable(&[high_byte, low_byte]);
                 continue;
             };
             for object in objects.flatten() {
