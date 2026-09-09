@@ -360,15 +360,15 @@ followed ([archive-layout](archive-layout.md)).
   snake_case name for the broken invariant. Nothing else: no identifier, no
   statement, no label, and no path. The implemented rules are
 
-  | `rule` | The invariant it names |
+  | `rule` | Violation reported |
   | --- | --- |
-  | `unassociated_has_candidates` | `unassociated` has zero candidates. |
-  | `candidate_requires_candidates` | `candidate` has one or more candidates. |
-  | `associated_requires_one_candidate` | `associated` has exactly one candidate. |
-  | `contradictory_requires_two_candidates` | `contradictory` has two or more candidates. |
-  | `duplicate_candidate_submission` | No submission is a candidate twice in one record. |
-  | `supersedes_other_receipt` | A superseded record belongs to the same receipt. |
-  | `import_event_digest_mismatch` | A named import event records the named artefact. |
+  | `unassociated_has_candidates` | `unassociated` was given a candidate. |
+  | `candidate_requires_candidates` | `candidate` was given no candidate. |
+  | `associated_requires_one_candidate` | `associated` was not given exactly one candidate. |
+  | `contradictory_requires_two_candidates` | `contradictory` was given fewer than two candidates. |
+  | `duplicate_candidate_submission` | One submission was named as a candidate more than once. |
+  | `supersedes_other_receipt` | The superseded record belongs to another receipt. |
+  | `import_event_digest_mismatch` | A named import event records another artefact. |
 
   A rule name is stable once published, and a new rule is an additive change
   like a new code. This is a separate code from `record.not_found`, which

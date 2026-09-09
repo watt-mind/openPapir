@@ -177,6 +177,11 @@ delivery, receipt by an authority, authenticity, or legal effect.
 
 ### Changed
 
+- The `record.inconsistent` rule tables in `docs/error-contract.md` and
+  `docs/architecture.md` now use one polarity. Both state the violation the
+  rule reports, matching the rule names, under the column heading `Violation
+  reported`, instead of the contract stating the satisfied invariant and the
+  architecture the violation. No rule name, code, or behaviour changed.
 - `docs/receipt-discovery.md` presents its evidence matrix as one subsection
   per source (E1 to E6) with a definition-style list of the same fields,
   instead of a nine-column table whose rows were unreadable in the raw
