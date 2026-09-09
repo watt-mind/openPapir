@@ -110,6 +110,11 @@ matches the observable difference. See the Documentation section of
 
 ### Changed
 
+- The Association records section of `docs/archive-layout.md` states the same
+  field list and nesting as `docs/error-contract.md`: `evidence` and
+  `confidence` sit inside each candidate, not at record level, and the
+  document now says the error contract is authoritative for wire shapes. No
+  rule changed.
 - `capabilities` now reports the operations that are implemented,
   `archive.init` and `import`, instead of an empty list. `verified` stays
   `false` and the envelope's shape is unchanged.
