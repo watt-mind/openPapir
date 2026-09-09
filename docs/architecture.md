@@ -730,6 +730,35 @@ about to write inside the archive. The path rules apply outward: a symbolic
 link in the destination is refused rather than followed, and a file already at
 a target path is refused rather than replaced.
 
+The outward no-follow rule is weaker than the archive-side one, and the
+difference is stated rather than hidden. Inside the archive every path is
+reached through the platform's no-follow open, so nothing is stat-ed before it
+is opened and no link can be substituted between the check and the open.
+Outside it the rule has two halves. Each leaf file is created with create-new
+semantics, which the system call itself refuses on an existing path, a
+symbolic link included, so the leaf needs no separate check. Each directory
+component openPapir would make, `objects` and `records/<kind>`, is tested with
+a no-follow stat first and refused when it is a link, which is a check
+followed by a use rather than one no-follow call.
+
+The residual difference is a substitution between that check and the create.
+It is accepted for three reasons. The destination is outside the archive, so
+nothing an attacker gains there reaches stored bytes. The destination is
+required to be empty or to be created by the export, so a link that appears in
+it appeared after the user pointed the export at it. And the leaf create still
+refuses to replace anything, so the worst a race achieves is a new file under
+a directory the user's own filesystem redirected, never an overwrite. An
+openat-style walk that holds a directory handle for every component would
+close that gap, and is not implemented; it would need a per-platform
+implementation for a destination the archive does not own.
+
+An interrupted write in the destination reports the stage it was in:
+`object_write` while copying a stored object or making the directory the
+copies go in, `record_write` while writing a record document or its
+directory, and `marker_write` for the destination itself and for
+`manifest.json`, which describe the export rather than any one record
+([error contract](error-contract.md)).
+
 The archive's own publish step, a hard link into place, is deliberately not
 used outside the root. A destination may be a filesystem that cannot create a
 hard link at all, and the design requires an export to work on any of them, so
@@ -876,6 +905,13 @@ record or object.
 A symbolic link inside the archive is refused as `path.symlink` rather than
 narrowed. Changing a link's permissions changes its target's, and a link out
 of the archive would be a file the archive does not own.
+
+A path the repair cannot read or cannot narrow is `write.interrupted`, and its
+`stage` is the kind of path the repair was inspecting: `object_write` for a
+stored object, a fan-out directory it cannot list, or a leftover staging
+file, `marker_write` for the marker, and `record_write` for a record
+document, a cached file, a layout directory, a fan-out directory it cannot
+narrow, or the root ([error contract](error-contract.md)).
 
 `data` reports counts by kind, in a fixed order, including the kinds nothing
 changed for, so a caller reads a count rather than testing for a key.

@@ -296,6 +296,14 @@ envelope.
   with the non-blocking flag added. No behaviour changed on any platform: the
   rule that a link fails at the open rather than after a check on the path is
   the same one, expressed once.
+- [architecture](docs/architecture.md) now states the outward no-follow rule
+  the export applies to a destination directory: each directory component the
+  export would create is tested with a no-follow stat and refused when it is a
+  symbolic link, and each leaf file is created with create-new semantics,
+  which the system call itself refuses on an existing path. It also states why
+  that is weaker than the archive-side rule, which reaches every path through
+  a no-follow open, and what the residual check-then-use gap can and cannot
+  reach. No behaviour changed.
 - The `record.inconsistent` rule tables in `docs/error-contract.md` and
   `docs/architecture.md` now use one polarity. Both state the violation the
   rule reports, matching the rule names, under the column heading `Violation
@@ -402,6 +410,19 @@ envelope.
   happened. Absence says the attribute was never cleared and nothing was
   widened; `false` still says an object was left writable, and a warning
   carrying no flag never displaces one that reports `false`.
+- An interrupted write during a `case export` or an
+  `archive repair-permissions` now names the stage it was actually in.
+  `write.interrupted` from an export carries `object_write` while an object is
+  being copied, `record_write` while a record document is being written, and
+  `marker_write` for the destination directory itself and for
+  `manifest.json`; the repair carries the stage of the kind of path it was
+  inspecting, `object_write` for a stored object or a fan-out directory,
+  `marker_write` for the marker, and `record_write` for a record document, a
+  cached file, a layout directory, or the root. Both previously reported
+  `record_write` for every failure, so an interrupted object copy was
+  described as a record write. The write bucket's three stage names are now
+  listed with what each one covers in
+  [the error contract](docs/error-contract.md).
 - A record document is now opened once and judged on that opened handle. The
   reader opens it with the platform's no-follow flag and takes both the file
   kind and the length from the handle it will read from, instead of checking
