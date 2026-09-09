@@ -53,9 +53,10 @@ rejects, and any flag value this build cannot use, is `usage.arguments`, and
 any violated invariant is `internal.unexpected`. Every command that opens an
 existing archive can refuse with `usage.archive_root_missing`,
 `archive.marker_missing`, `archive.marker_malformed`, `archive.schema_newer`,
-`archive.schema_older`, `archive.multiple_filesystems`, or `path.symlink` for
-a linked layout directory, and every one of them except `archive check` and
-`case export`, which open the archive read-only, adds `archive.permissions_wide`.
+`archive.schema_older`, `archive.multiple_filesystems`,
+`archive.permissions_wide`, or `path.symlink` for a linked layout directory;
+`archive check` and `case export` open the archive read-only, which creates no
+layout directory and flushes nothing, but runs the same checks.
 Every command that writes adds `lock.held`, `path.overwrite`,
 `path.cross_device`, `write.interrupted`, `input.cap.record_size`, and
 `platform.filesystem_unsupported`. Every command that reads a stored document
@@ -1150,8 +1151,8 @@ including `lock.stale`, `path.traversal`, and `write.incomplete`.
 The error contract deferred four of its reserved conditions to an implementing
 change, and the commands below decided them and added nine further codes and
 rules additively under the contract's compatibility rule. All thirteen are
-decided as follows, and no reserved code other than those four became
-reachable:
+decided as follows; `lock.stale`, `path.traversal`, and `write.incomplete`
+stay reserved and unreachable:
 
 1. A marker that cannot be read is `archive.marker_malformed`. It is reported,
    never repaired, and every operation on that archive is refused.

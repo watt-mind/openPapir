@@ -506,9 +506,9 @@ The discovery note left seven open questions
    offering stays deferred.
 6. **Windows parity: resolved as documented degradation.** Owner-only access
    is required with no override, so filesystems that cannot express it are
-   refused rather than silently accepted; the two weakened guarantees above are
-   named, reportable conditions whose wire representation belongs to the error
-   contract.
+   refused rather than silently accepted; the three weakened guarantees above,
+   and the fourth the implementation added, are named, reportable conditions
+   whose wire representation belongs to the error contract.
 7. **Encrypted backup at rest: deferred.** It needs a threat model and a
    key-handling decision under [SECURITY.md](../SECURITY.md), not a layout
    decision. Nothing above precludes it; whole-tree and per-object encryption
