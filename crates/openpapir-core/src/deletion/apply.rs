@@ -17,7 +17,7 @@
 
 use std::fs;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::archive::import::ImportEvent;
 use crate::archive::{objects, paths};
@@ -82,8 +82,7 @@ impl Removed {
 /// touches no object at all, and reports how much it did not remove.
 pub fn run(root: &Path, plan: &Plan, warnings: &mut Vec<Warning>) -> Removed {
     let mut removed = Removed::default();
-    let planned =
-        (plan.associations.len() + plan.receipts.len() + plan.submissions.len()) as u64 + 1;
+    let planned = planned_documents(plan);
 
     if !removable(root, plan) {
         // Nothing has been unlinked and nothing will be, so every planned
@@ -127,6 +126,19 @@ pub fn run(root: &Path, plan: &Plan, warnings: &mut Vec<Warning>) -> Removed {
     }
     flush_record_directories(root, plan, removed.import_events > 0, warnings);
     removed
+}
+
+/// How many record documents this plan would remove in all.
+///
+/// The case, the associations, the receipts, and the submissions, plus every
+/// import event that would go with a purged object: an event is planned for
+/// removal even though it goes only in the object pass, so a deletion that
+/// never reaches that pass did not remove it and has to say so. Leaving them
+/// out under-reported `retained_count` by exactly the events in
+/// `records/imports` whenever that was the directory the probe refused.
+fn planned_documents(plan: &Plan) -> u64 {
+    let events: usize = plan.import_events.values().map(Vec::len).sum();
+    (plan.associations.len() + plan.receipts.len() + plan.submissions.len() + events) as u64 + 1
 }
 
 /// Whether every record document this plan names can be unlinked.
@@ -181,7 +193,18 @@ fn kind_removable<R: Record>(root: &Path, ids: &[String]) -> bool {
     directory_writable(&directory)
         && ids
             .iter()
-            .all(|id| unlinkable(&directory.join(format!("{id}.json"))))
+            .all(|id| unlinkable(&document_path(&directory, id)))
+}
+
+/// The path of one record document inside its own kind's directory.
+///
+/// The probe and the unlink pass must look at exactly the same file, or the
+/// all-or-nothing guarantee is a promise about one path and a removal of
+/// another. They therefore build it here and nowhere else. The identifier is
+/// one openPapir minted and the reader validated, so nothing user-supplied is
+/// joined into the path.
+fn document_path(directory: &Path, id: &str) -> PathBuf {
+    directory.join(format!("{id}.json"))
 }
 
 /// Whether a record directory can have an entry removed from it.
@@ -267,7 +290,7 @@ fn unlink_records<R: Record>(root: &Path, ids: &[String]) -> Unlinked {
     let directory = root.join(R::DIRECTORY);
     let mut unlinked = Unlinked::default();
     for id in ids {
-        match fs::remove_file(directory.join(format!("{id}.json"))) {
+        match fs::remove_file(document_path(&directory, id)) {
             Ok(()) => unlinked.removed += 1,
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}
             Err(_) => unlinked.retained += 1,
@@ -301,12 +324,24 @@ fn note(warnings: &mut Vec<Warning>, warning: Warning) {
         warnings.push(warning);
         return;
     };
-    // A warning carrying no flag at all never cleared the attribute, so it is
-    // not the weaker outcome and never displaces one that did.
-    let worse = warning.details.flag_value(READ_ONLY_RESTORED) == Some(false)
-        && seen.details.flag_value(READ_ONLY_RESTORED) != Some(false);
-    if worse {
+    if fidelity(&warning) > fidelity(seen) {
         *seen = warning;
+    }
+}
+
+/// How much one copy of a warning is worth keeping, highest wins.
+///
+/// An object left writable is the worst thing that can have happened and
+/// outranks everything, whichever object saw it first. A warning carrying no
+/// flag at all never cleared the attribute, so it never displaces one that
+/// did; but it also answers less, so a later copy that did clear the
+/// attribute and put it back replaces it rather than being dropped for
+/// arriving second.
+fn fidelity(warning: &Warning) -> u8 {
+    match warning.details.flag_value(READ_ONLY_RESTORED) {
+        Some(false) => 2,
+        Some(true) => 1,
+        None => 0,
     }
 }
 
@@ -499,8 +534,13 @@ mod tests {
         fs::create_dir_all(&directory).unwrap();
         let present = "0123456789abcdef0123456789abcdef".to_owned();
         let absent = "fedcba9876543210fedcba9876543210".to_owned();
-        fs::write(directory.join(format!("{present}.json")), "{}\n").unwrap();
+        let path = document_path(&directory, &present);
+        fs::write(&path, "{}\n").unwrap();
         fs::write(directory.join("keep.json"), "{}\n").unwrap();
+        assert!(
+            unlinkable(&path),
+            "the probe and the pass look at the one path this helper builds"
+        );
         assert_eq!(
             unlink_records::<Case>(root.path(), &[present.clone(), absent]),
             Unlinked {
@@ -509,7 +549,7 @@ mod tests {
             },
             "a document that was not there is neither removed nor retained"
         );
-        assert!(!directory.join(format!("{present}.json")).exists());
+        assert!(!path.exists());
         assert!(directory.join("keep.json").exists(), "nothing else goes");
     }
 
@@ -594,6 +634,22 @@ mod tests {
             Some(false),
             "the object left writable is still the one reported"
         );
+
+        // A flagless copy answers less than one that cleared the attribute
+        // and put it back, so a later copy that did replaces it. It is still
+        // never allowed to displace the object that was left writable.
+        for later in [Some(true), Some(false)] {
+            let mut warnings = Vec::new();
+            note(&mut warnings, replace_while_open(None));
+            note(&mut warnings, replace_while_open(later));
+            assert_eq!(warnings.len(), 1);
+            assert_eq!(
+                warnings[0].details.flag_value(READ_ONLY_RESTORED),
+                later,
+                "the copy that answers the question is the one kept"
+            );
+        }
+        assert_eq!(fidelity(&paths::no_directory_fsync_warning("purge")), 0);
     }
 
     /// The probe is the whole of the all-or-nothing rule, so each of its
@@ -650,6 +706,59 @@ mod tests {
                 "the document the deletion could not finish is still there"
             );
         }
+    }
+
+    /// An import event is a document the plan would remove, so a deletion
+    /// that never reached the object pass has to count it as retained.
+    #[test]
+    fn a_planned_import_event_counts_as_a_document_the_deletion_planned() {
+        let mut plan = Plan {
+            case: "0123456789abcdef0123456789abcdef".to_owned(),
+            submissions: vec!["a".to_owned(), "b".to_owned()],
+            ..Plan::default()
+        };
+        assert_eq!(planned_documents(&plan), 3, "the case and its submissions");
+        plan.import_events
+            .insert(DIGEST.to_owned(), vec!["c".to_owned(), "d".to_owned()]);
+        assert_eq!(planned_documents(&plan), 5, "and the events going with it");
+    }
+
+    /// The count `delete.records_retained` carries is every document the
+    /// deletion planned to remove and did not, so a refusal that names the
+    /// import directory still reports the events it never reached.
+    #[cfg(unix)]
+    #[test]
+    fn a_refused_import_directory_is_reported_in_the_retained_count() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let root = tempfile::tempdir().unwrap();
+        let cases = root.path().join(Case::DIRECTORY);
+        let imports = root.path().join(ImportEvent::DIRECTORY);
+        fs::create_dir_all(&cases).unwrap();
+        fs::create_dir_all(&imports).unwrap();
+        let case = "0123456789abcdef0123456789abcdef".to_owned();
+        let event = "fedcba9876543210fedcba9876543210".to_owned();
+        fs::write(document_path(&cases, &case), "{}\n").unwrap();
+        fs::write(document_path(&imports, &event), "{}\n").unwrap();
+        let mut plan = Plan {
+            case,
+            objects: vec![DIGEST.to_owned()],
+            ..Plan::default()
+        };
+        plan.import_events
+            .insert(DIGEST.to_owned(), vec![event.clone()]);
+
+        let mut warnings = Vec::new();
+        fs::set_permissions(&imports, fs::Permissions::from_mode(0o500)).unwrap();
+        let removed = run(root.path(), &plan, &mut warnings);
+        fs::set_permissions(&imports, fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(removed.records(), 0, "the probe refused before the pass");
+        assert_eq!(
+            removed.records_retained, 2,
+            "the case and the import event it never reached"
+        );
+        assert_eq!(removed.objects, 0, "and no object was touched");
+        assert!(document_path(&imports, &event).is_file());
     }
 
     #[test]
