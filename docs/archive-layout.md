@@ -2,18 +2,30 @@
 
 ## Status and scope
 
-This document is a **design for review**, and much of it now has code behind
-it. It decides the on-disk layout and the storage technology of openPapir's
-local archive so that implementation issues can be written against something
-concrete, and the archive, artefact store, record, integrity, export,
-permission-repair, and deletion parts of it were then implemented.
+This document describes the on-disk layout and the storage technology of
+openPapir's local archive as they are **implemented**, together with the
+decisions and the rejected alternatives behind them. The archive, artefact
+store, record, integrity, export, permission-repair, and deletion parts of it
+have code, and the tree, the identifiers, the write procedure, the caps, and
+the permission rules below are what that code writes.
+
+Building it changed some of the decisions. Each change is recorded in the
+section that decides the point, with the reason: the fourth reportable Windows
+condition under Windows degradation, the digest-only export object names and
+the dropped sidecar under Export and backup, and the association and
+import-event survival rules under Open questions resolved or deferred. Where a
+decision here reads as weaker than first proposed, that section says why.
+
 [architecture](architecture.md) is the canonical description of the
-implemented contract: where it and this document disagree, architecture is
-authoritative and this page is a defect. Derived-metadata records,
-verification results, the rebuildable `cache/` index, import from an export,
-schema migration, and encrypted backup at rest are **not implemented** and
-stay a design. `verified` is `false` in every envelope
-([architecture](architecture.md)).
+implemented contract and the only place that lists the operations
+`capabilities` reports; this document names none of them except where a
+decision below is about one. Where architecture and this document disagree,
+architecture is authoritative and this page is a defect.
+
+Derived-metadata records, verification results, the rebuildable `cache/`
+index, import from an export, export of a whole archive, schema migration, and
+encrypted backup at rest are **not implemented** and stay a design. `verified`
+is `false` in every envelope ([architecture](architecture.md)).
 
 It is follow-up 3 of
 [receipt evidence and local case model decisions](receipt-discovery.md), the
@@ -241,8 +253,9 @@ process that happens to open the archive: a reader must not delete a file the
 current writer is still filling. The lock file records the holder's process
 identifier, host, and start time. A lock whose holder is provably gone is taken
 over only by an explicit user action that says what it found; it is never
-broken silently, and never on a timeout. The exact recovery flow, including
-what counts as proof, belongs to the artefact-import issue.
+broken silently, and never on a timeout. Taking over a stale lock is **not
+implemented**: a held lock is reported and the operation stops, and the exact
+recovery flow, including what counts as proof, stays undecided.
 
 ### Path safety
 
@@ -275,7 +288,7 @@ Three guarantees weaken and must be reported rather than assumed:
 
 Each weakening is a named condition the implementation must report at the point
 of the write and in any archive health output. Its wire name and JSON shape
-belong to the error-contract issue (follow-up 5) and are deliberately not fixed
+belong to [error-contract](error-contract.md) and are deliberately not fixed
 here. What is fixed: degradation is reported, never silently accepted and never
 described as equivalent. The implementation added a fourth condition, the
 no-follow open that refuses the handle rather than the open, and reports it the
@@ -546,9 +559,10 @@ versioned contracts from openKRX and openSzigno (follow-up 8).
 
 ## Limits of this design
 
-It is a layout, not an implementation. No capability follows from the parts
-still awaiting code, and [architecture](architecture.md) rather than this page
-is the contract for the parts that have it. The caps are proposals chosen for
+It is a layout and the reasoning behind it, not a contract:
+[architecture](architecture.md) rather than this page is the contract for the
+parts that have code, and no capability follows from the parts still awaiting
+it. The caps are proposals chosen for
 safety rather than measurement, and no performance work has been done. It
 assumes one user and one writing process on one local filesystem; network
 filesystems and multi-user archives are not designed for. It fixes no response
