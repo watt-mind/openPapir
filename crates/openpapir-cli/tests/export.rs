@@ -853,6 +853,8 @@ fn human_repair_output_reports_counts_and_no_path() {
 ///
 /// The table is the one whose header is `Stage | What it names`, wherever it
 /// sits and however it is indented, so a document may keep it inside a list.
+/// A second such header anywhere in the document is a failure, wherever it
+/// sits: two tables could disagree and only one of them would be checked.
 /// Each cell is a sentence listing paths, so the paths are its comma-separated
 /// clauses with the joining `and` and the closing full stop removed. Comparing
 /// sets rather than sentences lets the two documents order their clauses
@@ -860,10 +862,12 @@ fn human_repair_output_reports_counts_and_no_path() {
 fn stage_table(markdown: &str) -> BTreeMap<String, Vec<String>> {
     let mut rows: Vec<Vec<String>> = Vec::new();
     let mut inside = false;
+    let mut seen = false;
     for line in markdown.lines() {
         let line = line.trim();
         if line.starts_with("| Stage | What it names |") {
-            assert!(!inside, "a document holds exactly one stage table");
+            assert!(!seen, "a document holds exactly one stage table");
+            seen = true;
             inside = true;
             continue;
         }
@@ -881,7 +885,8 @@ fn stage_table(markdown: &str) -> BTreeMap<String, Vec<String>> {
         }
         rows.push(vec![cells[0].to_owned(), cells[1].to_owned()]);
     }
-    assert!(!rows.is_empty(), "the stage table was found");
+    assert!(seen, "the stage table was found");
+    assert!(!rows.is_empty(), "the stage table has rows");
     let mut table = BTreeMap::new();
     for row in rows {
         let stage = row[0].trim_matches('`').to_owned();
@@ -905,6 +910,13 @@ fn stage_table(markdown: &str) -> BTreeMap<String, Vec<String>> {
     table
 }
 
+#[test]
+#[should_panic(expected = "a document holds exactly one stage table")]
+fn a_second_stage_table_anywhere_in_a_document_is_refused() {
+    let markdown = "| Stage | What it names |\n        | --- | --- |\n        | `object_write` | A stored object. |\n        \n        Prose, and then a second table the first test would never compare.\n        \n        | Stage | What it names |\n        | --- | --- |\n        | `record_write` | A record document. |\n";
+    let _ = stage_table(markdown);
+}
+
 fn doc(name: &str) -> String {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../docs")
@@ -922,40 +934,13 @@ fn both_documents_name_the_same_paths_for_each_write_stage() {
          paths for each write stage"
     );
     let documented: Vec<&str> = contract.keys().map(String::as_str).collect();
-    let mut implemented: Vec<&str> = openpapir_core::export::repair::Stage::ALL
-        .iter()
-        .map(|stage| stage.as_str())
-        .collect();
-    implemented.sort_unstable();
+    // The stages themselves are internal to openpapir-core, so this test
+    // holds the documents to the stage names and a core unit test holds
+    // `Stage::ALL` to the same three names. The kind-to-stage mapping is
+    // checked there too, where the types live.
     assert_eq!(
-        documented, implemented,
+        documented,
+        ["marker_write", "object_write", "record_write"],
         "the tables name exactly the stages the implementation can report"
-    );
-}
-
-#[test]
-fn every_kind_the_repair_walks_maps_to_a_documented_stage() {
-    use openpapir_core::export::repair::{KINDS, Kind, Stage};
-
-    let stages: Vec<&str> = Stage::ALL.iter().map(|stage| stage.as_str()).collect();
-    for kind in [
-        Kind::Cache,
-        Kind::Directory,
-        Kind::Marker,
-        Kind::Object,
-        Kind::Record,
-        Kind::Root,
-        Kind::Staging,
-    ] {
-        assert!(
-            stages.contains(&kind.stage().as_str()),
-            "{} maps to a stage the write bucket names",
-            kind.name()
-        );
-    }
-    assert_eq!(
-        KINDS,
-        ["cache", "directory", "marker", "object", "record", "root"],
-        "the report's kind names and their order do not change"
     );
 }

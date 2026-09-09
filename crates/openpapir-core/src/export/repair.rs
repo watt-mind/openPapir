@@ -22,6 +22,13 @@
 //! writer left refuses the repair with `lock.held` before the walk begins. A
 //! `lock` count would therefore always be zero, and the report says only what
 //! it actually looked at.
+//!
+//! [`Repaired`] is the whole of this module's public API. The kinds of path
+//! it walks, the write stages they report, and the kinds the report lists are
+//! internal: a caller sees them only as the strings of a report or a refusal,
+//! which is what the documents promise, so the types stay `pub(crate)` and
+//! every assertion about them is a unit test here rather than an integration
+//! test that would need them published.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -40,39 +47,44 @@ use crate::export::KindCount;
 /// The stage names what was being written, never which module reported it
 /// (`docs/error-contract.md`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Stage {
+pub(crate) enum Stage {
     /// A stored object, or a leftover staging file inside the object store.
-    ObjectWrite,
+    Object,
     /// A record document, a cached file, a layout directory, or the root.
-    RecordWrite,
+    Record,
     /// The archive marker.
-    MarkerWrite,
+    Marker,
 }
 
 impl Stage {
     /// Every stage, in the order the error contract's table lists them.
-    pub const ALL: [Self; 3] = [Self::ObjectWrite, Self::RecordWrite, Self::MarkerWrite];
+    ///
+    /// Only the tests need the whole list: the code always names the one
+    /// stage the path it is inspecting belongs to.
+    #[cfg(test)]
+    pub(crate) const ALL: [Self; 3] = [Self::Object, Self::Record, Self::Marker];
 
     /// The name the `stage` detail carries.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
+    pub(crate) const fn as_str(self) -> &'static str {
         match self {
-            Self::ObjectWrite => "object_write",
-            Self::RecordWrite => "record_write",
-            Self::MarkerWrite => "marker_write",
+            Self::Object => "object_write",
+            Self::Record => "record_write",
+            Self::Marker => "marker_write",
         }
     }
 }
 
 /// A kind of path the repair inspects.
 ///
-/// The set is closed, so a new kind cannot reach a stage by falling through a
-/// catch-all: [`Kind::stage`] matches every variant by name. Six of the
-/// variants are reported by name in [`KINDS`]; `Staging` is not, because a
-/// leftover staging file is openPapir's own transient artefact inside the
-/// object store and counts as an object.
+/// The set is closed, and every mapping out of it spells each variant by
+/// name: [`Kind::name`], [`Kind::stage`], [`Kind::reported`], and
+/// [`mask_for`] all match exhaustively, so a new kind cannot reach a stage,
+/// a mode, or a report line by falling through a catch-all. Six of the
+/// variants are reported under their own name in [`REPORTED`]; `Staging` is
+/// not, because a leftover staging file is openPapir's own transient
+/// artefact inside the object store and counts as an object.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Kind {
+pub(crate) enum Kind {
     /// A cached file.
     Cache,
     /// A layout directory, or a directory inside one.
@@ -90,9 +102,38 @@ pub enum Kind {
 }
 
 impl Kind {
+    /// How many kinds there are.
+    const COUNT: usize = 7;
+
+    /// Every kind, in the order the variants are declared.
+    ///
+    /// The check below ties each entry to its variant's own position in the
+    /// declaration, so a kind inserted into the enum, or listed here twice,
+    /// out of order, or not at all, does not compile. Tests walk this array
+    /// rather than a list of their own, and [`REPORTED`] is derived from it.
+    pub(crate) const ALL: [Self; Self::COUNT] = {
+        let all = [
+            Self::Cache,
+            Self::Directory,
+            Self::Marker,
+            Self::Object,
+            Self::Record,
+            Self::Root,
+            Self::Staging,
+        ];
+        let mut index = 0;
+        while index < Self::COUNT {
+            assert!(
+                all[index] as usize == index,
+                "ALL lists every kind in its declared position"
+            );
+            index += 1;
+        }
+        all
+    };
+
     /// The name the report uses for this kind.
-    #[must_use]
-    pub const fn name(self) -> &'static str {
+    pub(crate) const fn name(self) -> &'static str {
         match self {
             Self::Cache => "cache",
             Self::Directory => "directory",
@@ -108,47 +149,56 @@ impl Kind {
     ///
     /// The match is exhaustive by variant, so adding a kind is a compile
     /// error until its stage is decided.
-    #[must_use]
-    pub const fn stage(self) -> Stage {
+    pub(crate) const fn stage(self) -> Stage {
         match self {
-            Self::Object | Self::Staging => Stage::ObjectWrite,
-            Self::Marker => Stage::MarkerWrite,
-            Self::Cache | Self::Directory | Self::Record | Self::Root => Stage::RecordWrite,
+            Self::Object | Self::Staging => Stage::Object,
+            Self::Marker => Stage::Marker,
+            Self::Cache | Self::Directory | Self::Record | Self::Root => Stage::Record,
         }
     }
 
     /// The kind this one is counted under in the report.
     ///
-    /// A leftover staging file counts as an object, so `Staging` never
-    /// reaches the report.
-    #[must_use]
-    pub const fn reported(self) -> Self {
+    /// Every variant is spelled, so a kind added as a walk-only kind cannot
+    /// map to itself by falling through a catch-all and then be dropped by
+    /// [`Counts::finish`] for not being in [`REPORTED`]. A leftover staging
+    /// file counts as an object, so `Staging` never reaches the report.
+    pub(crate) const fn reported(self) -> Self {
         match self {
-            Self::Staging => Self::Object,
-            other => other,
+            Self::Object | Self::Staging => Self::Object,
+            Self::Cache => Self::Cache,
+            Self::Directory => Self::Directory,
+            Self::Marker => Self::Marker,
+            Self::Record => Self::Record,
+            Self::Root => Self::Root,
         }
     }
 }
 
-/// The kinds of path the repair reports, in the order it reports them.
-pub const REPORTED: [Kind; 6] = [
-    Kind::Cache,
-    Kind::Directory,
-    Kind::Marker,
-    Kind::Object,
-    Kind::Record,
-    Kind::Root,
-];
-
-/// The names of [`REPORTED`], in the same order: the report's kind column.
-pub const KINDS: [&str; REPORTED.len()] = {
-    let mut names = [""; REPORTED.len()];
+/// The kinds of path the repair reports, in the order it reports them: the
+/// report's kind column.
+///
+/// The list is derived from [`Kind::ALL`] rather than written out, so it
+/// cannot drift from [`Kind::reported`]: a kind is here exactly when it is
+/// counted under its own name. A kind added to [`Kind::ALL`] and counted
+/// under itself makes this array too short to hold every reported kind,
+/// which is a compile error; one counted under another kind, as `Staging` is
+/// counted under `Object`, leaves the report unchanged.
+pub(crate) const REPORTED: [Kind; 6] = {
+    let mut reported = [Kind::Object; 6];
     let mut index = 0;
-    while index < REPORTED.len() {
-        names[index] = REPORTED[index].name();
+    let mut slot = 0;
+    while index < Kind::COUNT {
+        let kind = Kind::ALL[index];
+        if kind as usize == kind.reported() as usize {
+            assert!(slot < reported.len(), "every reported kind has a place");
+            reported[slot] = kind;
+            slot += 1;
+        }
         index += 1;
     }
-    names
+    assert!(slot == reported.len(), "every place holds a reported kind");
+    reported
 };
 
 /// The mode a directory keeps: owner read, write, and search.
@@ -190,12 +240,19 @@ impl Counts {
 
     fn finish(self) -> Repaired {
         let mut changed = Vec::with_capacity(REPORTED.len());
+        let mut reported = 0;
         for kind in REPORTED {
+            let count = self.changed.get(&kind).copied().unwrap_or_default();
+            reported += count;
             changed.push(KindCount {
-                count: self.changed.get(&kind).copied().unwrap_or_default(),
+                count,
                 kind: kind.name(),
             });
         }
+        debug_assert_eq!(
+            reported, self.paths_changed,
+            "every narrowed path is counted under a kind the report lists"
+        );
         Repaired {
             changed,
             paths_changed: self.paths_changed,
@@ -395,13 +452,14 @@ mod tests {
     fn every_kind_is_reported_even_when_nothing_of_it_changed() {
         let repaired = Counts::default().finish();
         assert_eq!(repaired.changed.len(), REPORTED.len());
+        let kind_column = REPORTED.map(Kind::name);
         assert_eq!(
-            KINDS,
+            kind_column,
             ["cache", "directory", "marker", "object", "record", "root"],
             "the report's kind names and their order are the contract"
         );
         assert!(
-            !KINDS.contains(&"lock"),
+            !kind_column.contains(&"lock"),
             "the lock is never inspected, so it is never reported"
         );
         assert_eq!(repaired.paths_changed, 0);
@@ -439,7 +497,7 @@ mod tests {
             .expect("object is reported");
         assert_eq!(object.count, 1);
         assert!(
-            !KINDS.contains(&Kind::Staging.name()),
+            !REPORTED.map(Kind::name).contains(&Kind::Staging.name()),
             "staging is a walk kind, never a reported one"
         );
     }
@@ -452,28 +510,20 @@ mod tests {
         let file = home.path().join("wide");
         fs::write(&file, b"x").unwrap();
         fs::set_permissions(&file, fs::Permissions::from_mode(0o4777)).unwrap();
-        assert!(apply(&file, FILE_MASK, "wide", Stage::RecordWrite).unwrap());
+        assert!(apply(&file, FILE_MASK, "wide", Stage::Record).unwrap());
         assert_eq!(
             fs::metadata(&file).unwrap().permissions().mode() & 0o7777,
             0o600
         );
         assert!(
-            !apply(&file, FILE_MASK, "wide", Stage::RecordWrite).unwrap(),
+            !apply(&file, FILE_MASK, "wide", Stage::Record).unwrap(),
             "already narrow"
         );
 
         let unreadable_by_choice = home.path().join("closed");
         fs::write(&unreadable_by_choice, b"x").unwrap();
         fs::set_permissions(&unreadable_by_choice, fs::Permissions::from_mode(0o000)).unwrap();
-        assert!(
-            !apply(
-                &unreadable_by_choice,
-                FILE_MASK,
-                "closed",
-                Stage::RecordWrite
-            )
-            .unwrap()
-        );
+        assert!(!apply(&unreadable_by_choice, FILE_MASK, "closed", Stage::Record).unwrap());
         assert_eq!(
             fs::metadata(&unreadable_by_choice)
                 .unwrap()
@@ -487,7 +537,7 @@ mod tests {
         let object = home.path().join("object");
         fs::write(&object, b"x").unwrap();
         fs::set_permissions(&object, fs::Permissions::from_mode(0o600)).unwrap();
-        assert!(apply(&object, OBJECT_MASK, "object", Stage::ObjectWrite).unwrap());
+        assert!(apply(&object, OBJECT_MASK, "object", Stage::Object).unwrap());
         assert_eq!(
             fs::metadata(&object).unwrap().permissions().mode() & 0o7777,
             0o400,
@@ -518,7 +568,7 @@ mod tests {
 
     #[test]
     fn an_unreadable_path_is_an_interrupted_write() {
-        let refusal = unreadable("records/cases", Stage::RecordWrite);
+        let refusal = unreadable("records/cases", Stage::Record);
         assert_eq!(refusal.code, codes::WRITE_INTERRUPTED);
         assert!(refusal.is_retryable());
         assert_eq!(refusal.exit_code(), 4);
@@ -526,25 +576,17 @@ mod tests {
 
     #[test]
     fn a_refusal_reports_the_kind_of_path_the_repair_was_inspecting() {
-        assert_eq!(Kind::Object.stage(), Stage::ObjectWrite);
-        assert_eq!(Kind::Staging.stage(), Stage::ObjectWrite);
-        assert_eq!(Kind::Marker.stage(), Stage::MarkerWrite);
+        assert_eq!(Kind::Object.stage(), Stage::Object);
+        assert_eq!(Kind::Staging.stage(), Stage::Object);
+        assert_eq!(Kind::Marker.stage(), Stage::Marker);
         for kind in [Kind::Cache, Kind::Directory, Kind::Record, Kind::Root] {
-            assert_eq!(kind.stage(), Stage::RecordWrite);
+            assert_eq!(kind.stage(), Stage::Record);
         }
-        // The set of kinds is closed, so listing every one of them here is
-        // the whole mapping: a kind added without a stage is a compile
-        // error, and a kind added without a line here fails this assertion.
-        let all = [
-            Kind::Cache,
-            Kind::Directory,
-            Kind::Marker,
-            Kind::Object,
-            Kind::Record,
-            Kind::Root,
-            Kind::Staging,
-        ];
-        for kind in all {
+        // The set of kinds is closed and `Kind::ALL` holds all of it, so
+        // walking it is the whole mapping: a kind added without a stage is a
+        // compile error, and one added without a place in `ALL` does not
+        // compile either.
+        for kind in Kind::ALL {
             assert!(
                 Stage::ALL.contains(&kind.stage()),
                 "{} maps to a stage the write bucket names",
@@ -552,12 +594,45 @@ mod tests {
             );
         }
         for kind in REPORTED {
-            assert!(all.contains(&kind), "{} is one of the kinds", kind.name());
+            assert!(
+                Kind::ALL.contains(&kind),
+                "{} is one of the kinds",
+                kind.name()
+            );
         }
+        // The stage names are the ones the write-stage tables of
+        // `docs/error-contract.md` and `docs/architecture.md` list; a CLI
+        // test holds those two tables to the same names.
         assert_eq!(
             Stage::ALL.map(Stage::as_str),
             ["object_write", "record_write", "marker_write"]
         );
+    }
+
+    #[test]
+    fn every_kind_is_reported_under_a_kind_the_report_lists() {
+        for kind in Kind::ALL {
+            assert!(
+                REPORTED.contains(&kind.reported()),
+                "{} is counted under a reported kind",
+                kind.name()
+            );
+            let mut counts = Counts::default();
+            counts.note(kind, true);
+            let repaired = counts.finish();
+            let total: u64 = repaired.changed.iter().map(|entry| entry.count).sum();
+            assert_eq!(total, 1, "{} reaches the report", kind.name());
+        }
+        assert_eq!(
+            Kind::ALL.len(),
+            REPORTED.len() + 1,
+            "staging alone is walk-only"
+        );
+        let names: Vec<&str> = Kind::ALL.iter().map(|kind| kind.name()).collect();
+        let mut sorted = names.clone();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(names, sorted, "every kind has its own name, in name order");
     }
 
     #[test]
