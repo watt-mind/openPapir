@@ -1,0 +1,435 @@
+# Local archive layout and storage design
+
+## Status and scope
+
+This document is a **design for review**. It decides the on-disk layout and the
+storage technology of openPapir's local archive so that implementation issues
+can be written against something concrete. Nothing here is implemented: the
+executable still exposes only help, version, and `capabilities`, whose output
+is unchanged and still reports `"operations": []` and `"verified": false`
+([architecture](architecture.md)).
+
+It is follow-up 3 of
+[receipt evidence and local case model decisions](receipt-discovery.md), the
+only follow-up there with no external blocker. It turns that note's numbered
+proposals into decisions with rationale and rejected alternatives, and resolves
+or explicitly defers each of its open questions.
+
+Out of scope, deliberately: the import and association JSON and exit-code
+contract (follow-up 5), any receipt parsing (follow-up 7, blocked on evidence),
+any dependency on a sibling project, and any government format, identifier, or
+API. Container and `.es3` handling belong to openKRX and openSzigno
+([AGENTS.md](../AGENTS.md)); this design neither describes nor assumes their
+internals.
+
+Wording rule for everything below: importing bytes, associating records, and
+verifying authenticity are three separate records. No structure in this
+document may be read as evidence of delivery, receipt by an authority,
+authenticity, or legal effect.
+
+## Requirements recap
+
+The design is judged against requirements already recorded in this repository
+([SECURITY.md](../SECURITY.md), [AGENTS.md](../AGENTS.md), and the discovery
+note's numbered proposals):
+
+- Preserve originals unmodified and write-once; record derived data separately.
+- Atomic writes: an interrupted import leaves the whole artefact or nothing (5).
+- Owner-only permissions, with refusal to widen them (6).
+- Bounded input, refused before allocation (7).
+- A recorded schema version, refusal on newer versions, forward migrations that
+  never rewrite originals (8).
+- Export as a copy restorable without openPapir; reviewed backup and deletion
+  semantics (9, 10).
+- Cross-platform behaviour including Windows, and no network, telemetry,
+  upload, or background service anywhere.
+- All imported bytes are untrusted, including their names and reported sizes.
+
+## Storage technology decision
+
+**Decided: plain files are the system of record; any index is a rebuildable
+cache that is never authoritative.**
+
+Every durable fact lives in a file under the archive root: original bytes in a
+content-addressed object store, and every record as one small JSON document.
+An embedded database may later be added under `cache/` purely to accelerate
+listing and search, and it must be safe to delete and rebuild from the files at
+any time. The initial implementation ships no such index.
+
+Rationale. Each requirement above is satisfied by a single-file rename, which
+is the cheapest correct primitive available on every target platform. A backup
+is a directory copy; a restore is a directory copy back; an export is already
+almost the storage format, so "restorable without openPapir" costs nothing. A
+corrupt or truncated file damages one record instead of the archive. Forward
+migration rewrites record files and never touches the object store. Inspection
+uses ordinary tools, which matters for a project whose users hold sensitive
+personal correspondence and deserve to see what is stored about them.
+
+Rejected: **an embedded database as the system of record.** Holding original
+bytes in a database contradicts write-once preservation, makes byte-for-byte
+export a conversion rather than a copy, concentrates corruption risk in one
+file, and makes an archive unreadable without openPapir. Its transactional
+convenience is not needed at personal-archive scale.
+
+Rejected: **plain files with no index, ever.** Search is a roadmap goal, and
+forbidding a cache now would force a scan-everything implementation or a later
+reversal. Reserving the directory and the disposability rule costs nothing.
+
+Rejected: **a database for records plus files for blobs, both authoritative.**
+Two authorities need a consistency protocol between them, and every migration
+and backup must keep them in step. Making the database strictly derived removes
+that class of bug.
+
+## On-disk layout
+
+The archive root is supplied explicitly by the user. openPapir never searches
+for an archive, never adopts a directory it did not create, and never creates
+one implicitly as a side effect of another operation.
+
+```text
+<archive-root>/
+    papir-archive.json      schema version marker, written first
+    lock                    single-writer advisory lock
+    objects/
+        sha256/
+            ab/cd/abcd...   original bytes, write-once, read-only
+        incoming/           staging for object writes
+    records/
+        cases/<id>.json
+        submissions/<id>.json
+        receipts/<id>.json
+        imports/<id>.json
+        derived/<id>.json
+        associations/<id>.json
+        verifications/<id>.json
+    cache/                  disposable, rebuildable, never authoritative
+```
+
+`papir-archive.json` is the marker and the first file written when an archive
+is created. It records the archive schema version, the archive's own opaque
+identifier, and the creating version of openPapir. A root that contains
+anything else but no marker is refused, not adopted.
+
+Identifiers are 128-bit values from a cryptographically secure random source,
+rendered as 32 lowercase hex characters, and used as the record filename.
+Random rather than time-ordered: a sortable identifier leaks when correspondence
+was imported to anyone who sees a filename listing or a backup. Government
+identifiers, if any are ever parsed, are stored as attributes with a recorded
+source, never as primary keys (discovery note, decision 1).
+
+The whole archive root must be one filesystem. This is checked at creation and
+before each write, because the atomic write procedure depends on it.
+
+## Artefact store
+
+**Digest: SHA-256**, lowercase hex. The object path is derived from the digest
+as `objects/sha256/<first two hex chars>/<next two hex chars>/<full digest>`,
+which keeps directory fan-out bounded on filesystems that degrade with very
+large directories. The algorithm appears in the path so a second algorithm can
+be added later without moving existing objects.
+
+Rationale: SHA-256 is collision-resistant for this purpose, available without
+exotic dependencies, and reproducible by users with ordinary command-line
+tools, which matters for checking a backup outside openPapir. Rejected: BLAKE3,
+faster but less universally reproducible by a user's own tooling, for no
+benefit at these sizes; SHA-1 and MD5, collision-broken; SHA-512, longer paths
+for no gain.
+
+**The digest is a storage-layer identity only.** It says two files have the same
+bytes. It says nothing about authenticity, origin, integrity of a signature, or
+whether the file is a receipt at all. No user-facing wording may present it as
+verification.
+
+Objects are write-once. Once an object exists at its path it is never modified,
+truncated, or replaced, and its permissions are set to owner read-only. Deleting
+an object is a separate, explicit operation described under Deletion.
+
+## Records
+
+Every record is one JSON document, UTF-8, LF-terminated, with sorted keys so
+that diffs and backups are stable. Every record carries its own identifier, its
+record kind, the archive schema version it was written under, and a creation
+timestamp. Records reference each other by identifier only.
+
+**Case** — a user-created folder of related correspondence. Purely local; it
+corresponds to nothing any government service issues. Fields: identifier,
+user-supplied title, optional notes, creation timestamp.
+
+**Submission** — something the user states they sent, recorded from what the
+user has locally. openPapir sends nothing, so a submission is always imported
+or user-asserted. Fields: identifier, owning case, user-supplied description,
+optional user-supplied date, and zero or more artefact references with the role
+the user gave them. It never asserts that anything was received anywhere.
+
+**Receipt** — an imported artefact the user believes to be a receipt. Fields:
+identifier, artefact digest, the import event that introduced it, optional
+user-supplied label. It references its artefact and never rewrites it, and
+asserts nothing about the file's type or authenticity; it records what the user
+said when importing.
+
+**Import event** — one record per import attempt that stored or re-encountered
+bytes. Fields: identifier, artefact digest, byte length, timestamp, the
+original filename as supplied by the user's filesystem (an attribute only,
+never used to derive a path), and whether this import created the object or
+found it already present.
+
+**Derived metadata** — anything computed from an artefact: detected type,
+extracted text, parsed fields. Fields: identifier, artefact digest, extractor
+name and version, computation timestamp, and the derived payload. Derived
+records are disposable by definition: deleting all of them and recomputing must
+never alter an original or a user-entered record.
+
+**Association record** — described in its own section below.
+
+**Verification result** — the outcome of a specified cryptographic check
+performed by a named verifier. Fields: identifier, the exact artefact covered,
+the verifier's identity and version, the trust context supplied by the user,
+the precise scope of what was checked, and the outcome. Delegated `.es3` and
+container verification belong to openSzigno and openKRX; this record only
+stores what such a verifier reported, with its scope intact.
+
+### Separation of states
+
+Imported, matched, and authenticity-verified are separate records, not values
+of one status field, exactly as
+[receipt-discovery](receipt-discovery.md) requires. An import event may exist
+with no association and no verification result; a verification result may exist
+with no association. Creating an association must never create a verification
+result, and creating a verification result must never create an association.
+No record kind, field name, or output may be phrased as "delivered",
+"accepted", "official", or "legally effective".
+
+## Write procedure and platform behaviour
+
+Every write of every file follows the same procedure:
+
+1. Create the temporary file in the destination directory, named so that it
+   cannot collide with a record filename.
+2. Write the full content, then `fsync` the file.
+3. Rename the temporary file onto the final path.
+4. `fsync` the destination directory.
+
+Object writes stage in `objects/incoming/` because the digest, and so the
+destination path, is known only once the bytes have been read. That directory
+is inside the archive root, so the rename stays on one filesystem; a
+cross-device error abandons the write and the archive is refused as
+misconfigured. Both directories are `fsync`ed after the rename. A leftover
+staging file is never adopted — staging files are removed on startup — so an
+interrupted import leaves the complete object or nothing.
+
+A single advisory `lock` file admits one writer at a time; a second writer
+refuses rather than waiting indefinitely. Concurrent readers are safe because
+no file is ever modified in place.
+
+**Windows degradation.** Two guarantees weaken and must be reported rather than
+assumed:
+
+- Directory `fsync` has no portable equivalent, so the durability of the rename
+  itself after a power loss is weaker than on POSIX. The file content is still
+  flushed; the directory entry may not be.
+- Replacing an existing file can fail when another process holds it open, and
+  owner-only access is expressed as an access-control list rather than a
+  permission bit, so it depends on the underlying filesystem supporting them.
+
+Each weakening is a named condition the implementation must report at the point
+of the write and in any archive health output. Its wire name and JSON shape
+belong to the error-contract issue (follow-up 5) and are deliberately not fixed
+here. What is fixed: degradation is reported, never silently accepted and never
+described as equivalent.
+
+## Limits and permissions
+
+The archive root and every directory inside it are created owner-only; files
+are created owner-read-write and objects become owner-read-only once stored.
+openPapir never widens permissions on an existing archive, and it refuses to
+operate on one whose permissions are already wider, reporting what it found. It
+offers no flag to override this. The consequence, accepted deliberately, is
+that archives on filesystems that cannot express owner-only access are
+unsupported.
+
+Caps are **initial proposals, adjustable by review**. They exist to bound
+resource use, and are never relaxed to make one particular input succeed
+([AGENTS.md](../AGENTS.md)):
+
+- Single file: 64 MiB. The one observed operator statement about attachment
+  size is 25 MB (discovery note, E1, descriptive only); this leaves headroom
+  without being unbounded.
+- Total bytes per import operation: 512 MiB.
+- Files per import operation: 1000.
+- Single record document: 1 MiB, which bounds derived metadata as well.
+- Original filename: 255 bytes, stored as an attribute only.
+
+Every cap is checked before allocation, from the size the filesystem reports,
+and enforced again while streaming, because a file may grow or the reported
+size may be wrong. Exceeding a cap mid-stream aborts the write and removes the
+staging file. Container expansion, XML complexity, and extraction safety are
+not implemented here and stay with openKRX and openSzigno.
+
+## Duplicate import
+
+Re-importing bytes already present is **not an error**. The object is left
+untouched and a second import event is recorded against the existing artefact,
+so the user is told the file is already present and when it was imported
+before. The number of import events for an artefact is therefore meaningful
+history, not an anomaly.
+
+Before recording a duplicate the stored object's byte length is compared with
+the incoming length; a mismatch means the store is damaged and is reported as
+such rather than overwritten. The stored object is not fully re-read on every
+import, for cost reasons; an explicit whole-archive integrity check is a
+candidate follow-up.
+
+## Association records
+
+An association is a separate record with its own evidence, never a foreign key
+implying certainty. Fields: identifier, receipt identifier, optional submission
+identifier, outcome, evidence list, confidence, who created it (`user` or
+`automatic`), timestamp, and an optional reference to the record it supersedes.
+
+Outcomes are exactly:
+
+- `unassociated` — no evidence links the receipt to any submission.
+- `candidate` — one or more possible submissions, each with its own evidence.
+  A candidate set is never collapsed to a single best guess automatically.
+- `associated` — the user confirmed a candidate, or the evidence is
+  unambiguous by a rule recorded in the evidence itself.
+- `contradictory` — evidence of associating strength points at more than one
+  submission. All of it is retained; nothing is discarded to resolve it.
+
+Each evidence entry records its kind, the derived record and extractor version
+it came from or that the user asserted it, and a readable statement of what was
+observed. Confidence is an ordinal label from a closed set — `weak`,
+`moderate`, `strong` — and explicitly not a probability, because no calibration
+data exists and a number would imply one. Records are append-only: a change
+writes a new record superseding the previous one, so history is inspectable. An
+association never implies delivery, receipt by an authority, authenticity, or
+legal effect ([architecture](architecture.md)).
+
+## Export and backup
+
+Export writes a directory holding, for each exported artefact, the original
+bytes copied **byte for byte** under a sanitised form of the recorded original
+filename, plus a `.metadata.json` sidecar carrying the digest, byte length,
+import events, and the related case, submission, receipt, association, and
+verification records. A top-level manifest lists every exported file with its
+digest and is authoritative when sanitisation forced a suffix onto a colliding
+name. Export re-digests each copy and fails if it differs; it never converts,
+re-encodes, or normalises an original. The result is restorable without
+openPapir: the files are the files, the sidecars are readable JSON.
+
+A backup is a copy of the whole archive root taken while no openPapir process
+holds the lock; `cache/` may be omitted. Encryption at rest is not designed
+here; see the deferred question below.
+
+## Deletion
+
+Deleting a case deletes its records and does **not** delete objects by default.
+Objects go only by an explicit purge, and only when no remaining record
+references them. Each retained object is reported with the record still
+referencing it, and each object with no remaining reference is reported as an
+orphan; a purge never leaves an unreported orphan.
+
+Deletion is real: the record files are removed. The event recorded afterwards
+holds counts and record kinds only — no filenames, digests, or titles — because
+a digest is a fingerprint of the deleted content and keeping one would defeat
+the purge. openPapir keeps no immutable audit log of a user's own
+correspondence; here privacy outweighs auditability. Deletion does not erase
+data from the storage medium and must not claim to; backups already taken are
+outside openPapir's reach.
+
+## Schema versioning and migration
+
+`papir-archive.json` records `archive_schema_version`, an integer whose first
+value is 1. The rules:
+
+- A version **newer** than the running openPapir supports: refuse every
+  operation, including read-only ones, with a distinct error. No best-effort
+  read, no partial listing, no repair attempt.
+- A version **older** than supported: refuse writes and report that a migration
+  is required. Migration is an explicit user action and never runs
+  automatically as a side effect of another command.
+- Migration is **forward-only**. There is no downgrade. The tool states that a
+  backup should be taken first.
+- Migration may add and rewrite record files and may rebuild `cache/`. It
+  **never** rewrites, moves, or re-digests anything under `objects/`. Original
+  bytes survive every migration untouched.
+- The new version marker is written last, by the same atomic procedure, after
+  the migrated records are durable. An interrupted migration therefore leaves
+  the old version marker and is safely re-runnable.
+
+## Open questions resolved or deferred
+
+The discovery note left seven open questions
+([receipt-discovery](receipt-discovery.md)). Their status here:
+
+1. **Storage technology — resolved.** Plain files as the system of record with
+   a disposable, rebuildable index, as decided above.
+2. **Whether one submission can yield byte-different receipts — deferred.**
+   Blocked on the note's findings F1 and F6; it closes only on a retrieved
+   normative or operator statement about whether a receipt is reissued,
+   superseded, or re-downloadable and whether reissues are byte-identical. The
+   layout already tolerates either answer, because artefact identity is a
+   storage fact and receipts are separate records, so several receipts may
+   reference one submission.
+3. **One artefact plausibly a receipt for two submissions — partly resolved.**
+   The record shape is decided: outcome `contradictory`, all evidence retained,
+   no automatic collapse. The user-facing resolution flow is deferred to the
+   association implementation issue; it is a workflow question, not a storage
+   one.
+4. **Recomputing derived metadata on extractor upgrade — resolved.** Never
+   automatic. Derived records carry the extractor name and version; one from an
+   older extractor is reported as stale and recomputed only on explicit
+   request. That keeps listings reproducible and avoids background work.
+5. **Retention of import events and association history — resolved.** History
+   is deletable: deleting a case deletes its import events and association
+   records with it, and openPapir keeps no immutable log of the user's own
+   correspondence. Whether a separate "delete history, keep artefacts"
+   operation is worth offering is deferred to the association issue.
+6. **Windows parity — resolved as documented degradation.** Owner-only access
+   is required with no override, so filesystems that cannot express it are
+   refused rather than silently accepted; the two weakened guarantees above are
+   named, reportable conditions whose wire representation belongs to the error
+   contract.
+7. **Encrypted backup at rest — deferred.** It needs a threat model and a
+   key-handling decision under [SECURITY.md](../SECURITY.md), not a layout
+   decision. Nothing above precludes it; whole-tree and per-object encryption
+   both remain open. Until it is decided the archive relies on operating-system
+   disk encryption and owner-only permissions, and users must be told so
+   plainly.
+
+## Unblocked follow-ups
+
+This design unblocks the following bounded implementation issues, which the
+tracker owns; the sequencing only is recorded here.
+
+- **Artefact import with byte preservation** (discovery note follow-up 4):
+  archive creation and the version marker, the content-addressed store, the
+  atomic write procedure, permissions, caps, and duplicate import events.
+  Depends on this document only.
+- **Import and association error codes with their JSON and exit-code contract**
+  (follow-up 5), including the named degradation and refusal conditions above.
+  Depends on this document, can be specified in parallel with import, and must
+  be agreed before import prints anything machine-readable.
+- **Association records with candidate and contradictory outcomes**
+  (follow-up 6): the record shape above, using local evidence only and no
+  receipt parsing. Depends on artefact import.
+- **Whole-archive integrity check** (new): re-digest stored objects and report
+  damage and orphans. Depends on artefact import.
+- **Derived-metadata staleness and recompute-on-request** (new). Depends on
+  artefact import.
+
+Unchanged blockers: receipt parsing still needs the format gap closed
+(follow-up 1), and the delegated verification boundary still needs published,
+versioned contracts from openKRX and openSzigno (follow-up 8).
+
+## Limits of this design
+
+It is a layout, not an implementation, and no capability follows from it. The
+caps are proposals chosen for safety rather than measurement, and no
+performance work has been done. It assumes one user and one writing process on
+one local filesystem; network filesystems and multi-user archives are not
+designed for. It fixes no response schema, exit code, command name, or field of
+any government artefact, and assumes nothing about what a receipt contains,
+because nothing is yet established about that
+([receipt-discovery](receipt-discovery.md)). Treat every number and name above
+as reviewable.

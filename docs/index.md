@@ -3,6 +3,7 @@
 - [Architecture and CLI contract](architecture.md)
 - [Roadmap and discovery gates](roadmap.md)
 - [Receipt evidence and local case model decisions](receipt-discovery.md)
+- [Local archive layout and storage design](archive-layout.md)
 - [Testing and fixture policy](testing.md)
 - [References and evidence policy](references.md)
 - [Contributing](../CONTRIBUTING.md)
