@@ -261,6 +261,7 @@ question the privacy rule allows an answer to.
     ],
     "records_checked": 1,
     "records_unchecked": 0,
+    "records_staging_files": 0,
     "staging_files": 0
   },
   "verified": false
@@ -287,7 +288,12 @@ only those three kinds reference an object; while `records/cases` or
 `records/associations` is unread a reference that would name one of them is
 left unjudged rather than counted as a dangling reference. A record directory
 that is simply absent is read as empty and is not counted here.
-`staging_files` counts what `objects/incoming/` still holds.
+`staging_files` counts what `objects/incoming/` still holds, and
+`records_staging_files` counts the leftover staging files the `records/<kind>`
+directories hold together. A staging file is openPapir's own transient
+artefact from an interrupted write: it is never a record and never a malformed
+one, no code is reported for it, it does not affect the exit code, and the
+check leaves it exactly where it is, because removing it is a write.
 
 A clean archive exits `0` with `ok` `true`. When the check finds something,
 `ok` is `false`, the report stays in `data`, and `error` names the first

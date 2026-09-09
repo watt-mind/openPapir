@@ -42,17 +42,45 @@ const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x0000_0010;
 /// Returns the underlying I/O error. A refusal of the path because it is a
 /// link answers [`is_no_follow_refusal`].
 pub fn open_no_follow(path: &Path) -> io::Result<File> {
+    open_no_follow_inner(path, false)
+}
+
+/// Open a file for reading without following a link and without waiting.
+///
+/// It is [`open_no_follow`] with the platform's non-blocking flag added, and
+/// every other rule of that function holds unchanged. The flag is what keeps
+/// the open itself bounded where a directory holds untrusted entries: a named
+/// pipe with no writer would otherwise hold the open call open forever. It
+/// changes nothing for a regular file, which is the only thing a caller here
+/// goes on to read. Only Unix has such a flag; every other platform opens
+/// exactly as [`open_no_follow`] does, because there is nothing to add.
+///
+/// # Errors
+///
+/// Returns the underlying I/O error, exactly as [`open_no_follow`] does.
+pub fn open_no_follow_nonblocking(path: &Path) -> io::Result<File> {
+    open_no_follow_inner(path, true)
+}
+
+/// The one no-follow open both variants share, so that the rule has one
+/// implementation per platform rather than one per caller.
+fn open_no_follow_inner(path: &Path, nonblocking: bool) -> io::Result<File> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt as _;
-        OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_NOFOLLOW)
-            .open(path)
+        let flags = if nonblocking {
+            libc::O_NOFOLLOW | libc::O_NONBLOCK
+        } else {
+            libc::O_NOFOLLOW
+        };
+        OpenOptions::new().read(true).custom_flags(flags).open(path)
     }
     #[cfg(windows)]
     {
         use std::os::windows::fs::{MetadataExt as _, OpenOptionsExt as _};
+        // There is no non-blocking open to add here, so the open is the
+        // no-follow one unchanged.
+        let _ = nonblocking;
         let file = OpenOptions::new()
             .read(true)
             .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS)
@@ -74,6 +102,7 @@ pub fn open_no_follow(path: &Path) -> io::Result<File> {
     }
     #[cfg(not(any(unix, windows)))]
     {
+        let _ = nonblocking;
         if is_symlink(path) {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -537,6 +566,46 @@ mod tests {
             assert!(is_no_follow_refusal(&refused), "the open refused the link");
             assert!(is_symlink(&linked));
             assert!(!is_symlink(&file));
+        }
+    }
+
+    #[test]
+    fn the_non_blocking_variant_is_the_same_open_with_the_same_no_follow_rule() {
+        let directory = tempfile::tempdir().unwrap();
+        let file = directory.path().join("note.txt");
+        fs::write(&file, b"synthetic").unwrap();
+        assert!(
+            open_no_follow_nonblocking(&file).is_ok(),
+            "a regular file opens exactly as it does through the blocking open"
+        );
+        let absent = open_no_follow_nonblocking(&directory.path().join("absent.txt")).unwrap_err();
+        assert_eq!(absent.kind(), io::ErrorKind::NotFound);
+        assert!(!is_no_follow_refusal(&absent));
+        #[cfg(unix)]
+        {
+            let linked = directory.path().join("linked.txt");
+            std::os::unix::fs::symlink(&file, &linked).unwrap();
+            let refused = open_no_follow_nonblocking(&linked).unwrap_err();
+            assert!(
+                is_no_follow_refusal(&refused),
+                "the link is refused by the open itself, non-blocking or not"
+            );
+
+            // The flag the variant adds is the one that keeps the open
+            // bounded: a pipe with no writer would hold a blocking open open
+            // forever, so only the non-blocking one is asked to open it.
+            let pipe = directory.path().join("pipe");
+            let made = std::process::Command::new("mkfifo")
+                .arg(&pipe)
+                .status()
+                .is_ok_and(|status| status.success());
+            if made {
+                let opened = open_no_follow_nonblocking(&pipe).expect("the open returns at once");
+                assert!(
+                    !opened.metadata().unwrap().is_file(),
+                    "the handle is refused on its kind rather than read"
+                );
+            }
         }
     }
 

@@ -99,6 +99,12 @@ pub struct Report {
     /// is unread, and no reference into an unread directory is called
     /// dangling. A directory that is simply not there is not counted here.
     pub records_unchecked: u64,
+    /// How many leftover staging files the record directories hold together.
+    /// A staging file is openPapir's own transient artefact from an
+    /// interrupted write, so it is neither a record nor a malformed one and
+    /// is not counted as a problem. It is counted and left where it is; the
+    /// check deletes nothing.
+    pub records_staging_files: u64,
     /// How many leftover staging files the incoming directory holds. They are
     /// counted and left where they are; the check deletes nothing.
     pub staging_files: u64,
@@ -265,6 +271,7 @@ fn run(root: &Path) -> Report {
         problems: problems(&counts),
         records_checked: found.records_checked,
         records_unchecked: found.records_unchecked(),
+        records_staging_files: found.records_staging(),
         staging_files: store.staging_files,
         counts,
         malformed_kind,
