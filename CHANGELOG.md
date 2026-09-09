@@ -11,8 +11,8 @@ There are no published releases. Every entry below is unreleased work on
 `schema_version` field, which is `1`.
 
 Every pull request adds an entry under Unreleased, in the category that
-matches the observable difference. See the Documentation section of
-[CONTRIBUTING.md](CONTRIBUTING.md).
+matches the observable difference, unless the changelog rules waive it. See
+the Documentation section of [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Unreleased
 
