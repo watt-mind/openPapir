@@ -206,6 +206,11 @@ delivery, receipt by an authority, authenticity, or legal effect.
   variable used by the toolchain selection, the banner assertion, and the
   `Cargo.toml` guard; only the job name and the action pin comment still
   spell it out.
+- The Association records section of `docs/archive-layout.md` states the
+  candidate count per outcome exactly as `docs/error-contract.md` does: one or
+  more candidates for `candidate`, two or more for `contradictory`, exactly
+  one for `associated`, and none for `unassociated`. The design previously
+  said "several" for both `candidate` and `contradictory`. No rule changed.
 
 ### Fixed
 
