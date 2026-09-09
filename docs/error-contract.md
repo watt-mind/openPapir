@@ -202,7 +202,13 @@ unknown or when including it would breach the privacy rule.
 - **`usage.arguments`**: usage, not retryable. The command line is
   malformed, or a flag's value is unusable, before any archive is touched.
   Details: `bucket`, `argument` (the flag or positional name, never its
-  value).
+  value). An invocation the argument parser itself rejects is this code too:
+  with `--json` it is rendered as the envelope like any other refusal, and
+  without `--json` the parser's own usage text is written to stderr instead.
+  `argument` is then reported only when the parser named a flag or value name
+  the build defines; a token the user invented is text they typed, so it is
+  omitted rather than echoed. `--help` and `--version` are not refusals: they
+  are written to stdout and exit `0`.
 - **`usage.archive_root_missing`**: usage, not retryable. No archive root was
   supplied, or the supplied path does not exist. The root is always supplied
   explicitly; openPapir never searches for an archive
@@ -291,7 +297,9 @@ followed ([archive-layout](archive-layout.md)).
   symbolic link is one: the archive root, a directory inside it, an object, a
   record, or a component of an export destination. Details: `bucket`,
   `archive_path` when the path is inside the archive; otherwise `bucket` and
-  `scope` (`archive` or `export_destination`) only. The whole-archive
+  `scope` (`archive`, `export_destination`, or `input`) only. `input` names a
+  path the user supplied on the command line, which is outside the archive and
+  has no archive-relative form. The whole-archive
   integrity check adds `path_count` additively and omits `archive_path`,
   because it may find several such paths and may name none of them.
 - **`path.traversal`**: input, not retryable. A path derivation would leave
@@ -452,10 +460,22 @@ storage medium and no message may claim that it does.
 ### `platform`: environment cannot provide a guarantee
 
 - **`platform.filesystem_unsupported`**: platform, not retryable. The
-  filesystem cannot express owner-only access, so the archive is unsupported.
-  This is a deliberate refusal, not a degradation
-  ([archive-layout](archive-layout.md)). Details: `bucket`.
+  filesystem cannot provide a guarantee the archive requires, so the archive
+  is unsupported there. Two conditions reach it: the filesystem cannot express
+  owner-only access, and the filesystem cannot create the hard link the atomic
+  write procedure publishes with, which is the case on FAT32 and exFAT. This
+  is a deliberate refusal, not a degradation, and not retryable: the same call
+  on the same filesystem never succeeds
+  ([archive-layout](archive-layout.md)). Details: `bucket`, `capability`
+  (`hard_link` or `owner_only`), `stage`. The codes that map to it are
+  whatever the platform reports for an unsupported operation: on Unix `EPERM`,
+  which `link(2)` documents as the filesystem not supporting hard links, and
+  `EOPNOTSUPP`; on Windows `ERROR_INVALID_FUNCTION` (1) and
+  `ERROR_NOT_SUPPORTED` (50). Every other failure of the same call keeps its
+  own code, so a permission or space failure is still `write.interrupted`.
 - **`platform.no_directory_fsync`**: platform. Used as a **warning**, never
+  as an error; see below.
+- **`platform.no_follow_after_open`**: platform. Used as a **warning**, never
   as an error; see below.
 - **`platform.replace_while_open`**: platform, **retryable**. Replacing a
   file failed because another process holds it open. As an error this stops
@@ -518,6 +538,12 @@ envelope; it is never dropped because the command ended badly.
 - **`platform.owner_only_via_acl`**: owner-only access is expressed as an
   access-control list rather than a permission bit and therefore depends on
   the underlying filesystem. Details: `bucket`.
+- **`platform.no_follow_after_open`**: the platform has a no-follow open flag,
+  so no path is stat-ed before it is opened, but the flag opens the link
+  itself rather than failing, so the refusal comes from the handle openPapir
+  opened rather than from the system call. The reparse tag is not
+  distinguished either, so a junction is refused as `path.symlink` like a
+  symbolic link. Emitted on Windows. Details: `bucket`.
 
 A warning is never omitted because the command otherwise succeeded, and
 success is never reported without the warning that applies. Where an

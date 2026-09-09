@@ -182,6 +182,16 @@ delivery, receipt by an authority, authenticity, or legal effect.
   rule reports, matching the rule names, under the column heading `Violation
   reported`, instead of the contract stating the satisfied invariant and the
   architecture the violation. No rule name, code, or behaviour changed.
+- `path.symlink` gained the `scope` value `input`, and an input that is a
+  symbolic link now carries it. The refusal previously carried its bucket
+  alone, because the value set named nothing for a path outside the archive.
+  The path itself is still never echoed and no `archive_path` is reported.
+- `platform.filesystem_unsupported` is reachable. A filesystem that cannot
+  create the hard link the archive's write procedure publishes with, FAT32 and
+  exFAT among them, is now refused with that code and exit `5`, naming
+  `capability` `hard_link` and the `stage`. It was previously reported as the
+  retryable `write.interrupted` with exit `4`, which invited a retry that could
+  never succeed. Every other failure of the same call keeps `write.interrupted`.
 - `docs/receipt-discovery.md` presents its evidence matrix as one subsection
   per source (E1 to E6) with a definition-style list of the same fields,
   instead of a nine-column table whose rows were unreadable in the raw
@@ -256,6 +266,28 @@ delivery, receipt by an authority, authenticity, or legal effect.
   stored object as an orphan and exited `4` over a permission error. The
   record listings the record commands use are unchanged: they still report
   the records that are there.
+- An argument-parser failure under `--json` is now the response envelope, with
+  `usage.arguments` and exit `2`, instead of usage text on stderr and no
+  envelope at all. A machine caller therefore reads one shape for every
+  refusal. Without `--json` the parser's own usage text is unchanged, and
+  `--help` and `--version` still print to stdout and exit `0`. `details`
+  names the flag or value name the parser complained about only when this
+  build defines it, so a token the user invented is never echoed back.
+- A no-follow open on Windows carries `FILE_FLAG_OPEN_REPARSE_POINT` and
+  refuses the opened reparse point, instead of stat-ing the path first and
+  then opening it. The pre-check was a time-of-check-to-time-of-use gap rather
+  than a defence, and it also missed an NTFS junction, which the standard
+  library's symbolic-link test does not report. A junction, and every other
+  reparse point, inside the archive is now refused as `path.symlink`. The
+  degradation that remains is reported as the new
+  `platform.no_follow_after_open` warning. Unix behaviour is unchanged.
+- `archive.permissions_wide` can no longer name the archive path `.` with a
+  `path_count` of `0`. The refusal takes the path it names plus the further
+  paths it counts, so the refused set is non-empty by the signature.
+- A directory at a stored object's path is reported as `path.overwrite` rather
+  than `archive.permissions_wide` when it is also wider than owner-only. The
+  shape of the path is now checked before its permissions, because a directory
+  openPapir did not create is the problem, not the permissions it never set.
 - The MSRV CI job passes a `prefix-key` naming the MSRV to
   `Swatinem/rust-cache`, whose key otherwise derived from the runner's stable
   `rustc` while the job compiles under 1.88.0, so the cache never hit.

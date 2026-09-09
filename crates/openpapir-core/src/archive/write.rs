@@ -9,6 +9,9 @@
 //! name. That is atomic, stays on one filesystem exactly as the design
 //! requires, and, unlike a rename, cannot silently replace a file openPapir
 //! did not create: the destination is refused as `path.overwrite` instead.
+//! A filesystem that cannot create a hard link at all cannot host an archive,
+//! and says so as `platform.filesystem_unsupported` rather than as the
+//! retryable `write.interrupted`.
 
 use std::fs::{self, File};
 use std::io::Write as _;
@@ -89,7 +92,7 @@ impl Staging {
             ));
         }
         fs::hard_link(&self.path, destination)
-            .map_err(|error| paths::publish_refusal(&error, archive_path, stage))?;
+            .map_err(|error| paths::link_refusal(&error, archive_path, stage))?;
         let _ = fs::remove_file(&self.path);
         self.file = None;
         let mut warnings = Vec::new();

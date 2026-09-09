@@ -162,6 +162,7 @@ impl Archive {
         check_root_shape(root)?;
         if !cfg!(unix) {
             warnings.push(paths::owner_only_via_acl_warning());
+            warnings.push(paths::no_follow_after_open_warning());
         }
         let marker = read_marker(root)?;
         check_permissions(root)?;
@@ -305,10 +306,10 @@ fn check_permissions(root: &Path) -> std::result::Result<(), Diagnostic> {
             wide.push(relative.to_owned());
         }
     }
-    if wide.is_empty() {
+    let Some((first, others)) = wide.split_first() else {
         return Ok(());
-    }
-    Err(paths::wide_permissions_refusal(wide))
+    };
+    Err(paths::wide_permissions_refusal(first, others))
 }
 
 /// Read and parse the marker, refusing a missing or unreadable one.

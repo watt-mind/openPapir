@@ -616,11 +616,11 @@ construction the later of the two.
 | Guarantee | How it is kept |
 | --- | --- |
 | Atomic write | The content is written to a staging file inside the archive root, flushed, linked into place, and the destination directory is flushed. The staging name is then removed. |
-| Never overwrite | The publish step is a hard link, which fails rather than replacing an existing file, so a destination openPapir did not create is refused as `path.overwrite`. |
+| Never overwrite | The publish step is a hard link, which fails rather than replacing an existing file, so a destination openPapir did not create is refused as `path.overwrite`. A filesystem that cannot create a hard link at all, FAT32 and exFAT among them, cannot host an archive and is refused as `platform.filesystem_unsupported` rather than as the retryable `write.interrupted`. |
 | Interrupted write | A leftover staging file is never adopted, so the archive holds the complete file or nothing. |
 | One filesystem | The root and its layout directories must share one device. A cross-device publish is refused as `path.cross_device`. |
 | Owner-only | Directories are created `0o700`, files `0o600`, and stored objects become `0o400`. The root, the marker, the lock file, every layout directory, and each stored object and fan-out directory the operation touches are checked before anything is published; a wider one is refused as `archive.permissions_wide`, naming the archive-relative path. There is no override flag, and nothing is ever narrowed implicitly: an existing path is refused, not repaired. |
-| Path safety | Input files are opened with the platform's no-follow flag, symbolic links inside the archive are refused, and a user-supplied filename is never joined into a path. |
+| Path safety | Input files are opened with the platform's no-follow flag, `O_NOFOLLOW` on Unix and `FILE_FLAG_OPEN_REPARSE_POINT` on Windows, and no path is stat-ed before it is opened. Symbolic links inside the archive are refused, on Windows together with NTFS junctions and every other reparse point, and a user-supplied filename is never joined into a path. |
 | Single writer | A `lock` file recording the holder's process identifier, host, and start time admits one writer. A second writer refuses with `lock.held` rather than waiting. |
 
 ## Input caps
@@ -660,11 +660,20 @@ emitted.
 | `2` | `usage` | `usage.arguments`, `usage.archive_root_missing` |
 | `3` | `input`, `path` | the six cap codes above, `path.symlink`, `path.overwrite`, `path.cross_device` |
 | `4` | `archive`, `lock`, `write`, `record`, `integrity` | `record.not_found`, `record.malformed`, `record.inconsistent`, `archive.marker_missing`, `archive.marker_malformed`, `archive.adopt_refused`, `archive.schema_newer`, `archive.schema_older`, `archive.permissions_wide`, `archive.multiple_filesystems`, `lock.held`, `write.interrupted`, `integrity.digest_mismatch`, `integrity.length_mismatch`, `integrity.dangling_reference`, `integrity.orphan_object` |
-| `5` | `platform` | None. The named degradations are warnings, and `platform.filesystem_unsupported` is not detected yet. |
+| `5` | `platform` | `platform.filesystem_unsupported`, for a filesystem that cannot create the hard link the publish step needs. The named degradations are warnings, and the owner-only condition of the same code is not detected yet. |
 | `6` | `internal` | `internal.unexpected` |
 
-An invocation the argument parser rejects exits `2` with the parser's usage
-text on stderr and no envelope, as it did before.
+An invocation the argument parser rejects exits `2` as `usage.arguments`.
+With `--json` it is one envelope on stdout and nothing on stderr, so a machine
+caller reads the same shape it reads for every other refusal; without `--json`
+it is the parser's own usage text on stderr and no envelope. `--json` is found
+in the raw arguments, because the parse that would have reported the flag is
+the one that failed, and a token after `--` is a positional value rather than
+the flag. `details.argument` names the flag or value name the parser
+complained about, and only when this build defines it: an invented token is
+text the user typed and is never echoed. The envelope's `command` is the
+subcommand path that was recognised, or `openpapir` when none was.
+`--help` and `--version` are not refusals and still exit `0`.
 
 Every other code in [error-contract](error-contract.md) is unimplemented,
 including all `export` and `delete` codes, `lock.stale`, `path.traversal`, and
@@ -743,9 +752,17 @@ supplied root once, deliberately, as part of creating the archive; after that
 every wider path is refused. The explicit repair action the design describes,
 which only narrows and reports every path it changed, is not implemented.
 
-An input that is a symbolic link is refused with `path.symlink` carrying its
-bucket alone. The contract fixes `scope` as `archive` or `export_destination`
-and names no value for an input outside the archive, so none is invented.
+An input that is a symbolic link is refused with `path.symlink` carrying
+`scope` `input`. The path is outside the archive, so it has no
+archive-relative form and no `archive_path` is reported; the path itself is
+user-supplied and is never echoed. The refusal comes from the no-follow open
+itself, not from a check that precedes it, so nothing is stat-ed first.
+
+An object's path that holds something openPapir did not create is checked for
+its shape before its permissions. A directory at an object's path is
+`path.overwrite`, not `archive.permissions_wide`, however wide it is: it is
+not an object whose permissions the archive could have set, so naming its
+permissions would describe the wrong problem.
 
 An import-event record that cannot be parsed is skipped when counting a
 duplicate's history rather than reported, so `previous_import_count` is a count
@@ -763,10 +780,18 @@ changes the exit code.
 | --- | --- |
 | `platform.no_directory_fsync` | The directory entry a publish created may not be durable, although the file content was flushed. Emitted where the platform has no directory flush, and also where the flush was attempted and failed, with `stage`. |
 | `platform.owner_only_via_acl` | Owner-only access is an access-control list rather than a permission bit, so it depends on the filesystem. Emitted on Windows. |
+| `platform.no_follow_after_open` | The no-follow flag opens the link itself rather than failing, so the refusal comes from the handle openPapir opened, and the reparse tag is not distinguished. Emitted on Windows, once per archive opened. |
 
-On Windows the no-follow flag has no portable equivalent, so a symbolic link is
-detected by a preceding check rather than by the open itself, which is the
-weaker guarantee the design records rather than a faked Unix semantic.
+On Windows a no-follow open carries `FILE_FLAG_OPEN_REPARSE_POINT`, so the
+reparse point is opened and never its target, and the handle is then refused
+when the file it names is one. No path is stat-ed before it is opened, so the
+time-of-check-to-time-of-use gap a preceding check would leave does not exist.
+What remains weaker is named above and reported: the refusal is of the opened
+link rather than of the open, and openPapir refuses every reparse point as
+`path.symlink` without saying whether it was a symbolic link, an NTFS
+junction, or another tag. Refusing all of them is deliberate: the archive
+creates no reparse point of its own, so one it finds inside the archive is
+something it did not create.
 
 ## Privacy of output
 

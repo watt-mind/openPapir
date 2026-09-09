@@ -40,6 +40,10 @@
 //! state, `5` platform, `6` internal. `1` is never emitted. The catalogue is
 //! `docs/error-contract.md`.
 //!
+//! An invocation the argument parser rejects is the same contract: with
+//! `--json` it is one `usage.arguments` envelope on stdout, and without it the
+//! parser's own usage text on stderr. Both exit `2`.
+//!
 //! # Boundaries
 //!
 //! No network access and no background work. Output never carries a
@@ -52,6 +56,7 @@
 
 mod envelope;
 mod report;
+mod usage;
 
 use std::path::PathBuf;
 
@@ -276,7 +281,19 @@ enum AssociationCommand {
 }
 
 fn main() {
-    let code = match Args::parse().command {
+    // The arguments are kept before the parse, because an invocation the
+    // parser rejects still has to say whether it asked for the JSON form.
+    let arguments: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
+    let code = match Args::try_parse() {
+        Ok(parsed) => run(parsed.command),
+        Err(error) => usage::report::<Args>(&error, &arguments),
+    };
+    std::process::exit(code);
+}
+
+/// Dispatch one parsed command and return the process exit code.
+fn run(command: Command) -> i32 {
+    match command {
         Command::Capabilities { json } => emit(
             "capabilities",
             Ok(Outcome {
@@ -338,8 +355,7 @@ fn main() {
         ),
         Command::Receipt { command } => run_receipt(command),
         Command::Association { command } => run_association(command),
-    };
-    std::process::exit(code);
+    }
 }
 
 /// Dispatch one `case` subcommand and return the process exit code.
