@@ -259,9 +259,10 @@ delivery, receipt by an authority, authenticity, or legal effect.
   kind and the length from the handle it will read from, instead of checking
   the path and opening it afterwards, so a local writer can no longer swap a
   regular file for a symbolic link between the check and the read. The read is
-  capped as well as checked. Every observable refusal is unchanged:
-  `record.not_found` for a document that is not there, `record.malformed` for
-  one that is not a regular file or is not a valid record, and
+  capped as well as checked. Refusals are `record.not_found` for a document
+  that is not there, `record.malformed` for one that is not a regular file, is
+  not a valid record, or could not be opened for a reason other than absence
+  (previously such a document read as `record.not_found`), and
   `input.cap.record_size` for one over the record cap.
 - A leftover staging file in a record directory is counted rather than
   silently passed over. `Visited`, the result of reading one record

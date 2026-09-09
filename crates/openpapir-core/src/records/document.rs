@@ -182,10 +182,11 @@ pub fn read_record<R: Record>(
 /// rather than reported, and [`visit_records_checked`] returns the count.
 ///
 /// An entry that is not a regular file, and one larger than the record cap,
-/// counts as unreadable and is never opened: the link is not followed and the
-/// bytes are never allocated. Both therefore report `record.malformed`, the
-/// condition of the directory being read, rather than a cap refusal about an
-/// input the caller did not supply.
+/// counts as unreadable and is refused on the opened no-follow handle before a
+/// byte is read: the link is never followed and the bytes are never allocated.
+/// Both therefore report `record.malformed`, the condition of the directory
+/// being read, rather than a cap refusal about an input the caller did not
+/// supply.
 ///
 /// # Errors
 ///
