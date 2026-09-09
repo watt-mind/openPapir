@@ -368,7 +368,12 @@ followed ([archive-layout](archive-layout.md)).
   | --- | --- |
   | `object_write` | A stored object or an exported copy of one, the directory a copy is created in, a fan-out directory the repair cannot list, and a leftover staging file inside the object store. |
   | `record_write` | A record document, the directory one is written into, a cached file, a layout directory, a fan-out directory the repair cannot narrow, and the archive root. |
-  | `marker_write` | The archive marker, and outside the archive the export destination itself and its `manifest.json`, which describe the export rather than any one record. |
+  | `marker_write` | The archive marker, and outside the archive the export destination itself and its `manifest.json`. |
+
+  The destination and its `manifest.json` describe the export rather than any
+  one record, which is why they are a marker write. [Architecture](architecture.md#write-stages)
+  repeats this table for the implementation, and a test holds the two to the
+  same set of paths per stage.
 
   A refusal in an export destination carries `scope` `export_destination` and
   never an `archive_path` ([architecture](architecture.md)).
