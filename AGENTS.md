@@ -9,10 +9,12 @@ the [specification index](docs/specification.md),
 
 | Path | What lives there | Who may change it |
 | --- | --- | --- |
-| `crates/openpapir-core/` | The library: the capabilities value and, later, the local case model. | Any contributor, with tests. |
+| `crates/openpapir-core/` | The library: the capabilities value, the `archive` store, the case, submission, receipt, and association `records`, the `integrity` check, `export`, and `deletion`. | Any contributor, with tests. |
 | `crates/openpapir-cli/` | The `openpapir` binary: argument parsing and output. | Any contributor, with tests. |
+| `crates/openpapir-cli/skills/` | The agent skill document the binary embeds and `openpapir skill` prints. | Any contributor, in the same pull request as the behaviour it describes. |
 | `crates/*/tests/` | Contract tests over observable behaviour. | Any contributor. |
 | `tests/fixtures/` | Synthetic, CC0 fixtures with recorded provenance. | Any contributor; never derived from real correspondence. |
+| `tests/golden/` | The pinned stdout, stderr, and exit status of each recorded invocation. | Any contributor; regenerated deliberately, never automatically. |
 | `docs/` | Specification index, implemented contract, designs, plans, policies. | Any contributor, in the same pull request as the change described. |
 | `scripts/` | The local baseline checks and commit-subject validation. | Any contributor; never weakened to land a change. |
 | `.github/workflows/` | CI and security workflows, with actions pinned to a commit SHA. | A maintainer; every pin keeps its `# vX.Y.Z` comment. |
@@ -31,15 +33,28 @@ of each kind of content, and the style are in the Documentation section of
 
 ## Boundaries
 
-- Only help, version, and `capabilities [--json]` exist today. Never document a
-  planned operation as implemented or imply a government integration exists.
+- Help, version, and fifteen operations exist today: `capabilities`, archive
+  creation, the read-only integrity check, permission repair, artefact import
+  with the original bytes preserved, the case, submission, receipt, and
+  association records, the export of one case, the deletion of one case with
+  an explicit purge, and `skill`.
+  [Architecture and CLI contract](docs/architecture.md) is the contract of
+  what is implemented, and the
+  [specification index](docs/specification.md) indexes everything else. Not
+  implemented, and not to be described as if it were: receipt parsing,
+  automatic matching, derived metadata and verification records, delegated
+  verification, migration, KRX and `.es3` handling, and any government
+  integration or delivery. Never document a planned operation as implemented
+  or imply a government integration exists.
 - Keep KRX processing in openKRX and `.es3` processing in openSzigno. Do not add
   unpublished sibling dependencies or copy their parsers into this project.
 - Receipt import, association, and authenticity verification are distinct.
   Matching proves neither delivery nor legal effect. A delegated verification
   result must retain its exact scope and supplied trust context.
-- Preserve original bytes when import is implemented. Storage, identifiers,
-  migrations, deletion, and backup need a reviewed design before coding.
+- Import preserves original bytes, and storage, identifiers, and deletion
+  follow the reviewed design in
+  [local archive layout and storage design](docs/archive-layout.md). Keep it
+  that way. Migration and backup need a reviewed design before coding.
 - Real correspondence is private. Never enumerate, print, hash, log, commit,
   or disclose private filenames, paths, metadata, payloads, signer information,
   or receipt identifiers. Private-corpus reporting is aggregate counts and
@@ -48,7 +63,7 @@ of each kind of content, and the style are in the Documentation section of
   Never commit keys, complete private-key PEM armour lines, secrets, or `.env`
   files. Generate any required test keys at runtime. Never allowlist a secret
   scanner rule to admit a key.
-- Future input handling must bound archive expansion, XML complexity, and
+- Input handling must bound archive expansion, XML complexity, and
   storage growth. Extraction must prevent traversal, symlink escape, and
   overwrites. Do not relax limits to accept additional input.
 
