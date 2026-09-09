@@ -1,7 +1,7 @@
 # openPapir
 
-A local-first correspondence toolkit scaffold. Read [README.md](README.md),
-the [specification index](docs/specification.md),
+A local-first correspondence toolkit at the alpha stage the binary reports.
+Read [README.md](README.md), the [specification index](docs/specification.md),
 [architecture](docs/architecture.md), [roadmap](docs/roadmap.md),
 [contributing](CONTRIBUTING.md), and [security](SECURITY.md) before changes.
 
