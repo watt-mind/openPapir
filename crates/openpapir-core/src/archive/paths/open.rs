@@ -281,6 +281,34 @@ mod tests {
         }
     }
 
+    /// A Windows no-follow open refuses the reparse point it opened, so the
+    /// junction the standard library does not call a symbolic link is a link
+    /// here and is refused exactly as one.
+    #[test]
+    #[cfg(windows)]
+    fn a_windows_reparse_point_is_a_link_the_open_refuses() {
+        let directory = tempfile::tempdir().unwrap();
+        let file = directory.path().join("note.txt");
+        fs::write(&file, b"synthetic").unwrap();
+        let linked = directory.path().join("linked.txt");
+        if std::os::windows::fs::symlink_file(&file, &linked).is_err() {
+            // Creating a symbolic link on Windows needs a privilege the test
+            // environment does not always grant. Saying so keeps a missing
+            // privilege from reading as a pass.
+            eprintln!(
+                "skipped the planted-link case: this process may not create a Windows symbolic link"
+            );
+            return;
+        }
+        assert!(is_symlink(&linked), "the planted link is one");
+        assert!(!is_symlink(&file), "its target is not");
+        let refused = open_no_follow(&linked).unwrap_err();
+        assert!(
+            is_no_follow_refusal(&refused),
+            "the handle is refused because it names a reparse point"
+        );
+    }
+
     #[test]
     fn the_link_degradation_and_the_link_refusal_name_their_own_codes() {
         let residual = no_follow_after_open_warning();

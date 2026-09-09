@@ -271,4 +271,44 @@ mod tests {
             codes::PLATFORM_OWNER_ONLY_VIA_ACL
         );
     }
+
+    /// The read-only clear reads the permissions through the no-follow open,
+    /// so a link planted where a stored object belongs is refused inside the
+    /// helper rather than in each of its callers, and the file it points at
+    /// keeps the attribute the clear never reached.
+    #[test]
+    #[cfg(windows)]
+    fn a_planted_link_is_refused_by_the_read_only_clear() {
+        use super::super::open::is_no_follow_refusal;
+
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("object");
+        fs::write(&target, b"synthetic").unwrap();
+        set_object_read_only(&target).unwrap();
+        let planted = directory.path().join("planted");
+        if std::os::windows::fs::symlink_file(&target, &planted).is_ok() {
+            let refused = clear_read_only(&planted).unwrap_err();
+            assert!(
+                is_no_follow_refusal(&refused),
+                "the clear refuses the link the no-follow open opened"
+            );
+            assert!(
+                fs::metadata(&target).unwrap().permissions().readonly(),
+                "the link's target keeps the attribute the clear never reached"
+            );
+        } else {
+            // Creating a symbolic link on Windows needs a privilege the test
+            // environment does not always grant. Saying so keeps a missing
+            // privilege from reading as a pass.
+            eprintln!(
+                "skipped the planted-link case: this process may not create a Windows symbolic link"
+            );
+        }
+
+        // The object itself is not a link, so the same call clears its
+        // attribute and reports the permissions it had.
+        let original = clear_read_only(&target).unwrap();
+        assert!(original.readonly(), "the permissions reported are the ones");
+        assert!(!fs::metadata(&target).unwrap().permissions().readonly());
+    }
 }

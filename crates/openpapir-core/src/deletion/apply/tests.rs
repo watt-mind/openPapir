@@ -157,6 +157,45 @@ fn the_restored_flag_is_absent_where_the_attribute_was_never_cleared() {
     assert_eq!(fidelity(&paths::no_directory_fsync_warning("purge")), 0);
 }
 
+/// The retry's first step is a no-follow read of the path's permissions,
+/// and a link planted where an object belongs fails it. Nothing was
+/// cleared, so the deferral is reported without the restored flag, and
+/// neither the link nor the file it points at is touched.
+#[test]
+#[cfg(windows)]
+fn a_retry_whose_no_follow_read_fails_claims_no_restore() {
+    let root = tempfile::tempdir().unwrap();
+    let target = root.path().join("target");
+    fs::write(&target, b"synthetic").unwrap();
+    let planted = root.path().join("planted");
+    if std::os::windows::fs::symlink_file(&target, &planted).is_err() {
+        // Creating a symbolic link on Windows needs a privilege the test
+        // environment does not always grant. Saying so keeps a missing
+        // privilege from reading as a pass.
+        eprintln!(
+            "skipped the planted-link case: this process may not create a Windows symbolic link"
+        );
+        return;
+    }
+    let mut warnings = Vec::new();
+    assert!(
+        !retry_unlink(&planted, &mut warnings),
+        "a path the retry could not read is never counted as removed"
+    );
+    assert_eq!(warnings.len(), 1);
+    assert_eq!(warnings[0].code, codes::PLATFORM_REPLACE_WHILE_OPEN);
+    assert_eq!(
+        warnings[0].details.flag_value(READ_ONLY_RESTORED),
+        None,
+        "a read that failed cleared nothing, so no restore is claimed"
+    );
+    assert!(
+        fs::symlink_metadata(&planted).is_ok(),
+        "the link itself is left exactly as it was"
+    );
+    assert!(target.is_file(), "the file it points at is left alone");
+}
+
 /// The probe is the whole of the all-or-nothing rule, so each of its
 /// answers is asserted directly: a directory that cannot have an entry
 /// removed from it, a path holding something openPapir did not write,
