@@ -6,7 +6,11 @@ This document is the canonical contract of what openPapir actually does. For
 the wider picture, purpose, scope, non-goals, which designs are decided but
 not built, and which contracts are still blocked, start at the
 [specification index](specification.md). Every document has a one-line purpose
-in the [documentation index](index.md).
+in the [documentation index](index.md). Where this document and
+[local archive layout and storage design](archive-layout.md) or
+[import and association error, JSON, and exit-code contract](error-contract.md)
+disagree, this document is authoritative for implemented behaviour and those
+two are the design and the wire specification behind it.
 
 ## Current implementation
 
@@ -14,7 +18,7 @@ The Rust edition 2024 workspace has an MSRV of 1.88 and two unpublished crates:
 
 | Crate | Current responsibility |
 | --- | --- |
-| `openpapir-core` | The local archive: marker, artefact store, atomic writes, single-writer lock, input caps, path safety, import-event records, the case, submission, receipt, and association records, the read-only whole-archive integrity check, the export of one case, and the permission repair. |
+| `openpapir-core` | The local archive: marker, artefact store, atomic writes, single-writer lock, input caps, path safety, import-event records, the case, submission, receipt, and association records, the read-only whole-archive integrity check, the export of one case, the permission repair, and the deletion of one case with its explicit purge. |
 | `openpapir-cli` | Argument parsing, the response envelope, and the exit-code mapping. |
 
 Only these invocations are supported:
@@ -24,21 +28,42 @@ openpapir --help
 openpapir --version
 openpapir capabilities [--json]
 openpapir archive init <root> [--json]
-openpapir archive check --archive <root> [--json]
-openpapir archive repair-permissions --archive <root> [--json]
 openpapir import --archive <root> <file>... [--json]
 openpapir case create --archive <root> --title <t> [--notes <n>] [--json]
 openpapir case list --archive <root> [--json]
 openpapir case show --archive <root> <case-id> [--json]
-openpapir case export --archive <root> --case <case-id> --to <dir> [--json]
-openpapir case delete --archive <root> --case <case-id> [--purge] [--json]
 openpapir submission add --archive <root> --case <case-id> --description <d> [--date <yyyy-mm-dd>] [--artefact <digest>[:<role>]]... [--json]
 openpapir receipt add --archive <root> --artefact <digest> [--import-event <id>] [--label <l>] [--json]
 openpapir receipt list --archive <root> [--json]
 openpapir association create --archive <root> --receipt <receipt-id> --outcome <outcome> [--candidate <submission-id>:<confidence>:<statement>]... [--supersedes <association-id>] [--json]
 openpapir association list --archive <root> --receipt <receipt-id> [--json]
+openpapir archive check --archive <root> [--json]
+openpapir case export --archive <root> --case <case-id> --to <dir> [--json]
+openpapir archive repair-permissions --archive <root> [--json]
+openpapir case delete --archive <root> --case <case-id> [--purge] [--json]
 openpapir skill
 ```
+
+The sections below take each implemented command in that order, and each
+states its invocation, the shape of its `data`, the codes particular to it,
+and how the privacy rule binds its output.
+
+Some refusals belong to no one command. Any invocation the argument parser
+rejects, and any flag value this build cannot use, is `usage.arguments`, and
+any violated invariant is `internal.unexpected`. Every command that opens an
+existing archive can refuse with `usage.archive_root_missing`,
+`archive.marker_missing`, `archive.marker_malformed`, `archive.schema_newer`,
+`archive.schema_older`, `archive.multiple_filesystems`, or `path.symlink` for
+a linked layout directory, and every one of them except `archive check` and
+`case export`, which open the archive read-only, adds `archive.permissions_wide`.
+Every command that writes adds `lock.held`, `path.overwrite`,
+`path.cross_device`, `write.interrupted`, `input.cap.record_size`, and
+`platform.filesystem_unsupported`. Every command that reads a stored document
+can report `record.malformed`. The per-command tables and lists below name
+only what is particular to that command, and the whole set with its exit codes
+is in [Implemented codes and exit codes](#implemented-codes-and-exit-codes).
+`skill` is the exception: it opens no archive, reads no input, and can refuse
+only with `usage.arguments` or `internal.unexpected`.
 
 Fifteen operations are implemented, `archive.init`, `import`, `case.create`,
 `case.list`, `case.show`, `submission.add`, `receipt.add`, `receipt.list`,
@@ -66,7 +91,7 @@ never shares stdout with the JSON object.
 | --- | --- |
 | `schema_version` | The envelope's version, currently `1`, independent of `archive_schema_version`. |
 | `ok` | `true` only when the command completed its stated work. |
-| `command` | The invoked command's stable name: `capabilities`, `archive.init`, or `import`. |
+| `command` | The invoked command's stable name: `capabilities`, or one of the fifteen operation names `capabilities` reports. An invocation the argument parser rejected before it recognised a subcommand carries `openpapir` instead. |
 | `data` | The command's result. `{}` when `ok` is `false`, except `archive check`, whose report is the result the user asked for and stays in `data` beside the error. |
 | `verified` | Always `false`. No cryptographic check is implemented. |
 | `error` | Present exactly when `ok` is `false`: `code`, `message`, `details`. |
@@ -77,7 +102,7 @@ within a `schema_version`. `details` carries at most 16 keys, whose values are
 strings, integers, booleans, or arrays of at most 16 such scalars, and always
 carries `bucket`. Changes within `schema_version` are additive only.
 
-The capabilities response is unchanged in shape and now lists the fifteen
+The capabilities response is unchanged in shape and lists the fifteen
 implemented operations:
 
 ```json
@@ -154,6 +179,11 @@ narrows; there is no flag that widens anything.
 }
 ```
 
+A directory that is not empty and holds no marker is `archive.adopt_refused`,
+and one that already holds a marker is `path.overwrite`, because the marker
+would have to be replaced. `data` carries the archive's own minted identifier
+and its schema version, and never the root the user supplied.
+
 ## `import`
 
 `openpapir import --archive <root> <file>...` stores each file's bytes in the
@@ -197,6 +227,344 @@ content-addressed artefact store and records one import event per input.
 
 A duplicate adds `previous_import_count` and `first_imported_at` to the
 artefact entry and still exits `0`.
+
+Beyond the shared refusals, import can emit `input.cap.file_size`,
+`input.cap.import_bytes`, `input.cap.import_files`,
+`input.cap.filename_length`, `path.symlink` with `scope` `input` for an input
+that is a symbolic link, and `integrity.length_mismatch`. `data` carries
+digests, byte lengths, and identifiers openPapir minted, and never an input
+path or an original filename; which input failed is answered by
+`input_index`.
+
+## Records
+
+A case, a submission, a receipt, and an association are the user's own local
+organisation. A case corresponds to nothing any government service issues, and
+a submission is something the user states they sent: openPapir sends nothing,
+so a submission is always user-asserted. A receipt records that the user
+believes a stored artefact to be a receipt, and an association records what
+the user asserts about whether that receipt relates to a submission. None of
+them asserts delivery, receipt by an authority, authenticity, or legal effect,
+and openPapir reads no artefact bytes to form an opinion of its own.
+
+Imported, matched, and authenticity-verified stay separate records. A receipt
+may exist with no association, and creating an association creates no
+verification result, because none exists to create.
+
+Every record is one UTF-8, LF-terminated JSON document with sorted keys,
+holding `id` (a 128-bit random identifier as 32 lowercase hexadecimal
+characters), `record_kind`, `archive_schema_version`, and `created_at`. Records
+reference each other, and reference stored artefacts, by identifier only.
+Records are written through the atomic write procedure, under the writer lock,
+into owner-only directories. Opening an archive for writing creates any layout
+directory this build expects and an earlier one did not, so an archive created
+by an earlier build gains the record directories it lacks; nothing else
+changes. Opening an archive read-only creates nothing, and an absent layout
+directory reads as empty there.
+
+| Record | Path | Fields |
+| --- | --- | --- |
+| Case | `records/cases/<id>.json` | `title`, optional `notes`, plus the four common fields. |
+| Submission | `records/submissions/<id>.json` | `case_id`, `description`, optional `stated_date`, `artefacts`, plus the four common fields. |
+| Receipt | `records/receipts/<id>.json` | `artefact_digest`, `import_event_id`, optional `label`, plus the four common fields. |
+| Association | `records/associations/<id>.json` | `receipt_id`, `outcome`, `candidates`, `created_by`, `submission_id`, `supersedes`, plus the four common fields. |
+| Import event | `records/imports/<id>.json` | `digest`, `byte_length`, `imported_at`, `created_object`, `original_filename`, `id`, `record_kind`, `archive_schema_version`. |
+
+Each entry of `artefacts` is an object with `digest`, the algorithm-qualified
+digest of an object already stored in this archive, and an optional `role`, the
+short label the user gave that artefact. `role` is omitted when the user
+supplied none, so an entry is `{"digest": "sha256:..."}` or
+`{"digest": "sha256:...", "role": "cover letter"}`.
+
+`stated_date` is the user's own statement about their own submission. It is
+accepted as `YYYY-MM-DD` only, checked for calendar plausibility, stored
+verbatim, never compared with `created_at`, and never interpreted. It is not a
+delivery date, a receipt date, or evidence of anything.
+
+Every user-supplied field is bounded in bytes, and the bound is checked before
+the record is built, so an oversized field is refused before the archive is
+touched. `title`, `role`, `label`, and `statement` are single lines and carry no
+control character; `notes` and `description` may carry a line feed and no
+other control character.
+
+| Field | Cap | Required | Code when it is too long |
+| --- | --- | --- | --- |
+| `title` | 200 bytes | Yes | `input.cap.field_length` |
+| `notes` | 4096 bytes | No | `input.cap.field_length` |
+| `description` | 1024 bytes | Yes | `input.cap.field_length` |
+| `role` | 64 bytes | No | `input.cap.field_length` |
+| `label` | 200 bytes | No | `input.cap.field_length` |
+| `statement` | 512 bytes | Yes, per candidate | `input.cap.field_length` |
+
+An empty required field, a forbidden control character, an unusable artefact
+reference, and a date that is not a calendar date are `usage.arguments`,
+naming the argument and never its value.
+
+## `case create`
+
+`openpapir case create --archive <root> --title <t> [--notes <n>]` writes one
+case record. It takes the writer lock and runs the archive's permission checks
+first. An empty or oversized `--title` or `--notes` is refused before the
+archive is touched, as `usage.arguments` or `input.cap.field_length`. `data`
+holds `case`, the document just written, so it carries the user's own title
+and notes and nothing else.
+
+```json
+{
+  "schema_version": 1,
+  "ok": true,
+  "command": "case.create",
+  "data": {
+    "case": {
+      "archive_schema_version": 1,
+      "created_at": "2026-01-14T09:12:33Z",
+      "id": "6b73d041fb6bed26be75545fabfd45bc",
+      "notes": "First contact.",
+      "record_kind": "case",
+      "title": "Tax matter"
+    }
+  },
+  "verified": false
+}
+```
+
+## `case list`
+
+`openpapir case list --archive <root>` reads every case record. It takes no
+lock, because no record file is ever modified in place. `data` holds `cases`,
+ordered by identifier, and `count`. An archive with no case is not an error:
+`cases` is empty, `count` is `0`, and the exit code is `0`. Beyond the shared
+refusals it emits nothing of its own. `data` is the user's own records read
+back to them, so it carries the titles and notes they typed, and no path.
+
+## `case show`
+
+`openpapir case show --archive <root> <case-id>` reads one case and the
+submissions that name it. `data` holds `case`, `submissions` ordered by
+identifier, and `submission_count`. An identifier that names no case, and one
+that is not 32 lowercase hexadecimal characters, are both `record.not_found`,
+naming the kind and how it was referenced and never the value the user
+supplied. `data` is the user's own records read back to them, and carries no
+path.
+
+```json
+{
+  "schema_version": 1,
+  "ok": true,
+  "command": "case.show",
+  "data": {
+    "case": {
+      "archive_schema_version": 1,
+      "created_at": "2026-01-14T09:12:33Z",
+      "id": "6b73d041fb6bed26be75545fabfd45bc",
+      "record_kind": "case",
+      "title": "Tax matter"
+    },
+    "submissions": [
+      {
+        "archive_schema_version": 1,
+        "artefacts": [
+          {
+            "digest": "sha256:a002fd0595c559505437ce754971d911b703373addf2b59e425ec057d631614f",
+            "role": "cover letter"
+          }
+        ],
+        "case_id": "6b73d041fb6bed26be75545fabfd45bc",
+        "created_at": "2026-01-15T10:00:00Z",
+        "description": "Posted the completed form.",
+        "id": "78957f91825e701adf0d9eecd7f7af50",
+        "record_kind": "submission",
+        "stated_date": "2026-01-13"
+      }
+    ],
+    "submission_count": 1
+  },
+  "verified": false
+}
+```
+
+## `submission add`
+
+`openpapir submission add --archive <root> --case <case-id> --description <d>`
+writes one submission record against an existing case. `--date` is optional and
+takes `YYYY-MM-DD`. `--artefact` may be repeated; each value is
+`sha256:<64 lowercase hex>` or `sha256:<64 lowercase hex>:<role>`. The command
+takes the writer lock, then resolves every reference before it writes
+anything:
+
+- A case identifier that names no case record is `record.not_found` with
+  `record_kind` `case`.
+- A digest that names no stored object is `record.not_found` with
+  `record_kind` `artefact`. The object's bytes are never opened: only its
+  presence, its link state, and the permissions of its fan-out directories are
+  checked, exactly as import checks them.
+- A value that is not a digest of that form is `usage.arguments`.
+
+`data` holds `submission`, whose shape is the submission entry shown under
+[`case show`](#case-show). It carries the user's own description, stated date,
+and artefact roles, plus the digests of stored objects, and never a path. An
+empty or oversized `--description`, `--artefact` role, or `--date` that is not
+a calendar date is `usage.arguments` or `input.cap.field_length`, naming the
+argument and never its value.
+
+## `receipt add`
+
+`openpapir receipt add --archive <root> --artefact <digest>` records that the
+user believes one stored artefact to be a receipt. It takes the writer lock,
+runs the archive's permission checks, and resolves every reference before it
+writes.
+
+- `--artefact` is `sha256:<64 lowercase hex>` and must name an object already
+  stored in this archive. A digest that names no object is `record.not_found`
+  with `record_kind` `artefact`; a value of another shape is
+  `usage.arguments`. The object's bytes are never opened, and the receipt
+  never rewrites them.
+- `--import-event` names the import event to record. It must exist and must
+  record this artefact: an unknown identifier is `record.not_found` with
+  `record_kind` `import_event`, and one recording another artefact is
+  `record.inconsistent` with rule `import_event_digest_mismatch`.
+- With no `--import-event`, the earliest import event for the digest is
+  recorded, by `imported_at` and then by identifier. An artefact may have been
+  imported more than once, and that history is meaningful rather than an
+  anomaly. An artefact with no readable import event is `record.not_found`.
+- `--label` is the user's own single line, at most 200 bytes, omitted from the
+  document when absent.
+
+A receipt asserts nothing about the file's type, its origin, or its
+authenticity. openPapir parses no artefact bytes, so it records only what the
+user said.
+
+```json
+{
+  "schema_version": 1,
+  "ok": true,
+  "command": "receipt.add",
+  "data": {
+    "receipt": {
+      "archive_schema_version": 1,
+      "artefact_digest": "sha256:a002fd0595c559505437ce754971d911b703373addf2b59e425ec057d631614f",
+      "created_at": "2026-09-09T13:56:31Z",
+      "id": "e08f5afc0f80f190ce229e7cc17c6458",
+      "import_event_id": "a5a22fa9e926e98c80d109546e90214d",
+      "label": "Envelope",
+      "record_kind": "receipt"
+    }
+  },
+  "verified": false
+}
+```
+
+## `receipt list`
+
+`openpapir receipt list --archive <root>` reads every receipt record. It takes
+no lock. `data` holds `receipts`, ordered by identifier, and `count`. An
+archive with no receipt is not an error: `receipts` is empty, `count` is `0`,
+and the exit code is `0`. Beyond the shared refusals it emits nothing of its
+own, and `data` carries the user's own labels and the digests of stored
+objects, never a path or an original filename.
+
+## `association create`
+
+`openpapir association create --archive <root> --receipt <receipt-id>
+--outcome <outcome>` records what the user asserts about one receipt. The
+outcome is one of `unassociated`, `candidate`, `associated`, and
+`contradictory`. All four are results, none is an error, and all four exit
+`0`, `contradictory` least of all an error, since retaining conflicting
+evidence is the designed behaviour.
+
+`--candidate` may be repeated. Each value is
+`<submission-id>:<confidence>:<statement>`, split on the first two colons
+only, so a statement may contain a colon. `confidence` is the closed ordinal
+set `weak`, `moderate`, `strong` and is never a number, because no calibration
+data exists and a number would imply one. The statement is the user's own
+single line, at most 512 bytes.
+
+Every evidence entry this build writes carries `kind` `user_assertion` and
+`source` `user`, and every record carries `created_by` `user`. Automatic
+matching, derived metadata, and receipt parsing do not exist, so no other
+value could be recorded honestly.
+
+Records are append-only. `--supersedes` names an earlier association for the
+same receipt; the superseded record is never modified, moved, or removed, and
+history stays inspectable. Only an absent `--supersedes` records no
+supersession. A supplied value is always resolved, so an empty one is
+`record.not_found` like any other value that names no association, rather than
+a silent no-op.
+
+The consistency rules below are enforced before anything is written. Each
+refusal is the additive `record.inconsistent`, whose `details` carry
+`record_kind` and `rule` and nothing else:
+
+| Rule | Violation reported |
+| --- | --- |
+| `unassociated_has_candidates` | `unassociated` was given a candidate. |
+| `candidate_requires_candidates` | `candidate` was given no candidate. |
+| `associated_requires_one_candidate` | `associated` was not given exactly one candidate. |
+| `contradictory_requires_two_candidates` | `contradictory` was given fewer than two candidates. |
+| `duplicate_candidate_submission` | One submission was named as a candidate more than once. |
+| `supersedes_other_receipt` | The superseded record belongs to another receipt. |
+| `import_event_digest_mismatch` | A named import event records another artefact (`receipt.add`). |
+
+`submission_id` is the confirmed submission and equals the single candidate
+when the outcome is `associated`. It is `null` for `unassociated`,
+`candidate`, and `contradictory`. A receipt, a candidate submission, or a
+superseded association that does not exist is `record.not_found`, naming the
+kind and how it was referenced and never the value the user supplied. An
+outcome, a confidence, or a candidate of another shape is `usage.arguments`.
+
+```json
+{
+  "schema_version": 1,
+  "ok": true,
+  "command": "association.create",
+  "data": {
+    "association": {
+      "archive_schema_version": 1,
+      "candidates": [
+        {
+          "confidence": "moderate",
+          "evidence": [
+            {
+              "kind": "user_assertion",
+              "source": "user",
+              "statement": "The reference matches the submission."
+            }
+          ],
+          "submission_id": "ee4bc4254c0852e6bd3cbcc94c1cb221"
+        }
+      ],
+      "created_at": "2026-09-09T13:56:31Z",
+      "created_by": "user",
+      "id": "eadd68ec590ad23b48831560a2d15e24",
+      "outcome": "candidate",
+      "receipt_id": "e08f5afc0f80f190ce229e7cc17c6458",
+      "record_kind": "association",
+      "submission_id": null,
+      "supersedes": null
+    }
+  },
+  "verified": false
+}
+```
+
+## `association list`
+
+`openpapir association list --archive <root> --receipt <receipt-id>` reads one
+receipt's whole history. It takes no lock. `data` holds `associations`,
+`count`, and `receipt_id`. Superseded records are included and each entry
+carries its own `supersedes`, so nothing is collapsed, filtered, or presented
+as a single best guess. An identifier that names no receipt is
+`record.not_found`.
+
+Beyond `record.not_found` and the shared refusals it emits nothing of its own.
+`data` carries the user's own statements and openPapir's own identifiers, and
+never a path.
+
+Newest first means ordered by `created_at`, then by how many records a record
+supersedes, then by identifier, all descending. The middle key matters because
+openPapir records whole seconds: two records written in the same second would
+otherwise order arbitrarily, and a record that supersedes another is by
+construction the later of the two.
 
 ## `archive check`
 
@@ -322,225 +690,6 @@ The check read the archive and changed nothing. A digest identifies bytes only: 
 An archive that cannot be opened at all is a refusal rather than a report,
 with the codes `archive init` and `import` already use, and `data` is then
 `{}` like any other refusal.
-
-## `archive repair-permissions`
-
-`openpapir archive repair-permissions --archive <root>` narrows every path in
-the archive back to the owner-only modes of the design. It is the only action
-besides `archive init` that changes permissions, and it exists because
-ordinary copy tooling widens them when a backup or an export is restored,
-which the owner-only rule would then refuse
-([archive-layout](archive-layout.md)).
-
-It only ever narrows. The new mode is the old mode with every group bit, every
-other bit, and every set-user, set-group, and sticky bit cleared, and for a
-stored object with owner write cleared as well, so a path can lose access and
-never gain it. A path that is already narrower than the design's mode, an
-unreadable file the user closed deliberately for instance, is left exactly as
-it is rather than raised to `0o600`.
-
-| Path | Mode it is narrowed to |
-| --- | --- |
-| The root, every layout directory, and every object fan-out directory | `0o700` |
-| The marker and every record document | `0o600` |
-| Every stored object and every leftover staging file | `0o400` for a stored object, `0o600` for a staging file |
-
-The lock file is deliberately not inspected. The repair holds the writer lock
-while it runs, so the only lock file that can exist while it walks is the one
-it created itself, owner-only by construction, and a lock file another writer
-left refuses the repair with `lock.held` before the walk begins. A `lock`
-count would always be zero, so the report does not carry one: it names only
-what the repair actually looked at.
-
-The repair refuses a root with no marker, so it never adopts a directory, and
-it refuses an archive whose schema version this build does not support. It
-takes the writer lock, because it writes modes, and refuses with `lock.held`
-when another writer holds it. It deliberately does not run the archive's
-permission check first: the wide permissions that check refuses are exactly
-what it repairs. It reads no file content, and it changes no byte of any
-record or object.
-
-A symbolic link inside the archive is refused as `path.symlink` rather than
-narrowed. Changing a link's permissions changes its target's, and a link out
-of the archive would be a file the archive does not own.
-
-`data` reports counts by kind, in a fixed order, including the kinds nothing
-changed for, so a caller reads a count rather than testing for a key.
-
-```json
-{
-  "schema_version": 1,
-  "ok": true,
-  "command": "archive.repair_permissions",
-  "data": {
-    "changed": [
-      { "count": 0, "kind": "cache" },
-      { "count": 0, "kind": "directory" },
-      { "count": 0, "kind": "marker" },
-      { "count": 0, "kind": "object" },
-      { "count": 0, "kind": "record" },
-      { "count": 0, "kind": "root" }
-    ],
-    "paths_changed": 0,
-    "paths_checked": 16
-  },
-  "verified": false
-}
-```
-
-Human output prints the same counts and no path.
-
-```text
-Narrowed 0 of 16 archive path(s) to owner-only.
-cache 0
-directory 0
-marker 0
-object 0
-record 0
-root 0
-Permissions are only ever narrowed here; nothing was widened and no content was read or changed.
-```
-
-On a platform without permission bits nothing is changed and every count is
-`0`. Owner-only access there is an access-control list, which the envelope
-reports as the `platform.owner_only_via_acl` warning, exactly as every other
-command reports it.
-
-## Records
-
-A case, a submission, a receipt, and an association are the user's own local
-organisation. A case corresponds to nothing any government service issues, and
-a submission is something the user states they sent: openPapir sends nothing,
-so a submission is always user-asserted. A receipt records that the user
-believes a stored artefact to be a receipt, and an association records what
-the user asserts about whether that receipt relates to a submission. None of
-them asserts delivery, receipt by an authority, authenticity, or legal effect,
-and openPapir reads no artefact bytes to form an opinion of its own.
-
-Imported, matched, and authenticity-verified stay separate records. A receipt
-may exist with no association, and creating an association creates no
-verification result, because none exists to create.
-
-Every record is one UTF-8, LF-terminated JSON document with sorted keys,
-holding `id` (a 128-bit random identifier as 32 lowercase hexadecimal
-characters), `record_kind`, `archive_schema_version`, and `created_at`. Records
-reference each other, and reference stored artefacts, by identifier only.
-Records are written through the atomic write procedure, under the writer lock,
-into owner-only directories. Opening an archive created by an earlier build
-adds the two record directories if they are absent; nothing else changes.
-
-| Record | Path | Fields |
-| --- | --- | --- |
-| Case | `records/cases/<id>.json` | `title`, optional `notes`, plus the four common fields. |
-| Submission | `records/submissions/<id>.json` | `case_id`, `description`, optional `stated_date`, `artefacts`, plus the four common fields. |
-| Receipt | `records/receipts/<id>.json` | `artefact_digest`, `import_event_id`, optional `label`, plus the four common fields. |
-| Association | `records/associations/<id>.json` | `receipt_id`, `outcome`, `candidates`, `created_by`, `submission_id`, `supersedes`, plus the four common fields. |
-| Import event | `records/imports/<id>.json` | `digest`, `byte_length`, `imported_at`, `created_object`, `original_filename`, `id`, `record_kind`, `archive_schema_version`. |
-
-Each entry of `artefacts` is an object with `digest`, the algorithm-qualified
-digest of an object already stored in this archive, and an optional `role`, the
-short label the user gave that artefact. `role` is omitted when the user
-supplied none, so an entry is `{"digest": "sha256:..."}` or
-`{"digest": "sha256:...", "role": "cover letter"}`.
-
-`stated_date` is the user's own statement about their own submission. It is
-accepted as `YYYY-MM-DD` only, checked for calendar plausibility, stored
-verbatim, never compared with `created_at`, and never interpreted. It is not a
-delivery date, a receipt date, or evidence of anything.
-
-Every user-supplied field is bounded in bytes, and the bound is checked before
-the record is built, so an oversized field is refused before the archive is
-touched. `title`, `role`, `label`, and `statement` are single lines and carry no
-control character; `notes` and `description` may carry a line feed and no
-other control character.
-
-| Field | Cap | Required | Code when it is too long |
-| --- | --- | --- | --- |
-| `title` | 200 bytes | Yes | `input.cap.field_length` |
-| `notes` | 4096 bytes | No | `input.cap.field_length` |
-| `description` | 1024 bytes | Yes | `input.cap.field_length` |
-| `role` | 64 bytes | No | `input.cap.field_length` |
-| `label` | 200 bytes | No | `input.cap.field_length` |
-| `statement` | 512 bytes | Yes, per candidate | `input.cap.field_length` |
-
-An empty required field, a forbidden control character, an unusable artefact
-reference, and a date that is not a calendar date are `usage.arguments`,
-naming the argument and never its value.
-
-## `case create`
-
-`openpapir case create --archive <root> --title <t> [--notes <n>]` writes one
-case record. It takes the writer lock and runs the archive's permission checks
-first.
-
-```json
-{
-  "schema_version": 1,
-  "ok": true,
-  "command": "case.create",
-  "data": {
-    "case": {
-      "archive_schema_version": 1,
-      "created_at": "2026-01-14T09:12:33Z",
-      "id": "6b73d041fb6bed26be75545fabfd45bc",
-      "notes": "First contact.",
-      "record_kind": "case",
-      "title": "Tax matter"
-    }
-  },
-  "verified": false
-}
-```
-
-## `case list`
-
-`openpapir case list --archive <root>` reads every case record. It takes no
-lock, because no record file is ever modified in place. `data` holds `cases`,
-ordered by identifier, and `count`. An archive with no case is not an error:
-`cases` is empty, `count` is `0`, and the exit code is `0`.
-
-## `case show`
-
-`openpapir case show --archive <root> <case-id>` reads one case and the
-submissions that name it. `data` holds `case`, `submissions` ordered by
-identifier, and `submission_count`. An identifier that names no case is
-`record.not_found`.
-
-```json
-{
-  "schema_version": 1,
-  "ok": true,
-  "command": "case.show",
-  "data": {
-    "case": {
-      "archive_schema_version": 1,
-      "created_at": "2026-01-14T09:12:33Z",
-      "id": "6b73d041fb6bed26be75545fabfd45bc",
-      "record_kind": "case",
-      "title": "Tax matter"
-    },
-    "submissions": [
-      {
-        "archive_schema_version": 1,
-        "artefacts": [
-          {
-            "digest": "sha256:a002fd0595c559505437ce754971d911b703373addf2b59e425ec057d631614f",
-            "role": "cover letter"
-          }
-        ],
-        "case_id": "6b73d041fb6bed26be75545fabfd45bc",
-        "created_at": "2026-01-15T10:00:00Z",
-        "description": "Posted the completed form.",
-        "id": "78957f91825e701adf0d9eecd7f7af50",
-        "record_kind": "submission",
-        "stated_date": "2026-01-13"
-      }
-    ],
-    "submission_count": 1
-  },
-  "verified": false
-}
-```
 
 ## `case export`
 
@@ -686,6 +835,89 @@ exporting a whole archive: a backup is a plain copy of the archive root taken
 while no openPapir process holds the lock, and `archive repair-permissions` is
 what makes a restored copy usable again.
 
+## `archive repair-permissions`
+
+`openpapir archive repair-permissions --archive <root>` narrows every path in
+the archive back to the owner-only modes of the design. It is the only action
+besides `archive init` that changes permissions, and it exists because
+ordinary copy tooling widens them when a backup or an export is restored,
+which the owner-only rule would then refuse
+([archive-layout](archive-layout.md)).
+
+It only ever narrows. The new mode is the old mode with every group bit, every
+other bit, and every set-user, set-group, and sticky bit cleared, and for a
+stored object with owner write cleared as well, so a path can lose access and
+never gain it. A path that is already narrower than the design's mode, an
+unreadable file the user closed deliberately for instance, is left exactly as
+it is rather than raised to `0o600`.
+
+| Path | Mode it is narrowed to |
+| --- | --- |
+| The root, every layout directory, and every object fan-out directory | `0o700` |
+| The marker and every record document | `0o600` |
+| Every stored object and every leftover staging file | `0o400` for a stored object, `0o600` for a staging file |
+
+The lock file is deliberately not inspected. The repair holds the writer lock
+while it runs, so the only lock file that can exist while it walks is the one
+it created itself, owner-only by construction, and a lock file another writer
+left refuses the repair with `lock.held` before the walk begins. A `lock`
+count would always be zero, so the report does not carry one: it names only
+what the repair actually looked at.
+
+The repair refuses a root with no marker, so it never adopts a directory, and
+it refuses an archive whose schema version this build does not support. It
+takes the writer lock, because it writes modes, and refuses with `lock.held`
+when another writer holds it. It deliberately does not run the archive's
+permission check first: the wide permissions that check refuses are exactly
+what it repairs. It reads no file content, and it changes no byte of any
+record or object.
+
+A symbolic link inside the archive is refused as `path.symlink` rather than
+narrowed. Changing a link's permissions changes its target's, and a link out
+of the archive would be a file the archive does not own.
+
+`data` reports counts by kind, in a fixed order, including the kinds nothing
+changed for, so a caller reads a count rather than testing for a key.
+
+```json
+{
+  "schema_version": 1,
+  "ok": true,
+  "command": "archive.repair_permissions",
+  "data": {
+    "changed": [
+      { "count": 0, "kind": "cache" },
+      { "count": 0, "kind": "directory" },
+      { "count": 0, "kind": "marker" },
+      { "count": 0, "kind": "object" },
+      { "count": 0, "kind": "record" },
+      { "count": 0, "kind": "root" }
+    ],
+    "paths_changed": 0,
+    "paths_checked": 16
+  },
+  "verified": false
+}
+```
+
+Human output prints the same counts and no path.
+
+```text
+Narrowed 0 of 16 archive path(s) to owner-only.
+cache 0
+directory 0
+marker 0
+object 0
+record 0
+root 0
+Permissions are only ever narrowed here; nothing was widened and no content was read or changed.
+```
+
+On a platform without permission bits nothing is changed and every count is
+`0`. Owner-only access there is an access-control list, which the envelope
+reports as the `platform.owner_only_via_acl` warning, exactly as every other
+command reports it.
+
 ## `case delete`
 
 `openpapir case delete --archive <root> --case <case-id> [--purge] [--json]`
@@ -782,7 +1014,7 @@ record is written and no audit log is kept
 
 `records_removed` lists every record kind and `objects_retained` every reason,
 including the ones with nothing to report, ordered by name, so a caller reads
-a count rather than testing for a key. The three reasons are fixed:
+a count rather than testing for a key. The four reasons are fixed:
 
 | Reason | Meaning |
 | --- | --- |
@@ -814,178 +1046,6 @@ record or object that went: the entangled association is refused rather than
 orphaned, a refused record unlink stops the purge before it starts, and an
 object that could not be unlinked keeps its import event. A purge leaves no
 orphan behind.
-
-## `submission add`
-
-`openpapir submission add --archive <root> --case <case-id> --description <d>`
-writes one submission record against an existing case. `--date` is optional and
-takes `YYYY-MM-DD`. `--artefact` may be repeated; each value is
-`sha256:<64 lowercase hex>` or `sha256:<64 lowercase hex>:<role>`. The command
-takes the writer lock, then resolves every reference before it writes
-anything:
-
-- A case identifier that names no case record is `record.not_found` with
-  `record_kind` `case`.
-- A digest that names no stored object is `record.not_found` with
-  `record_kind` `artefact`. The object's bytes are never opened: only its
-  presence, its link state, and the permissions of its fan-out directories are
-  checked, exactly as import checks them.
-- A value that is not a digest of that form is `usage.arguments`.
-
-`data` holds `submission`, whose shape is the submission entry shown above.
-
-## `receipt add`
-
-`openpapir receipt add --archive <root> --artefact <digest>` records that the
-user believes one stored artefact to be a receipt. It takes the writer lock,
-runs the archive's permission checks, and resolves every reference before it
-writes.
-
-- `--artefact` is `sha256:<64 lowercase hex>` and must name an object already
-  stored in this archive. A digest that names no object is `record.not_found`
-  with `record_kind` `artefact`; a value of another shape is
-  `usage.arguments`. The object's bytes are never opened, and the receipt
-  never rewrites them.
-- `--import-event` names the import event to record. It must exist and must
-  record this artefact: an unknown identifier is `record.not_found` with
-  `record_kind` `import_event`, and one recording another artefact is
-  `record.inconsistent` with rule `import_event_digest_mismatch`.
-- With no `--import-event`, the earliest import event for the digest is
-  recorded, by `imported_at` and then by identifier. An artefact may have been
-  imported more than once, and that history is meaningful rather than an
-  anomaly. An artefact with no readable import event is `record.not_found`.
-- `--label` is the user's own single line, at most 200 bytes, omitted from the
-  document when absent.
-
-A receipt asserts nothing about the file's type, its origin, or its
-authenticity. openPapir parses no artefact bytes, so it records only what the
-user said.
-
-```json
-{
-  "schema_version": 1,
-  "ok": true,
-  "command": "receipt.add",
-  "data": {
-    "receipt": {
-      "archive_schema_version": 1,
-      "artefact_digest": "sha256:a002fd0595c559505437ce754971d911b703373addf2b59e425ec057d631614f",
-      "created_at": "2026-09-09T13:56:31Z",
-      "id": "e08f5afc0f80f190ce229e7cc17c6458",
-      "import_event_id": "a5a22fa9e926e98c80d109546e90214d",
-      "label": "Envelope",
-      "record_kind": "receipt"
-    }
-  },
-  "verified": false
-}
-```
-
-## `receipt list`
-
-`openpapir receipt list --archive <root>` reads every receipt record. It takes
-no lock. `data` holds `receipts`, ordered by identifier, and `count`. An
-archive with no receipt is not an error: `receipts` is empty, `count` is `0`,
-and the exit code is `0`.
-
-## `association create`
-
-`openpapir association create --archive <root> --receipt <receipt-id>
---outcome <outcome>` records what the user asserts about one receipt. The
-outcome is one of `unassociated`, `candidate`, `associated`, and
-`contradictory`. All four are results, none is an error, and all four exit
-`0`, `contradictory` least of all an error, since retaining conflicting
-evidence is the designed behaviour.
-
-`--candidate` may be repeated. Each value is
-`<submission-id>:<confidence>:<statement>`, split on the first two colons
-only, so a statement may contain a colon. `confidence` is the closed ordinal
-set `weak`, `moderate`, `strong` and is never a number, because no calibration
-data exists and a number would imply one. The statement is the user's own
-single line, at most 512 bytes.
-
-Every evidence entry this build writes carries `kind` `user_assertion` and
-`source` `user`, and every record carries `created_by` `user`. Automatic
-matching, derived metadata, and receipt parsing do not exist, so no other
-value could be recorded honestly.
-
-Records are append-only. `--supersedes` names an earlier association for the
-same receipt; the superseded record is never modified, moved, or removed, and
-history stays inspectable. Only an absent `--supersedes` records no
-supersession. A supplied value is always resolved, so an empty one is
-`record.not_found` like any other value that names no association, rather than
-a silent no-op.
-
-The consistency rules below are enforced before anything is written. Each
-refusal is the additive `record.inconsistent`, whose `details` carry
-`record_kind` and `rule` and nothing else:
-
-| Rule | Violation reported |
-| --- | --- |
-| `unassociated_has_candidates` | `unassociated` was given a candidate. |
-| `candidate_requires_candidates` | `candidate` was given no candidate. |
-| `associated_requires_one_candidate` | `associated` was not given exactly one candidate. |
-| `contradictory_requires_two_candidates` | `contradictory` was given fewer than two candidates. |
-| `duplicate_candidate_submission` | One submission was named as a candidate more than once. |
-| `supersedes_other_receipt` | The superseded record belongs to another receipt. |
-| `import_event_digest_mismatch` | A named import event records another artefact (`receipt.add`). |
-
-`submission_id` is the confirmed submission and equals the single candidate
-when the outcome is `associated`. It is `null` for `unassociated`,
-`candidate`, and `contradictory`. A receipt, a candidate submission, or a
-superseded association that does not exist is `record.not_found`, naming the
-kind and how it was referenced and never the value the user supplied. An
-outcome, a confidence, or a candidate of another shape is `usage.arguments`.
-
-```json
-{
-  "schema_version": 1,
-  "ok": true,
-  "command": "association.create",
-  "data": {
-    "association": {
-      "archive_schema_version": 1,
-      "candidates": [
-        {
-          "confidence": "moderate",
-          "evidence": [
-            {
-              "kind": "user_assertion",
-              "source": "user",
-              "statement": "The reference matches the submission."
-            }
-          ],
-          "submission_id": "ee4bc4254c0852e6bd3cbcc94c1cb221"
-        }
-      ],
-      "created_at": "2026-09-09T13:56:31Z",
-      "created_by": "user",
-      "id": "eadd68ec590ad23b48831560a2d15e24",
-      "outcome": "candidate",
-      "receipt_id": "e08f5afc0f80f190ce229e7cc17c6458",
-      "record_kind": "association",
-      "submission_id": null,
-      "supersedes": null
-    }
-  },
-  "verified": false
-}
-```
-
-## `association list`
-
-`openpapir association list --archive <root> --receipt <receipt-id>` reads one
-receipt's whole history. It takes no lock. `data` holds `associations`,
-`count`, and `receipt_id`. Superseded records are included and each entry
-carries its own `supersedes`, so nothing is collapsed, filtered, or presented
-as a single best guess. An identifier that names no receipt is
-`record.not_found`.
-
-Newest first means ordered by `created_at`, then by how many records a record
-supersedes, then by identifier, all descending. The middle key matters because
-openPapir records whole seconds: two records written in the same second would
-otherwise order arbitrarily, and a record that supersedes another is by
-construction the later of the two.
 
 ## `skill`
 
@@ -1087,11 +1147,11 @@ including `lock.stale`, `path.traversal`, and `write.incomplete`.
 
 ### Decisions this implementation had to make
 
-The error contract deferred four conditions to an implementing change, listed
-first below, and the integrity check decided two more. `record.not_found` is
-not one of them: it is a new code, added additively under the contract's
-compatibility rule. They are decided as
-follows, and no other reserved code became reachable:
+The error contract deferred four of its reserved conditions to an implementing
+change, and the commands below decided them and added nine further codes and
+rules additively under the contract's compatibility rule. All thirteen are
+decided as follows, and no reserved code other than those four became
+reachable:
 
 1. A marker that cannot be read is `archive.marker_malformed`. It is reported,
    never repaired, and every operation on that archive is refused.
