@@ -7,6 +7,7 @@
 //! build time so the binary can hand it out with no file alongside it, and
 //! the copy under `crates/openpapir-cli/skills/openpapir/` is the same bytes.
 
+use openpapir_core::error::Bucket;
 use std::io::{self, ErrorKind, Write};
 
 /// The embedded agent skill, byte for byte as the repository holds it.
@@ -14,8 +15,9 @@ pub const SKILL: &str = include_str!("../skills/openpapir/SKILL.md");
 
 /// The exit code of the `write` bucket, which a stdout that failed mid-way
 /// falls under: the document reached the destination incompletely or not at
-/// all. The catalogue is `docs/error-contract.md`.
-const WRITE_BUCKET_EXIT: i32 = 4;
+/// all. It is taken from the bucket table, which is the single source, and
+/// the catalogue is `docs/error-contract.md`.
+const WRITE_BUCKET_EXIT: i32 = Bucket::Write.exit_code();
 
 /// The one line a failing stdout puts on stderr.
 ///
