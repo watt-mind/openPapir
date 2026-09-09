@@ -504,9 +504,12 @@ fn an_association_spanning_two_cases_refuses_the_deletion_and_touches_nothing() 
 }
 
 /// A record directory the process cannot write to is the one way to refuse a
-/// record unlink from outside. Windows expresses the same refusal through an
-/// access-control list, which this test cannot set portably, so the case is
-/// exercised on Unix alone and the skip is recorded here.
+/// record unlink from outside. The probe that precedes the record pass sees
+/// it and refuses the whole deletion before the first unlink, so no object is
+/// touched and the retry costs the user nothing. Windows expresses the same
+/// refusal through an access-control list, which this test cannot set
+/// portably, so the case is exercised on Unix alone and the skip is recorded
+/// here.
 #[cfg(unix)]
 #[test]
 fn a_refused_record_unlink_stops_the_purge_before_it_touches_an_object() {
@@ -614,6 +617,121 @@ fn a_refused_record_unlink_stops_the_purge_before_it_touches_an_object() {
     assert!(fixture.check().status.success(), "and the archive is clean");
 }
 
+/// A record pass that stops part way through cannot be resumed: the records
+/// it did remove are gone, so the next run plans a smaller deletion, and an
+/// object whose last referencing record went in the interrupted pass is no
+/// longer a purge candidate at all. It would stay in the store with the
+/// import event that describes it, which `archive check` calls clean, and
+/// nothing would tell the user. The pass is therefore all or nothing: the
+/// refusal comes before the first unlink, so the retry finishes the job.
+///
+/// The condition is produced by making a record directory unwritable, which
+/// Windows expresses through an access-control list this test cannot set
+/// portably, so the case is exercised on Unix alone and the skip is recorded
+/// here.
+#[cfg(unix)]
+#[test]
+fn an_interrupted_record_pass_unlinks_nothing_so_the_retry_purges_everything() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let fixture = Fixture::new();
+    let own = fixture.import("own.bin", FIRST);
+    let receipted = fixture.import("receipted.bin", SECOND);
+    let case_id = fixture.case("A local matter");
+    let submission = fixture.submission(&case_id, &own);
+    let receipt = fixture.receipt(&receipted);
+    fixture.associate(&receipt, &submission);
+
+    let submissions = fixture.root.join("records/submissions");
+    let records = fixture.root.join("records");
+    let objects = fixture.root.join("objects");
+    let before = (snapshot(&records), snapshot(&objects));
+
+    fs::set_permissions(&submissions, fs::Permissions::from_mode(0o500))
+        .expect("make the submission directory read-only");
+    let output = fixture.delete(&case_id, true);
+    fs::set_permissions(&submissions, fs::Permissions::from_mode(0o700)).expect("restore the mode");
+
+    assert_eq!(output.status.code(), Some(4));
+    let envelope = stdout_json(&output);
+    assert_eq!(envelope["ok"], false);
+    assert_eq!(envelope["error"]["code"], "delete.records_retained");
+    assert_eq!(
+        envelope["error"]["details"]["retained_count"], 4,
+        "the association, the receipt, the submission, and the case"
+    );
+    assert_private(&envelope);
+
+    let data = &envelope["data"];
+    assert_eq!(
+        data["records_removed_total"], 0,
+        "the refusal comes before the first unlink"
+    );
+    assert_eq!(data["records_retained"], 4);
+    assert_eq!(data["objects_removed"], 0);
+    assert_eq!(
+        removed(data),
+        vec![
+            ("association".to_owned(), 0),
+            ("case".to_owned(), 0),
+            ("import_event".to_owned(), 0),
+            ("receipt".to_owned(), 0),
+            ("submission".to_owned(), 0),
+        ],
+        "no kind lost a document, not even the ones whose directory was fine"
+    );
+    assert_eq!(
+        (snapshot(&records), snapshot(&objects)),
+        before,
+        "every record and every object is exactly where it was"
+    );
+    let checked = fixture.check();
+    assert!(checked.status.success(), "the archive stays clean");
+    assert_eq!(stdout_json(&checked)["data"]["orphan_objects"], 0);
+
+    // Nothing was lost, so the same invocation finishes the whole deletion,
+    // the receipt's object included: it is still a purge candidate because
+    // the receipt that made it one is still there to be removed.
+    let retry = fixture.delete(&case_id, true);
+    assert!(
+        retry.status.success(),
+        "the retry does the work: {}",
+        String::from_utf8_lossy(&retry.stdout)
+    );
+    let data = stdout_json(&retry)["data"].clone();
+    assert_eq!(data["records_retained"], 0);
+    assert_eq!(
+        removed(&data),
+        vec![
+            ("association".to_owned(), 1),
+            ("case".to_owned(), 1),
+            ("import_event".to_owned(), 2),
+            ("receipt".to_owned(), 1),
+            ("submission".to_owned(), 1),
+        ]
+    );
+    assert_eq!(data["objects_removed"], 2, "both objects go");
+    assert_eq!(data["objects_retained_total"], 0);
+    assert!(
+        !fixture.object(&own).exists(),
+        "the submitted bytes are gone"
+    );
+    assert!(
+        !fixture.object(&receipted).exists(),
+        "the receipt's object is purged rather than stranded"
+    );
+    assert_eq!(
+        fs::read_dir(fixture.root.join("records/imports"))
+            .expect("the import directory")
+            .count(),
+        0,
+        "the import event describing purged content went with it"
+    );
+    let checked = fixture.check();
+    assert!(checked.status.success(), "and the archive is still clean");
+    assert_eq!(stdout_json(&checked)["data"]["orphan_objects"], 0);
+}
+
 /// On Windows an unlink another process defers is reported as a warning
 /// rather than counted as a removal. The condition cannot be produced on
 /// Unix, where an open file is unlinked immediately, so the case is exercised
@@ -641,6 +759,19 @@ fn a_deferred_unlink_is_a_platform_warning_rather_than_a_removal() {
     if output.status.code() == Some(4) {
         assert_eq!(envelope["error"]["code"], "delete.objects_retained");
         assert!(codes.contains(&"platform.replace_while_open"));
+        let deferred = envelope["warnings"]
+            .as_array()
+            .expect("warnings")
+            .iter()
+            .find(|warning| warning["code"] == "platform.replace_while_open")
+            .expect("the deferred unlink is reported");
+        assert_eq!(deferred["details"]["stage"], "purge");
+        // The flag answers whether a cleared attribute was put back, so it is
+        // there only where the attribute was cleared. Absent says it never
+        // was, which is not the same statement as `true`.
+        if let Some(restored) = deferred["details"].get("read_only_restored") {
+            assert!(restored.is_boolean(), "the flag is a flag");
+        }
     } else {
         assert_eq!(envelope["data"]["objects_removed"], 1);
     }
