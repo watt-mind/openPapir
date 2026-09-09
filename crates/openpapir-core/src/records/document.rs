@@ -186,11 +186,28 @@ pub fn read_record<R: Record>(
 ///
 /// Returns `record.malformed` when any document cannot be read as a record.
 pub fn list_records<R: Record>(root: &Path) -> Result<Vec<R>, Diagnostic> {
+    let mut records = Vec::new();
+    let unreadable = visit_records::<R, _>(root, |record| records.push(record));
+    if unreadable > 0 {
+        return Err(malformed(R::KIND, unreadable));
+    }
+    records.sort_by(|left, right| left.id().cmp(right.id()));
+    Ok(records)
+}
+
+/// Read every record of one kind, one at a time, and count the unreadable.
+///
+/// The reader is the bounded, no-follow one [`list_records`] uses, and it
+/// holds one document at a time rather than the whole directory, so a caller
+/// that only needs a fixed-size key from each record never accumulates the
+/// documents themselves. The return value is the number of documents that
+/// could not be read as a record of this kind; a staging file is openPapir's
+/// own transient artefact and is passed over rather than counted.
+pub fn visit_records<R: Record, F: FnMut(R)>(root: &Path, mut visit: F) -> u64 {
     let directory = root.join(R::DIRECTORY);
     let Ok(entries) = fs::read_dir(&directory) else {
-        return Ok(Vec::new());
+        return 0;
     };
-    let mut records = Vec::new();
     let mut unreadable = 0_u64;
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
@@ -210,15 +227,11 @@ pub fn list_records<R: Record>(root: &Path) -> Result<Vec<R>, Diagnostic> {
             .ok()
             .and_then(|text| parse::<R>(&text, id))
         {
-            Some(record) => records.push(record),
+            Some(record) => visit(record),
             None => unreadable += 1,
         }
     }
-    if unreadable > 0 {
-        return Err(malformed(R::KIND, unreadable));
-    }
-    records.sort_by(|left, right| left.id().cmp(right.id()));
-    Ok(records)
+    unreadable
 }
 
 /// Whether a directory entry may be read at all: a regular file, not a

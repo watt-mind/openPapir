@@ -5,19 +5,22 @@
 //! This crate owns the local case archive. Today that means the archive root
 //! and its marker, the content-addressed artefact store, the atomic write
 //! procedure, the single-writer lock, the input caps, the import-event
-//! records that import writes, and the case, submission, receipt, and
-//! user-asserted association records. Derived metadata and verification
-//! results are designed in `docs/archive-layout.md` and are not implemented.
+//! records that import writes, the case, submission, receipt, and
+//! user-asserted association records, and the read-only whole-archive
+//! integrity check. Derived metadata and verification results are designed in
+//! `docs/archive-layout.md` and are not implemented.
 //!
 //! # Status
 //!
-//! Ten operations are implemented, `archive.init`, `import`, `case.create`,
-//! `case.list`, `case.show`, `submission.add`, `receipt.add`, `receipt.list`,
-//! `association.create`, and `association.list`, and they are the ten
-//! [`capabilities`] reports. Everything else in the design stays a plan: no
-//! export, no deletion, no editing, no integrity check, no automatic
-//! matching, no derived metadata, no receipt parsing, and no verification of
-//! any kind. Every record here is the user's own local organisation:
+//! Eleven operations are implemented, `archive.init`, `import`,
+//! `case.create`, `case.list`, `case.show`, `submission.add`, `receipt.add`,
+//! `receipt.list`, `association.create`, `association.list`, and
+//! `archive.check`, and they are the eleven [`capabilities`] reports.
+//! Everything else in the design stays a plan: no export, no deletion, no
+//! editing, no repair, no automatic matching, no derived metadata, no receipt
+//! parsing, and no verification of any kind. The integrity check re-digests
+//! stored bytes, which is a storage-layer identity check and never a
+//! cryptographic verification. Every record here is the user's own local organisation:
 //! openPapir sends nothing and reads no artefact bytes, so a submission, a
 //! receipt, and an association are all user-asserted and assert no delivery,
 //! receipt by an authority, authenticity, or legal effect.
@@ -45,11 +48,13 @@ pub mod archive;
 pub mod clock;
 pub mod error;
 pub mod ident;
+pub mod integrity;
 pub mod records;
 
 pub use archive::import::{Artefact, Imported, import};
 pub use archive::{Created, init};
 pub use error::{Diagnostic, Failure, Outcome, Warning};
+pub use integrity::{Report, check};
 pub use records::association::{
     Association, AssociationCreated, AssociationHistory, Candidate, Evidence,
 };
@@ -71,6 +76,7 @@ const OPERATIONS: &[&str] = &[
     "receipt.list",
     "association.create",
     "association.list",
+    "archive.check",
 ];
 
 /// Machine-readable implementation status; never a verification verdict.
@@ -113,7 +119,8 @@ mod tests {
                 "receipt.add",
                 "receipt.list",
                 "association.create",
-                "association.list"
+                "association.list",
+                "archive.check"
             ]
         );
         assert_eq!(reported.project, "openPapir");
