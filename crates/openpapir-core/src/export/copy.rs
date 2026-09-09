@@ -32,7 +32,12 @@ use crate::records::document;
 const CHUNK_BYTES: usize = 64 * 1024;
 
 /// The stage name an interrupted object copy reports.
-const STAGE: &str = "object_write";
+///
+/// Every failure on the way out of the archive and into the destination is
+/// one of these: reading the stored object, streaming it, flushing it, and
+/// making the finished copy read-only are all part of copying that object
+/// (`docs/error-contract.md`).
+const STAGE: &str = destination::OBJECT_WRITE;
 
 /// One copied object, as the manifest lists it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -88,14 +93,15 @@ fn copy_one(
     let relative = format!("{}/{digest}", destination::OBJECTS_DIR);
     let mut source = open_object(root, digest)?;
     let target = directory.join(digest);
-    let mut copy = destination.create(directory, digest, &relative)?;
-    let streamed = stream(&mut source, &mut copy, index).and_then(|(copied, byte_length)| {
-        if copied == digest {
-            Ok(byte_length)
-        } else {
-            Err(mismatch(digest))
-        }
-    });
+    let mut copy = destination.create(directory, digest, &relative, STAGE)?;
+    let streamed =
+        stream(&mut source, &mut copy, index, &relative).and_then(|(copied, byte_length)| {
+            if copied == digest {
+                Ok(byte_length)
+            } else {
+                Err(mismatch(digest))
+            }
+        });
     let byte_length = match streamed {
         Ok(byte_length) => byte_length,
         Err(error) => {
@@ -108,12 +114,12 @@ fn copy_one(
         }
     };
     copy.sync_all()
-        .map_err(|error| destination::refusal(&error, &relative))?;
+        .map_err(|error| destination::refusal(&error, &relative, STAGE))?;
     drop(copy);
     // The copy becomes read-only only once it is complete, so that a failure
     // can still remove it on a platform that honours a read-only attribute.
     paths::set_object_read_only(&target)
-        .map_err(|error| destination::refusal(&error, &relative))?;
+        .map_err(|error| destination::refusal(&error, &relative, STAGE))?;
     Ok(ObjectEntry {
         algorithm: objects::ALGORITHM.to_owned(),
         byte_length,
@@ -145,7 +151,12 @@ fn open_object(root: &Path, digest: &str) -> Result<File, Diagnostic> {
 /// The single-file cap is enforced while streaming, exactly as import
 /// enforces it, so a stored object that has grown past the cap stops the
 /// export rather than being copied unbounded.
-fn stream(source: &mut File, copy: &mut File, index: u64) -> Result<(String, u64), Diagnostic> {
+fn stream(
+    source: &mut File,
+    copy: &mut File,
+    index: u64,
+    relative: &str,
+) -> Result<(String, u64), Diagnostic> {
     let mut hasher = Sha256::new();
     let mut buffer = vec![0_u8; CHUNK_BYTES];
     let mut byte_length = 0_u64;
@@ -158,7 +169,7 @@ fn stream(source: &mut File, copy: &mut File, index: u64) -> Result<(String, u64
         limits::check_file_size(byte_length, index)?;
         hasher.update(&buffer[..read]);
         copy.write_all(&buffer[..read])
-            .map_err(|error| destination::refusal(&error, ""))?;
+            .map_err(|error| destination::refusal(&error, relative, STAGE))?;
     }
     Ok((ident::hex(&hasher.finalize()), byte_length))
 }

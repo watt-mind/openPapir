@@ -15,15 +15,13 @@
 #![cfg(unix)]
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Output};
 
 mod golden_support;
 
+use golden_support::compare::{golden_root, settle};
 use golden_support::{Captured, Stage, World, normalise, payloads};
-
-/// The environment variable that rewrites the golden files deliberately.
-const UPDATE: &str = "OPENPAPIR_UPDATE_GOLDEN";
 
 /// One pinned invocation.
 struct Case {
@@ -273,11 +271,6 @@ fn association_cases() -> Vec<Case> {
     cases
 }
 
-/// The directory holding the committed golden files.
-fn golden_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/golden")
-}
-
 /// Run one invocation and normalise both of its streams.
 fn capture(case: &Case, json: bool) -> Captured {
     let world = World::build(case.stage, case.second_submission);
@@ -291,42 +284,6 @@ fn capture(case: &Case, json: bool) -> Captured {
         .output()
         .expect("run the openpapir binary under test");
     world.captured(&output, json)
-}
-
-/// Compare one file with what the run produced, or rewrite it on request.
-fn settle(path: &Path, actual: &str, differences: &mut Vec<String>) {
-    if std::env::var_os(UPDATE).is_some() {
-        fs::create_dir_all(path.parent().expect("a golden file has a parent"))
-            .expect("create the golden directory");
-        fs::write(path, actual).expect("write the golden file");
-        return;
-    }
-    let expected = fs::read_to_string(path).unwrap_or_default();
-    if expected != actual {
-        differences.push(report(path, &expected, actual));
-    }
-}
-
-/// A readable line-by-line difference between a golden file and a run.
-fn report(path: &Path, expected: &str, actual: &str) -> String {
-    let mut lines = vec![format!("--- {} (golden)", path.display())];
-    lines.push("+++ this run".to_owned());
-    let expected: Vec<&str> = expected.lines().collect();
-    let actual: Vec<&str> = actual.lines().collect();
-    for index in 0..expected.len().max(actual.len()) {
-        match (expected.get(index), actual.get(index)) {
-            (Some(left), Some(right)) if left == right => lines.push(format!("  {left}")),
-            (left, right) => {
-                if let Some(left) = left {
-                    lines.push(format!("-{left}"));
-                }
-                if let Some(right) = right {
-                    lines.push(format!("+{right}"));
-                }
-            }
-        }
-    }
-    lines.join("\n")
 }
 
 /// Every pinned invocation, in both modes, against the committed files.

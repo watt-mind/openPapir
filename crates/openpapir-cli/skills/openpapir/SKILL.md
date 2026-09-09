@@ -93,7 +93,14 @@ openpapir skill > .claude/skills/openpapir/SKILL.md
 
 Use `.codex/skills/openpapir/` for Codex, or `~/.claude/skills/openpapir/` to
 install it for every project instead of one. `openpapir skill` takes no file
-and no `--json`, writes the document and nothing else, and exits `0`.
+and no `--json` and writes the document and nothing else.
+
+Check the exit code of that redirection. It is `0` when the document was
+written, and `0` too when a reader such as `head` closed the pipe, which is
+not a failure. It is `4`, the `write` bucket's code, when the destination
+could not take the bytes, a full disk most often, with one line on stderr
+and no path in it. A `4` here means the file you just redirected into is
+truncated or empty: do not install it.
 
 ## The envelope and the exit codes
 
