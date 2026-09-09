@@ -17,7 +17,7 @@ use std::path::Path;
 use serde::Serialize;
 
 use crate::archive::import::ImportEvent;
-use crate::error::{Diagnostic, Warning};
+use crate::error::Diagnostic;
 use crate::export::KindCount;
 use crate::export::destination::{self, Destination};
 use crate::records::association::Association;
@@ -26,9 +26,6 @@ use crate::records::document::{self, Record};
 use crate::records::receipt::Receipt;
 use crate::records::submission::Submission;
 use crate::records::{DIGEST_PREFIX, is_digest};
-
-/// The stage name every record write reports a degradation under.
-const STAGE: &str = "record_write";
 
 /// One exported record, as the manifest lists it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -163,7 +160,6 @@ fn insert_digest(digests: &mut BTreeSet<String>, value: &str) {
 pub fn write_records(
     destination: &Destination,
     collected: &Collected,
-    warnings: &mut Vec<Warning>,
 ) -> Result<Written, Diagnostic> {
     let mut entries = Vec::new();
     let counts = vec![
@@ -171,17 +167,11 @@ pub fn write_records(
             destination,
             std::slice::from_ref(&collected.case),
             &mut entries,
-            warnings,
         )?,
-        write_kind(destination, &collected.submissions, &mut entries, warnings)?,
-        write_kind(destination, &collected.receipts, &mut entries, warnings)?,
-        write_kind(destination, &collected.associations, &mut entries, warnings)?,
-        write_kind(
-            destination,
-            &collected.import_events,
-            &mut entries,
-            warnings,
-        )?,
+        write_kind(destination, &collected.submissions, &mut entries)?,
+        write_kind(destination, &collected.receipts, &mut entries)?,
+        write_kind(destination, &collected.associations, &mut entries)?,
+        write_kind(destination, &collected.import_events, &mut entries)?,
     ];
     Ok(Written { entries, counts })
 }
@@ -191,7 +181,6 @@ fn write_kind<R: Record>(
     destination: &Destination,
     records: &[R],
     entries: &mut Vec<RecordEntry>,
-    warnings: &mut Vec<Warning>,
 ) -> Result<KindCount, Diagnostic> {
     if records.is_empty() {
         return Ok(KindCount {
@@ -204,13 +193,7 @@ fn write_kind<R: Record>(
         let file_name = format!("{}.json", record.id());
         let relative = format!("{}/{}/{file_name}", destination::RECORDS_DIR, R::KIND);
         let document = document::document(record)?;
-        warnings.extend(destination::write_new(
-            &directory,
-            &file_name,
-            &relative,
-            document.as_bytes(),
-            STAGE,
-        )?);
+        destination.write_new(&directory, &file_name, &relative, document.as_bytes())?;
         entries.push(RecordEntry {
             id: record.id().to_owned(),
             kind: R::KIND.to_owned(),

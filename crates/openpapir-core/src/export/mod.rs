@@ -92,6 +92,18 @@ pub fn export_case(root: &Path, case_id: &str, destination: &Path) -> Result<Exp
     }
 }
 
+#[allow(clippy::type_complexity)]
+fn write_export(
+    prepared: &destination::Destination,
+    root: &Path,
+    collected: &collect::Collected,
+) -> std::result::Result<(Vec<copy::ObjectEntry>, collect::Written), Diagnostic> {
+    let objects = copy::copy_objects(root, prepared, &collected.digests)?;
+    let records = collect::write_records(prepared, collected)?;
+    manifest::write(prepared, &collected.case.id, &objects, &records.entries)?;
+    Ok((objects, records))
+}
+
 fn run(
     root: &Path,
     case_id: &str,
@@ -102,15 +114,17 @@ fn run(
     warnings.extend(archive.take_warnings());
     let collected = collect::gather(archive.root(), case_id)?;
     let prepared = destination::prepare(archive.root(), destination)?;
-    let objects = copy::copy_objects(archive.root(), &prepared, &collected.digests, warnings)?;
-    let records = collect::write_records(&prepared, &collected, warnings)?;
-    manifest::write(
-        &prepared,
-        &collected.case.id,
-        &objects,
-        &records.entries,
-        warnings,
-    )?;
+    // Everything past this point may have put something in the destination,
+    // so a refusal removes exactly what this export created before it is
+    // reported. A retry then meets the destination it met the first time.
+    let written = write_export(&prepared, archive.root(), &collected);
+    let (objects, records) = match written {
+        Ok(written) => written,
+        Err(error) => {
+            prepared.discard();
+            return Err(error);
+        }
+    };
     Ok(Exported {
         bytes_copied: objects.iter().map(|object| object.byte_length).sum(),
         case_id: collected.case.id,

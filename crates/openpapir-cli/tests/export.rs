@@ -181,6 +181,15 @@ impl Fixture {
         self.home.path().join(name)
     }
 
+    /// One stored object's path inside the archive.
+    fn stored_object(&self, digest: &str) -> PathBuf {
+        self.root
+            .join("objects/sha256")
+            .join(&digest[0..2])
+            .join(&digest[2..4])
+            .join(digest)
+    }
+
     /// The bare hexadecimal form of an algorithm-qualified digest.
     fn bare(&self, index: usize) -> String {
         self.digests[index]
@@ -374,12 +383,8 @@ fn a_corrupted_source_object_is_reported_as_a_copy_mismatch() {
     use std::os::unix::fs::PermissionsExt as _;
     let fixture = Fixture::build();
     let digest = fixture.bare(0);
-    let stored = fixture
-        .root
-        .join("objects/sha256")
-        .join(&digest[0..2])
-        .join(&digest[2..4])
-        .join(&digest);
+    let stored = fixture.stored_object(&digest);
+    let original = fs::read(&stored).unwrap();
     fs::set_permissions(&stored, fs::Permissions::from_mode(0o600)).unwrap();
     fs::write(&stored, b"corrupted synthetic bytes\n").unwrap();
     fs::set_permissions(&stored, fs::Permissions::from_mode(0o400)).unwrap();
@@ -391,9 +396,49 @@ fn a_corrupted_source_object_is_reported_as_a_copy_mismatch() {
     assert_eq!(envelope["error"]["code"], "export.copy_mismatch");
     assert_eq!(envelope["error"]["details"]["bucket"], "export");
     assert_eq!(envelope["error"]["details"]["digest"], digest.as_str());
+
+    // A failed export leaves nothing behind, so the same command can be run
+    // again once the archive is sound.
     assert!(
-        !destination.join("objects").join(&digest).exists(),
-        "the partial copy is removed"
+        !destination.exists(),
+        "a destination the failed export created is removed again"
+    );
+    fs::set_permissions(&stored, fs::Permissions::from_mode(0o600)).unwrap();
+    fs::write(&stored, &original).unwrap();
+    fs::set_permissions(&stored, fs::Permissions::from_mode(0o400)).unwrap();
+    let retried = fixture.export_to(&destination);
+    assert!(retried.status.success(), "the retry is not refused");
+    assert_eq!(
+        fs::read(destination.join("objects").join(&digest)).unwrap(),
+        original
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_failed_export_leaves_a_destination_the_user_made_empty() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let fixture = Fixture::build();
+    let digest = fixture.bare(0);
+    let stored = fixture.stored_object(&digest);
+    fs::set_permissions(&stored, fs::Permissions::from_mode(0o600)).unwrap();
+    fs::write(&stored, b"corrupted synthetic bytes\n").unwrap();
+
+    let destination = fixture.destination("export");
+    fs::create_dir(&destination).unwrap();
+    let output = fixture.export_to(&destination);
+    assert_eq!(
+        stdout_json(&output)["error"]["code"],
+        "export.copy_mismatch"
+    );
+    assert!(
+        destination.is_dir(),
+        "a destination the user made is never removed"
+    );
+    assert_eq!(
+        fs::read_dir(&destination).unwrap().count(),
+        0,
+        "everything the failed export wrote is gone"
     );
 }
 
@@ -542,7 +587,11 @@ fn the_repair_narrows_a_widened_archive_and_widens_nothing() {
             )
         })
         .collect();
-    assert_eq!(changed.len(), 7, "every kind is reported");
+    assert_eq!(changed.len(), 6, "every kind is reported");
+    assert!(
+        !changed.contains_key("lock"),
+        "the lock is never inspected, so it is never reported"
+    );
     assert_eq!(changed["root"], 1);
     assert_eq!(changed["marker"], 1);
     assert_eq!(changed["record"], 8);

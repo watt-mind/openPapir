@@ -15,7 +15,7 @@ use serde::Serialize;
 
 use crate::archive::SUPPORTED_SCHEMA_VERSION;
 use crate::clock;
-use crate::error::{Details, Diagnostic, Warning, codes};
+use crate::error::{Details, Diagnostic, codes};
 use crate::export::collect::RecordEntry;
 use crate::export::copy::ObjectEntry;
 use crate::export::destination::{self, Destination};
@@ -51,17 +51,14 @@ pub fn write(
     case_id: &str,
     objects: &[ObjectEntry],
     records: &[RecordEntry],
-    warnings: &mut Vec<Warning>,
 ) -> Result<(), Diagnostic> {
     let document = render(case_id, objects, records)?;
-    warnings.extend(destination::write_new(
+    destination.write_new(
         destination.path(),
         destination::MANIFEST_FILE,
         destination::MANIFEST_FILE,
         document.as_bytes(),
-        "record_write",
-    )?);
-    Ok(())
+    )
 }
 
 /// Render the manifest as one document with sorted keys and a final newline.

@@ -1,17 +1,17 @@
 //! Copying stored objects out of the archive, byte for byte.
 //!
 //! Each object is opened read-only with the platform's no-follow flag and
-//! streamed in bounded chunks into a staging file inside the destination,
-//! digesting the bytes on the way out. Nothing is memory-mapped, nothing is
-//! held whole, no hard link is made, and the copy is therefore valid across
-//! filesystems: it is a plain copy of the original bytes
+//! streamed in bounded chunks into a file created at its final path in the
+//! destination, digesting the bytes on the way out. Nothing is memory-mapped,
+//! nothing is held whole, and no hard link is made, so the copy is a plain
+//! copy of the original bytes and works on any filesystem
 //! (`docs/archive-layout.md`).
 //!
-//! The copy is compared with the digest its source path names before it is
-//! published. A copy that differs is `export.copy_mismatch` and its partial
-//! file is removed, so the destination never holds a file whose name does not
-//! describe its content. The comparison is a storage-layer identity check and
-//! never a cryptographic verification.
+//! The copy is compared with the digest its source path names once it is
+//! written. A copy that differs is `export.copy_mismatch` and the partial
+//! file is removed at once, so the destination never keeps a file whose name
+//! does not describe its content. The comparison is a storage-layer identity
+//! check and never a cryptographic verification.
 
 use std::collections::BTreeSet;
 use std::fs::File;
@@ -22,9 +22,8 @@ use sha2::{Digest as _, Sha256};
 
 use serde::Serialize;
 
-use crate::archive::write::Staging;
 use crate::archive::{limits, objects, paths};
-use crate::error::{Details, Diagnostic, Warning, codes};
+use crate::error::{Details, Diagnostic, codes};
 use crate::export::destination::{self, Destination};
 use crate::ident;
 use crate::records::document;
@@ -32,7 +31,7 @@ use crate::records::document;
 /// How many bytes are read from an object at a time.
 const CHUNK_BYTES: usize = 64 * 1024;
 
-/// The stage name every object copy reports a degradation under.
+/// The stage name an interrupted object copy reports.
 const STAGE: &str = "object_write";
 
 /// One copied object, as the manifest lists it.
@@ -60,7 +59,6 @@ pub fn copy_objects(
     root: &Path,
     destination: &Destination,
     digests: &BTreeSet<String>,
-    warnings: &mut Vec<Warning>,
 ) -> Result<Vec<ObjectEntry>, Diagnostic> {
     if digests.is_empty() {
         return Ok(Vec::new());
@@ -68,34 +66,52 @@ pub fn copy_objects(
     let directory = destination.objects_directory()?;
     let mut copied = Vec::with_capacity(digests.len());
     for (index, digest) in digests.iter().enumerate() {
-        copied.push(copy_one(root, &directory, digest, index as u64, warnings)?);
+        copied.push(copy_one(
+            root,
+            destination,
+            &directory,
+            digest,
+            index as u64,
+        )?);
     }
     Ok(copied)
 }
 
-/// Copy one object and re-digest it before it is published.
+/// Copy one object and re-digest it before the copy is kept.
 fn copy_one(
     root: &Path,
+    destination: &Destination,
     directory: &Path,
     digest: &str,
     index: u64,
-    warnings: &mut Vec<Warning>,
 ) -> Result<ObjectEntry, Diagnostic> {
     let relative = format!("{}/{digest}", destination::OBJECTS_DIR);
-    destination::refuse_existing(&directory.join(digest), &relative)?;
     let mut source = open_object(root, digest)?;
-    let mut staging = Staging::create(directory, STAGE)?;
-    let (copied, byte_length) = stream(&mut source, &mut staging, index)?;
-    if copied != digest {
-        return Err(mismatch(digest));
-    }
-    staging.finish(STAGE)?;
     let target = directory.join(digest);
-    warnings.extend(destination::publish(staging, &target, &relative, STAGE)?);
-    // The copy becomes read-only only once it is in place. Narrowing the
-    // staging file first would leave it behind on a platform that refuses to
-    // remove a read-only file, and an export must hold nothing its manifest
-    // does not list.
+    let mut copy = destination.create(directory, digest, &relative)?;
+    let streamed = stream(&mut source, &mut copy, index).and_then(|(copied, byte_length)| {
+        if copied == digest {
+            Ok(byte_length)
+        } else {
+            Err(mismatch(digest))
+        }
+    });
+    let byte_length = match streamed {
+        Ok(byte_length) => byte_length,
+        Err(error) => {
+            // The partial copy goes at once rather than waiting for the
+            // export to unwind, so nothing in the destination ever holds
+            // bytes its name does not describe.
+            drop(copy);
+            destination.remove_created(&target);
+            return Err(error);
+        }
+    };
+    copy.sync_all()
+        .map_err(|error| destination::refusal(&error, &relative))?;
+    drop(copy);
+    // The copy becomes read-only only once it is complete, so that a failure
+    // can still remove it on a platform that honours a read-only attribute.
     paths::set_object_read_only(&target)
         .map_err(|error| destination::refusal(&error, &relative))?;
     Ok(ObjectEntry {
@@ -124,16 +140,12 @@ fn open_object(root: &Path, digest: &str) -> Result<File, Diagnostic> {
     })
 }
 
-/// Stream the source into the staging file, digesting and counting as it goes.
+/// Stream the source into the copy, digesting and counting as it goes.
 ///
 /// The single-file cap is enforced while streaming, exactly as import
 /// enforces it, so a stored object that has grown past the cap stops the
 /// export rather than being copied unbounded.
-fn stream(
-    source: &mut File,
-    staging: &mut Staging,
-    index: u64,
-) -> Result<(String, u64), Diagnostic> {
+fn stream(source: &mut File, copy: &mut File, index: u64) -> Result<(String, u64), Diagnostic> {
     let mut hasher = Sha256::new();
     let mut buffer = vec![0_u8; CHUNK_BYTES];
     let mut byte_length = 0_u64;
@@ -145,9 +157,7 @@ fn stream(
         byte_length += read as u64;
         limits::check_file_size(byte_length, index)?;
         hasher.update(&buffer[..read]);
-        staging
-            .file()
-            .write_all(&buffer[..read])
+        copy.write_all(&buffer[..read])
             .map_err(|error| destination::refusal(&error, ""))?;
     }
     Ok((ident::hex(&hasher.finalize()), byte_length))
@@ -200,19 +210,13 @@ mod tests {
         fs::create_dir(&root).unwrap();
         store(&root, DIGEST, PAYLOAD);
         let prepared = destination(home.path(), &root);
-        let mut warnings = Vec::new();
         let digests = BTreeSet::from([DIGEST.to_owned()]);
-        let copied = copy_objects(&root, &prepared, &digests, &mut warnings).unwrap();
+        let copied = copy_objects(&root, &prepared, &digests).unwrap();
         assert_eq!(copied.len(), 1);
         assert_eq!(copied[0].byte_length, PAYLOAD.len() as u64);
         assert_eq!(copied[0].algorithm, "sha256");
         let copy = prepared.path().join("objects").join(DIGEST);
         assert_eq!(fs::read(&copy).unwrap(), PAYLOAD);
-        assert!(
-            warnings
-                .iter()
-                .all(|warning| warning.bucket() == crate::error::Bucket::Platform)
-        );
     }
 
     #[test]
@@ -221,9 +225,8 @@ mod tests {
         let root = home.path().join("archive");
         fs::create_dir(&root).unwrap();
         let prepared = destination(home.path(), &root);
-        let mut warnings = Vec::new();
         assert!(
-            copy_objects(&root, &prepared, &BTreeSet::new(), &mut warnings)
+            copy_objects(&root, &prepared, &BTreeSet::new())
                 .unwrap()
                 .is_empty()
         );
@@ -237,9 +240,8 @@ mod tests {
         fs::create_dir(&root).unwrap();
         store(&root, DIGEST, b"other bytes\n");
         let prepared = destination(home.path(), &root);
-        let mut warnings = Vec::new();
         let digests = BTreeSet::from([DIGEST.to_owned()]);
-        let refusal = copy_objects(&root, &prepared, &digests, &mut warnings).unwrap_err();
+        let refusal = copy_objects(&root, &prepared, &digests).unwrap_err();
         assert_eq!(refusal.code, codes::EXPORT_COPY_MISMATCH);
         assert_eq!(refusal.exit_code(), 4);
         assert!(!refusal.is_retryable());
@@ -263,9 +265,8 @@ mod tests {
         let root = home.path().join("archive");
         fs::create_dir(&root).unwrap();
         let prepared = destination(home.path(), &root);
-        let mut warnings = Vec::new();
         let digests = BTreeSet::from([DIGEST.to_owned()]);
-        let refusal = copy_objects(&root, &prepared, &digests, &mut warnings).unwrap_err();
+        let refusal = copy_objects(&root, &prepared, &digests).unwrap_err();
         assert_eq!(refusal.code, codes::RECORD_NOT_FOUND);
     }
 
@@ -281,9 +282,8 @@ mod tests {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::os::unix::fs::symlink(&elsewhere, &path).unwrap();
         let prepared = destination(home.path(), &root);
-        let mut warnings = Vec::new();
         let digests = BTreeSet::from([DIGEST.to_owned()]);
-        let refusal = copy_objects(&root, &prepared, &digests, &mut warnings).unwrap_err();
+        let refusal = copy_objects(&root, &prepared, &digests).unwrap_err();
         assert_eq!(refusal.code, codes::PATH_SYMLINK);
     }
 }

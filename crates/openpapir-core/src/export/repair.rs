@@ -15,6 +15,13 @@
 //! A symbolic link is refused rather than narrowed. Changing a link's
 //! permissions changes its target's, which for a link out of the archive
 //! would be a change to a file the archive does not own.
+//!
+//! The lock file is deliberately not inspected. The repair holds the writer
+//! lock while it runs, so the only lock file that can exist while it walks is
+//! the one it created itself, owner-only by construction; a lock file another
+//! writer left refuses the repair with `lock.held` before the walk begins. A
+//! `lock` count would therefore always be zero, and the report says only what
+//! it actually looked at.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -22,7 +29,6 @@ use std::path::Path;
 
 use serde::Serialize;
 
-use crate::archive::lock::LOCK_FILE;
 use crate::archive::objects::{ALGORITHM, INCOMING_DIR, OBJECTS_DIR};
 use crate::archive::paths;
 use crate::archive::{CACHE_DIR, MARKER_FILE};
@@ -30,15 +36,7 @@ use crate::error::{Details, Diagnostic, codes};
 use crate::export::KindCount;
 
 /// The kinds of path the repair reports, in the order it reports them.
-pub const KINDS: [&str; 7] = [
-    "cache",
-    "directory",
-    "lock",
-    "marker",
-    "object",
-    "record",
-    "root",
-];
+pub const KINDS: [&str; 6] = ["cache", "directory", "marker", "object", "record", "root"];
 
 /// The mode a directory keeps: owner read, write, and search.
 const DIRECTORY_MASK: u32 = 0o700;
@@ -108,10 +106,14 @@ impl Counts {
 pub fn narrow_archive(root: &Path, layout_dirs: &[&str]) -> Result<Repaired, Diagnostic> {
     let mut counts = Counts::default();
     narrow(root, ".", DIRECTORY_MASK, "root", &mut counts)?;
-    for (name, kind) in [(MARKER_FILE, "marker"), (LOCK_FILE, "lock")] {
-        if root.join(name).exists() {
-            narrow(&root.join(name), name, FILE_MASK, kind, &mut counts)?;
-        }
+    if root.join(MARKER_FILE).exists() {
+        narrow(
+            &root.join(MARKER_FILE),
+            MARKER_FILE,
+            FILE_MASK,
+            "marker",
+            &mut counts,
+        )?;
     }
     for relative in layout_dirs {
         let path = root.join(relative);
@@ -271,6 +273,10 @@ mod tests {
     fn every_kind_is_reported_even_when_nothing_of_it_changed() {
         let repaired = Counts::default().finish();
         assert_eq!(repaired.changed.len(), KINDS.len());
+        assert!(
+            !KINDS.contains(&"lock"),
+            "the lock is never inspected, so it is never reported"
+        );
         assert_eq!(repaired.paths_changed, 0);
         assert_eq!(repaired.paths_checked, 0);
         let kinds: Vec<&str> = repaired.changed.iter().map(|entry| entry.kind).collect();

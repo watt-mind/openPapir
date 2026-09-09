@@ -446,7 +446,9 @@ followed ([archive-layout](archive-layout.md)).
   `digest`, `conflict_count`.
 
 Both are implemented; [architecture](architecture.md) is authoritative for
-what emits them.
+what emits them. Every refusal raised inside an export destination carries
+`scope` `export_destination`, and none carries `archive_path`: the path it
+would name belongs to an archive the refusal is not about.
 
 ### `delete`: deletion and purge
 

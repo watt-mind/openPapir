@@ -33,14 +33,20 @@ matches the observable difference. See the Documentation section of
   symbolic link in the destination is refused rather than followed, and a file
   already at a target path is refused rather than replaced. Every copy is
   re-digested as it is written and its partial file removed when it differs.
+  An export that fails removes exactly what it created, so a destination the
+  export made is gone again and one the user made is left empty, and a retry
+  is not refused for a leftover from the attempt before it.
   An exported object is named by its digest alone: no original filename is a
   file name, a directory name, or a manifest field. Human output repeats the
   destination the user supplied; no JSON field carries it.
 - `openpapir archive repair-permissions --archive <root>` narrows the root,
-  the marker, the lock, every layout directory, every record, and every
-  object back to the owner-only modes of the design, and reports the count of
-  paths it changed per kind. It only ever narrows: a path already narrower
-  than the design's mode is left as it is, and nothing is ever widened. It
+  the marker, every layout directory, every record, and every object back to
+  the owner-only modes of the design, and reports the count of paths it
+  changed per kind. The lock file is not inspected and not reported: the only
+  lock file that can exist while the repair runs is the one it took itself,
+  and a lock another writer holds refuses the repair with `lock.held`. It
+  only ever narrows: a path already narrower than the design's mode is left
+  as it is, and nothing is ever widened. It
   refuses a root without a marker, takes the writer lock, reads no file
   content, and refuses a symbolic link inside the archive rather than
   narrowing it. It is the documented remedy for copy tooling that widens
@@ -48,7 +54,8 @@ matches the observable difference. See the Documentation section of
 - `export.destination_conflict` and `export.copy_mismatch` are now emitted
   rather than reserved. Both are `export` refusals that exit `4`, and both
   report counts, a digest, or a destination-relative path, never the
-  destination the user supplied.
+  destination the user supplied. Every refusal raised inside a destination
+  carries `scope` `export_destination` and no `archive_path`.
 - `capabilities` now lists `case.export` and `archive.repair_permissions` as
   the twelfth and thirteenth operations.
 

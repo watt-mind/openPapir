@@ -331,8 +331,15 @@ it is rather than raised to `0o600`.
 | Path | Mode it is narrowed to |
 | --- | --- |
 | The root, every layout directory, and every object fan-out directory | `0o700` |
-| The marker, the lock, and every record document | `0o600` |
+| The marker and every record document | `0o600` |
 | Every stored object and every leftover staging file | `0o400` for a stored object, `0o600` for a staging file |
+
+The lock file is deliberately not inspected. The repair holds the writer lock
+while it runs, so the only lock file that can exist while it walks is the one
+it created itself, owner-only by construction, and a lock file another writer
+left refuses the repair with `lock.held` before the walk begins. A `lock`
+count would always be zero, so the report does not carry one: it names only
+what the repair actually looked at.
 
 The repair refuses a root with no marker, so it never adopts a directory, and
 it refuses an archive whose schema version this build does not support. It
@@ -358,14 +365,13 @@ changed for, so a caller reads a count rather than testing for a key.
     "changed": [
       { "count": 0, "kind": "cache" },
       { "count": 0, "kind": "directory" },
-      { "count": 0, "kind": "lock" },
       { "count": 0, "kind": "marker" },
       { "count": 0, "kind": "object" },
       { "count": 0, "kind": "record" },
       { "count": 0, "kind": "root" }
     ],
     "paths_changed": 0,
-    "paths_checked": 30
+    "paths_checked": 16
   },
   "verified": false
 }
@@ -374,10 +380,9 @@ changed for, so a caller reads a count rather than testing for a key.
 Human output prints the same counts and no path.
 
 ```text
-Narrowed 0 of 30 archive path(s) to owner-only.
+Narrowed 0 of 16 archive path(s) to owner-only.
 cache 0
 directory 0
-lock 0
 marker 0
 object 0
 record 0
@@ -557,9 +562,27 @@ statement, so a receipt reaches an export only because the user tied it to the
 case themselves.
 
 The destination must be an existing empty directory or one the export creates,
-and it is never inside the archive root. The path rules apply outward: a
-symbolic link in the destination is refused rather than followed, and a file
-already at a target path is refused rather than replaced.
+and it is never inside the archive root. Both paths are resolved before they
+are compared, and a path that cannot be resolved at all is refused rather than
+let through, because the question the check answers is whether the export is
+about to write inside the archive. The path rules apply outward: a symbolic
+link in the destination is refused rather than followed, and a file already at
+a target path is refused rather than replaced.
+
+The archive's own publish step, a hard link into place, is deliberately not
+used outside the root. A destination may be a filesystem that cannot create a
+hard link at all, and the design requires an export to work on any of them, so
+each file is created at its final path with create-new semantics instead,
+which refuses an existing path just as firmly. The cost is that an interrupted
+export could leave a partial file, so an export that fails removes exactly
+what it created, files before the directories that hold them, and never a path
+that was already there. A destination the export itself created is removed
+again; one the user made is left in place and empty. A retry therefore meets
+the destination the first attempt met. Removal is best effort: the export is
+already reporting a refusal of its own, and a destination that cannot be
+tidied is not a second one. Directory entries in the destination are not
+flushed, and the archive's durability guarantee does not extend outside the
+root.
 
 Every copy is streamed in 64 KiB chunks and digested as it is written, then
 compared with the digest its source path names. A copy that differs is
@@ -577,7 +600,8 @@ a storage-layer identity check and never a cryptographic verification, so
 | The destination is not empty, or a target path is already there. | `export.destination_conflict` |
 | A copy re-digested to something other than its source. | `export.copy_mismatch` |
 | A stored object exceeds the single-file cap. | `input.cap.file_size` |
-| A copy could not be read or published. | `write.interrupted` |
+| A copy could not be read or written. | `write.interrupted` |
+| The archive root could not be resolved, so the destination could not be checked against it. | `usage.arguments` |
 
 The manifest is authoritative for what the export contains. Its keys are
 sorted, it records the archive's schema version, its own format version, the

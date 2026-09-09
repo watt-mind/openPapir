@@ -7,18 +7,27 @@
 //! archive root is refused before anything is copied, because an export that
 //! wrote into the archive would no longer be a copy of it.
 //!
+//! The archive's own publish step is a hard link, which is what keeps a write
+//! inside the root from replacing a file openPapir did not create. It is
+//! deliberately not used here: a destination may be a filesystem that cannot
+//! create a hard link at all, and the design requires an export to work on
+//! any of them. Each file is instead created at its final path with
+//! create-new semantics, which refuses an existing path just as firmly, and
+//! the export removes what it created when it fails, so an interrupted export
+//! does not leave a destination a retry would then refuse.
+//!
 //! The destination path itself never reaches a diagnostic. What a refusal
 //! names is the path relative to the destination, which is built from
 //! openPapir's own fixed directory names plus a digest or an identifier
 //! (`docs/error-contract.md`).
 
-use std::fs;
+use std::cell::RefCell;
+use std::fs::{self, File};
 use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 
 use crate::archive::paths;
-use crate::archive::write::Staging;
-use crate::error::{Details, Diagnostic, Warning, codes};
+use crate::error::{Details, Diagnostic, codes};
 
 /// The directory holding copied objects, relative to the destination.
 pub const OBJECTS_DIR: &str = "objects";
@@ -27,10 +36,21 @@ pub const RECORDS_DIR: &str = "records";
 /// The manifest's file name, relative to the destination.
 pub const MANIFEST_FILE: &str = "manifest.json";
 
-/// A prepared destination directory, owned by this export.
+/// One path this export created, so that a failure can undo exactly it.
+#[derive(Debug)]
+enum Created {
+    /// A directory this export made.
+    Directory(PathBuf),
+    /// A file this export wrote.
+    File(PathBuf),
+}
+
+/// A prepared destination directory, and what this export put in it.
 #[derive(Debug)]
 pub struct Destination {
     path: PathBuf,
+    created_root: bool,
+    created: RefCell<Vec<Created>>,
 }
 
 impl Destination {
@@ -65,14 +85,122 @@ impl Destination {
     }
 
     /// Create one directory inside the destination, owner-only.
+    ///
+    /// A directory this call makes is remembered, so that a failed export can
+    /// remove it again. One that was already there is left in the record
+    /// untouched, because the export did not create it and may not remove it.
     fn directory(&self, relative: &str) -> Result<PathBuf, Diagnostic> {
         let path = self.path.join(relative);
         if paths::is_symlink(&path) {
             return Err(symlink_refusal(relative));
         }
+        if path.is_dir() {
+            return Ok(path);
+        }
         paths::create_dir_owner_only(&path).map_err(|error| refusal(&error, relative))?;
+        self.created
+            .borrow_mut()
+            .push(Created::Directory(path.clone()));
         Ok(path)
     }
+
+    /// Create one file at its final path, replacing nothing.
+    ///
+    /// The file is opened with create-new semantics, which fails rather than
+    /// replacing anything already there, a symbolic link included. The caller
+    /// streams into the returned handle and flushes it.
+    ///
+    /// # Errors
+    ///
+    /// Returns `path.symlink`, `export.destination_conflict`, or
+    /// `write.interrupted`.
+    pub fn create(
+        &self,
+        directory: &Path,
+        file_name: &str,
+        relative: &str,
+    ) -> Result<File, Diagnostic> {
+        let target = directory.join(file_name);
+        refuse_existing(&target, relative)?;
+        let file = paths::create_file_owner_only(&target).map_err(|error| {
+            if error.kind() == io::ErrorKind::AlreadyExists {
+                conflict(relative, 1)
+            } else {
+                refusal(&error, relative)
+            }
+        })?;
+        self.created.borrow_mut().push(Created::File(target));
+        Ok(file)
+    }
+
+    /// Write one whole document into the destination, replacing nothing.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same refusals as [`Destination::create`].
+    pub fn write_new(
+        &self,
+        directory: &Path,
+        file_name: &str,
+        relative: &str,
+        content: &[u8],
+    ) -> Result<(), Diagnostic> {
+        let mut file = self.create(directory, file_name, relative)?;
+        file.write_all(content)
+            .and_then(|()| file.sync_all())
+            .map_err(|error| refusal(&error, relative))
+    }
+
+    /// Remove one file this export created, before the export goes on.
+    ///
+    /// A copy that turned out not to hold the bytes its name describes goes
+    /// at once rather than waiting for the export to unwind.
+    pub fn remove_created(&self, path: &Path) {
+        remove_created_file(path);
+        self.created
+            .borrow_mut()
+            .retain(|entry| !matches!(entry, Created::File(created) if created == path));
+    }
+
+    /// Remove exactly what this export created, and nothing else.
+    ///
+    /// Files go before the directories that hold them, in the reverse of the
+    /// order they were created, and a directory the export found already
+    /// there is never removed. Removal is best effort: the export is already
+    /// failing with a refusal of its own, and a destination that cannot be
+    /// tidied is not a second, different failure to report.
+    pub fn discard(&self) {
+        for entry in self.created.borrow().iter().rev() {
+            match entry {
+                Created::File(path) => remove_created_file(path),
+                Created::Directory(path) => {
+                    let _ = fs::remove_dir(path);
+                }
+            }
+        }
+        self.created.borrow_mut().clear();
+        if self.created_root {
+            let _ = fs::remove_dir(&self.path);
+        }
+    }
+}
+
+/// Remove a file this export created, whatever mode it was given.
+///
+/// A copied object is owner-read-only, which on a platform that honours a
+/// read-only attribute would otherwise refuse the removal and leave the
+/// destination half written.
+fn remove_created_file(path: &Path) {
+    if paths::is_symlink(path) {
+        return;
+    }
+    #[cfg(not(unix))]
+    if let Ok(metadata) = fs::metadata(path) {
+        let mut permissions = metadata.permissions();
+        permissions.set_readonly(false);
+        let _ = fs::set_permissions(path, permissions);
+    }
+    let _ = fs::remove_file(path);
 }
 
 /// Refuse the destination before anything is copied, then make it ready.
@@ -83,8 +211,9 @@ impl Destination {
 ///
 /// # Errors
 ///
-/// Returns `usage.arguments` when the destination is unusable or lies inside
-/// the archive root, `path.symlink` when it is a symbolic link,
+/// Returns `usage.arguments` when the destination is unusable, when it lies
+/// inside the archive root, or when either path cannot be resolved,
+/// `path.symlink` when it is a symbolic link,
 /// `export.destination_conflict` when it already holds anything, and
 /// `write.interrupted` when it cannot be created.
 pub fn prepare(archive_root: &Path, destination: &Path) -> Result<Destination, Diagnostic> {
@@ -92,15 +221,19 @@ pub fn prepare(archive_root: &Path, destination: &Path) -> Result<Destination, D
         return Err(symlink_refusal("."));
     }
     refuse_inside_archive(archive_root, destination)?;
+    let mut created_root = false;
     match fs::symlink_metadata(destination) {
         Ok(metadata) if metadata.is_dir() => refuse_non_empty(destination)?,
         Ok(_) => return Err(unusable()),
         Err(_) => {
-            paths::create_dir_owner_only(destination).map_err(|error| refusal(&error, "."))?
+            paths::create_dir_owner_only(destination).map_err(|error| refusal(&error, "."))?;
+            created_root = true;
         }
     }
     Ok(Destination {
         path: destination.to_path_buf(),
+        created_root,
+        created: RefCell::new(Vec::new()),
     })
 }
 
@@ -108,10 +241,13 @@ pub fn prepare(archive_root: &Path, destination: &Path) -> Result<Destination, D
 ///
 /// The comparison is made on resolved paths, so a relative path, a `..`
 /// segment, or a link on the way to the destination cannot hide the fact that
-/// the export would write into the archive it is copying.
+/// the export would write into the archive it is copying. A path that cannot
+/// be resolved at all is refused rather than let through: the check must fail
+/// closed, because the question it answers is whether the export is about to
+/// write inside the archive.
 fn refuse_inside_archive(archive_root: &Path, destination: &Path) -> Result<(), Diagnostic> {
     let Ok(archive) = archive_root.canonicalize() else {
-        return Ok(());
+        return Err(unresolvable());
     };
     let resolved = match destination.canonicalize() {
         Ok(resolved) => resolved,
@@ -148,56 +284,11 @@ fn refuse_non_empty(destination: &Path) -> Result<(), Diagnostic> {
     Ok(())
 }
 
-/// Write one file into the destination, replacing nothing.
-///
-/// The content is staged inside the destination itself and linked into place,
-/// which is the archive's own publish step: it is atomic, stays on one
-/// filesystem, and fails rather than replacing a file openPapir did not
-/// create.
-///
-/// # Errors
-///
-/// Returns `path.symlink`, `export.destination_conflict`, or
-/// `write.interrupted`.
-pub fn write_new(
-    directory: &Path,
-    file_name: &str,
-    relative: &str,
-    content: &[u8],
-    stage: &'static str,
-) -> Result<Vec<Warning>, Diagnostic> {
-    let target = directory.join(file_name);
-    refuse_existing(&target, relative)?;
-    let mut staging = Staging::create(directory, stage)?;
-    staging
-        .file()
-        .write_all(content)
-        .map_err(|error| refusal(&error, relative))?;
-    publish(staging, &target, relative, stage)
-}
-
-/// Put a staged file at its destination path, mapping the refusals outward.
-///
-/// # Errors
-///
-/// Returns `path.symlink`, `export.destination_conflict`, or
-/// `write.interrupted`.
-pub fn publish(
-    staging: Staging,
-    target: &Path,
-    relative: &str,
-    stage: &'static str,
-) -> Result<Vec<Warning>, Diagnostic> {
-    staging.publish(target, relative, stage).map_err(|error| {
-        if error.code == codes::PATH_OVERWRITE {
-            conflict(relative, 1)
-        } else {
-            error
-        }
-    })
-}
-
 /// Refuse a target path that already exists, whatever it is.
+///
+/// The create-new open refuses one as well. This check runs first so that a
+/// link and a file are told apart, which the open's single error kind cannot
+/// do.
 ///
 /// # Errors
 ///
@@ -245,11 +336,25 @@ fn unusable() -> Diagnostic {
     )
 }
 
+/// The refusal for an archive root that cannot be resolved.
+///
+/// Without it the export cannot tell whether the destination lies inside the
+/// archive, so it refuses rather than assuming that it does not.
+fn unresolvable() -> Diagnostic {
+    Diagnostic::new(
+        codes::USAGE_ARGUMENTS,
+        "The archive root could not be resolved, so the destination cannot be checked against it.",
+        Details::new()
+            .text("argument", "archive_root")
+            .text("scope", "export_destination"),
+    )
+}
+
 /// Map an I/O failure in the destination into the contract.
 ///
 /// An existing path is a conflict rather than an overwrite, because the
 /// destination is outside the archive; everything else interrupted the write,
-/// which leaves the complete file or nothing.
+/// and the export removes what it had already created.
 #[must_use]
 pub fn refusal(error: &io::Error, relative: &str) -> Diagnostic {
     if error.kind() == io::ErrorKind::AlreadyExists {
@@ -257,8 +362,10 @@ pub fn refusal(error: &io::Error, relative: &str) -> Diagnostic {
     }
     Diagnostic::new(
         codes::WRITE_INTERRUPTED,
-        "A write into the export destination was interrupted before it could be published.",
-        Details::new().text("stage", "record_write"),
+        "A write into the export destination was interrupted before it could be completed.",
+        Details::new()
+            .text("stage", "record_write")
+            .text("scope", "export_destination"),
     )
     .retryable()
 }
@@ -286,6 +393,28 @@ mod tests {
         assert!(prepare(&root, &outside).is_ok());
         assert!(outside.is_dir(), "the destination is created");
         let _ = home;
+    }
+
+    #[test]
+    fn an_archive_root_that_cannot_be_resolved_fails_closed() {
+        let (home, root) = archive_and_home();
+        let refusal = refuse_inside_archive(&root.join("absent"), &home.path().join("export"))
+            .expect_err("an unresolvable root is refused rather than assumed to be elsewhere");
+        assert_eq!(refusal.code, codes::USAGE_ARGUMENTS);
+        assert_eq!(
+            serde_json::to_value(&refusal).unwrap()["details"]["argument"],
+            "archive_root"
+        );
+        assert_eq!(
+            prepare(&root.join("absent"), &home.path().join("export"))
+                .unwrap_err()
+                .code,
+            codes::USAGE_ARGUMENTS
+        );
+        assert!(
+            !home.path().join("export").exists(),
+            "no destination is created when the check cannot be made"
+        );
     }
 
     #[test]
@@ -333,22 +462,72 @@ mod tests {
         let destination = home.path().join("export");
         let prepared = prepare(&root, &destination).unwrap();
         let objects = prepared.objects_directory().unwrap();
-        write_new(&objects, "name", "objects/name", b"first\n", "object_write").unwrap();
+        prepared
+            .write_new(&objects, "name", "objects/name", b"first\n")
+            .unwrap();
         assert_eq!(fs::read(objects.join("name")).unwrap(), b"first\n");
-        let refusal = write_new(
-            &objects,
-            "name",
-            "objects/name",
-            b"second\n",
-            "object_write",
-        )
-        .unwrap_err();
+        let refusal = prepared
+            .write_new(&objects, "name", "objects/name", b"second\n")
+            .unwrap_err();
         assert_eq!(refusal.code, codes::EXPORT_DESTINATION_CONFLICT);
         assert_eq!(
             fs::read(objects.join("name")).unwrap(),
             b"first\n",
             "the existing file is left exactly as it was"
         );
+    }
+
+    #[test]
+    fn discarding_removes_what_the_export_made_and_nothing_else() {
+        let (home, root) = archive_and_home();
+        let destination = home.path().join("export");
+        let prepared = prepare(&root, &destination).unwrap();
+        let objects = prepared.objects_directory().unwrap();
+        prepared
+            .write_new(&objects, "name", "objects/name", b"copied\n")
+            .unwrap();
+        let records = prepared.records_directory("case").unwrap();
+        prepared
+            .write_new(&records, "id.json", "records/case/id.json", b"{}\n")
+            .unwrap();
+        prepared.discard();
+        assert!(
+            !destination.exists(),
+            "a destination the export created is removed again"
+        );
+
+        let existing = home.path().join("existing");
+        fs::create_dir(&existing).unwrap();
+        let prepared = prepare(&root, &existing).unwrap();
+        let objects = prepared.objects_directory().unwrap();
+        prepared
+            .write_new(&objects, "name", "objects/name", b"copied\n")
+            .unwrap();
+        prepared.discard();
+        assert!(
+            existing.is_dir(),
+            "a destination the user made is never removed"
+        );
+        assert_eq!(
+            fs::read_dir(&existing).unwrap().count(),
+            0,
+            "everything the export put in it is gone"
+        );
+    }
+
+    #[test]
+    fn a_file_removed_during_the_export_is_not_removed_twice() {
+        let (home, root) = archive_and_home();
+        let destination = home.path().join("export");
+        let prepared = prepare(&root, &destination).unwrap();
+        let objects = prepared.objects_directory().unwrap();
+        prepared
+            .write_new(&objects, "name", "objects/name", b"copied\n")
+            .unwrap();
+        prepared.remove_created(&objects.join("name"));
+        assert!(!objects.join("name").exists());
+        prepared.discard();
+        assert!(!destination.exists());
     }
 
     #[cfg(unix)]
@@ -362,30 +541,43 @@ mod tests {
         let refusal = prepare(&root, &linked).unwrap_err();
         assert_eq!(refusal.code, codes::PATH_SYMLINK);
         assert_eq!(refusal.exit_code(), 3);
+        assert_eq!(
+            serde_json::to_value(&refusal).unwrap()["details"]["scope"],
+            "export_destination"
+        );
 
         let destination = home.path().join("export");
         let prepared = prepare(&root, &destination).unwrap();
         let objects = prepared.objects_directory().unwrap();
         let target = objects.join("name");
         std::os::unix::fs::symlink(home.path().join("outside"), &target).unwrap();
-        assert_eq!(
-            write_new(&objects, "name", "objects/name", b"x", "object_write")
-                .unwrap_err()
-                .code,
-            codes::PATH_SYMLINK
-        );
+        let refusal = prepared
+            .write_new(&objects, "name", "objects/name", b"x")
+            .unwrap_err();
+        assert_eq!(refusal.code, codes::PATH_SYMLINK);
         assert!(
             !home.path().join("outside").exists(),
             "the link's target is never created"
         );
+        prepared.discard();
+        assert!(
+            target.symlink_metadata().is_ok(),
+            "a link the export did not create is left alone"
+        );
     }
 
     #[test]
-    fn an_interrupted_write_is_reported_as_such() {
+    fn an_interrupted_write_is_reported_without_an_archive_path() {
         let error = io::Error::new(io::ErrorKind::PermissionDenied, "denied");
         let interrupted = refusal(&error, "objects/name");
         assert_eq!(interrupted.code, codes::WRITE_INTERRUPTED);
         assert!(interrupted.is_retryable());
+        let json = serde_json::to_value(&interrupted).unwrap();
+        assert_eq!(json["details"]["scope"], "export_destination");
+        assert!(
+            json["details"].get("archive_path").is_none(),
+            "a destination refusal never names an archive-relative path"
+        );
         assert_eq!(
             refusal(&io::Error::new(io::ErrorKind::AlreadyExists, "exists"), ".").code,
             codes::EXPORT_DESTINATION_CONFLICT
