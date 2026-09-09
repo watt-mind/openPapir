@@ -4,14 +4,15 @@ Start at [README](../README.md) for what openPapir is and how to build it,
 then [specification.md](specification.md) for the single index of scope,
 implemented behaviour, decided designs, and deferred contracts.
 
-The implementation is early: help, version, capabilities reporting, archive
-creation, artefact import, the case, submission, receipt, and user-asserted
-association records, the read-only whole-archive integrity check, the export
-of one case, the permission repair, deleting a case with an explicit purge,
-and the embedded agent skill exist.
+The implementation is early: help, version, and the fifteen operations
+`capabilities` reports exist, which are archive creation, artefact import, the
+case, submission, receipt, and user-asserted association records, the
+read-only whole-archive integrity check, the export of one case, the
+permission repair, deleting a case with an explicit purge, and writing the
+embedded agent skill document.
 Every document below separates implemented behaviour from plans, and the
-remaining correspondence workflows, including automatic matching and any
-receipt parsing, are not available yet.
+remaining correspondence workflows, including automatic matching, derived
+metadata, any receipt parsing, and any verification, are not available yet.
 
 Every file under `docs/` appears in the first table. The rules that keep these
 documents correct, including which document each kind of change must update,
@@ -22,11 +23,11 @@ are in the Documentation section of [contributing](../CONTRIBUTING.md).
 | Document | Purpose |
 | --- | --- |
 | [specification.md](specification.md) | Top-level index of purpose, scope, non-goals, implemented behaviour, decided designs, deferred contracts, and the separated receipt states. |
-| [architecture.md](architecture.md) | Canonical contract of what is implemented: crate responsibilities, supported invocations, the capabilities JSON envelope, planned ownership, and the integration boundary. |
+| [architecture.md](architecture.md) | Canonical contract of what is implemented: crate responsibilities, one section per implemented command, the response envelope, the storage guarantees, the input caps, the implemented codes and exit codes, the privacy rule, planned ownership, and the integration boundary. |
 | [roadmap.md](roadmap.md) | Milestone sequencing and the discovery gates that must close before implementation, plus how work is split into bounded issues. |
 | [receipt-discovery.md](receipt-discovery.md) | Discovery note recording what public sources state about one candidate receipt type, a proposed local case model, and the questions that stay open. |
-| [archive-layout.md](archive-layout.md) | Design for review of the local archive: storage technology, on-disk layout, record shapes, association states, and deletion semantics. |
-| [error-contract.md](error-contract.md) | Specification for review of the import and association error model: the extended JSON envelope, the stable error-code catalogue, and the exit-code mapping. |
+| [archive-layout.md](archive-layout.md) | Design for review of the local archive: storage technology, on-disk layout, record shapes, association states, and export, backup, and deletion semantics. Partly implemented; architecture.md is authoritative for the implemented part. |
+| [error-contract.md](error-contract.md) | Specification for review of the import and association error model: the extended JSON envelope, the stable error-code catalogue, and the exit-code mapping. Partly implemented; architecture.md is authoritative for the implemented part. |
 | [testing.md](testing.md) | Test layout, the coverage expectation, the synthetic public fixture policy, and the rules for any future private input. |
 | [references.md](references.md) | Related independent projects, discovery entry points, and the evidence policy every future format decision must satisfy. |
 | [releasing.md](releasing.md) | The current release position, which is that no release process exists, and the checklist a first release would need. |
