@@ -38,6 +38,21 @@ use crate::export::KindCount;
 /// The kinds of path the repair reports, in the order it reports them.
 pub const KINDS: [&str; 6] = ["cache", "directory", "marker", "object", "record", "root"];
 
+/// The stage a refusal reports for the kind of path it was inspecting.
+///
+/// The write bucket names three stages, and the repair walks paths of all
+/// three: a stored object or a leftover staging file is `object_write`, the
+/// marker is `marker_write`, and everything else openPapir wrote, a record
+/// document, a cached file, a layout directory, or the root, is
+/// `record_write` (`docs/error-contract.md`).
+fn stage_for(kind: &str) -> &'static str {
+    match kind {
+        "object" | "staging" => "object_write",
+        "marker" => "marker_write",
+        _ => "record_write",
+    }
+}
+
 /// The mode a directory keeps: owner read, write, and search.
 const DIRECTORY_MASK: u32 = 0o700;
 /// The mode a file keeps: owner read and write.
@@ -178,18 +193,19 @@ fn walk(
     let entries = match fs::read_dir(directory) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(_) => return Err(unreadable(relative)),
+        Err(_) => return Err(unreadable(relative, stage_for(kind))),
     };
     let mut names: Vec<String> = Vec::new();
     for entry in entries {
-        let entry = entry.map_err(|_| unreadable(relative))?;
+        let entry = entry.map_err(|_| unreadable(relative, stage_for(kind)))?;
         names.push(entry.file_name().to_string_lossy().into_owned());
     }
     names.sort();
     for name in names {
         let path = directory.join(&name);
         let child = format!("{relative}/{name}");
-        let metadata = fs::symlink_metadata(&path).map_err(|_| unreadable(relative))?;
+        let metadata =
+            fs::symlink_metadata(&path).map_err(|_| unreadable(relative, stage_for(kind)))?;
         if metadata.file_type().is_symlink() {
             return Err(linked(&child));
         }
@@ -214,7 +230,7 @@ fn narrow(
     if paths::is_symlink(path) {
         return Err(linked(relative));
     }
-    counts.note(kind, apply(path, mask, relative)?);
+    counts.note(kind, apply(path, mask, relative, stage_for(kind))?);
     Ok(())
 }
 
@@ -223,23 +239,23 @@ fn narrow(
 /// On a platform without permission bits nothing is changed and nothing is
 /// reported as changed: the caller reports `platform.owner_only_via_acl`
 /// instead, because owner-only access there is an access-control list.
-fn apply(path: &Path, mask: u32, relative: &str) -> Result<bool, Diagnostic> {
+fn apply(path: &Path, mask: u32, relative: &str, stage: &'static str) -> Result<bool, Diagnostic> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt as _;
-        let metadata = fs::symlink_metadata(path).map_err(|_| unreadable(relative))?;
+        let metadata = fs::symlink_metadata(path).map_err(|_| unreadable(relative, stage))?;
         let mode = metadata.permissions().mode() & 0o7777;
         let narrowed = mode & mask;
         if narrowed == mode {
             return Ok(false);
         }
         fs::set_permissions(path, fs::Permissions::from_mode(narrowed))
-            .map_err(|_| unreadable(relative))?;
+            .map_err(|_| unreadable(relative, stage))?;
         Ok(true)
     }
     #[cfg(not(unix))]
     {
-        let _ = (path, mask, relative);
+        let _ = (path, mask, relative, stage);
         Ok(false)
     }
 }
@@ -254,12 +270,16 @@ fn linked(relative: &str) -> Diagnostic {
 }
 
 /// The refusal for a path the repair could not read or could not change.
-fn unreadable(relative: &str) -> Diagnostic {
+///
+/// The stage is the kind of path the repair was inspecting, so a stored
+/// object it could not narrow is reported as an object write rather than as a
+/// record write.
+fn unreadable(relative: &str, stage: &'static str) -> Diagnostic {
     Diagnostic::new(
         codes::WRITE_INTERRUPTED,
         "A path in the archive could not be read or narrowed.",
         Details::new()
-            .text("stage", "record_write")
+            .text("stage", stage)
             .text("archive_path", relative.to_owned()),
     )
     .retryable()
@@ -307,17 +327,20 @@ mod tests {
         let file = home.path().join("wide");
         fs::write(&file, b"x").unwrap();
         fs::set_permissions(&file, fs::Permissions::from_mode(0o4777)).unwrap();
-        assert!(apply(&file, FILE_MASK, "wide").unwrap());
+        assert!(apply(&file, FILE_MASK, "wide", "record_write").unwrap());
         assert_eq!(
             fs::metadata(&file).unwrap().permissions().mode() & 0o7777,
             0o600
         );
-        assert!(!apply(&file, FILE_MASK, "wide").unwrap(), "already narrow");
+        assert!(
+            !apply(&file, FILE_MASK, "wide", "record_write").unwrap(),
+            "already narrow"
+        );
 
         let unreadable_by_choice = home.path().join("closed");
         fs::write(&unreadable_by_choice, b"x").unwrap();
         fs::set_permissions(&unreadable_by_choice, fs::Permissions::from_mode(0o000)).unwrap();
-        assert!(!apply(&unreadable_by_choice, FILE_MASK, "closed").unwrap());
+        assert!(!apply(&unreadable_by_choice, FILE_MASK, "closed", "record_write").unwrap());
         assert_eq!(
             fs::metadata(&unreadable_by_choice)
                 .unwrap()
@@ -331,7 +354,7 @@ mod tests {
         let object = home.path().join("object");
         fs::write(&object, b"x").unwrap();
         fs::set_permissions(&object, fs::Permissions::from_mode(0o600)).unwrap();
-        assert!(apply(&object, OBJECT_MASK, "object").unwrap());
+        assert!(apply(&object, OBJECT_MASK, "object", "object_write").unwrap());
         assert_eq!(
             fs::metadata(&object).unwrap().permissions().mode() & 0o7777,
             0o400,
@@ -362,9 +385,55 @@ mod tests {
 
     #[test]
     fn an_unreadable_path_is_an_interrupted_write() {
-        let refusal = unreadable("records/cases");
+        let refusal = unreadable("records/cases", "record_write");
         assert_eq!(refusal.code, codes::WRITE_INTERRUPTED);
         assert!(refusal.is_retryable());
         assert_eq!(refusal.exit_code(), 4);
+    }
+
+    #[test]
+    fn a_refusal_reports_the_kind_of_path_the_repair_was_inspecting() {
+        assert_eq!(stage_for("object"), "object_write");
+        assert_eq!(stage_for("staging"), "object_write");
+        assert_eq!(stage_for("marker"), "marker_write");
+        for kind in ["cache", "directory", "record", "root"] {
+            assert_eq!(stage_for(kind), "record_write");
+        }
+        for kind in KINDS {
+            assert!(
+                ["object_write", "record_write", "marker_write"].contains(&stage_for(kind)),
+                "every reported kind maps to a stage the write bucket names"
+            );
+        }
+    }
+
+    #[test]
+    fn an_object_the_repair_cannot_list_is_reported_as_an_object_write() {
+        let home = tempfile::tempdir().unwrap();
+        // A fan-out path that is a file rather than a directory cannot be
+        // listed, which is the same failure an unreadable one produces.
+        let fan_out = home.path().join("ab");
+        fs::write(&fan_out, b"x").unwrap();
+        let mut counts = Counts::default();
+        let refusal = walk(
+            &fan_out,
+            "objects/sha256/ab",
+            "object",
+            MAX_DEPTH,
+            &mut counts,
+        )
+        .unwrap_err();
+        assert_eq!(refusal.code, codes::WRITE_INTERRUPTED);
+        let json = serde_json::to_value(&refusal).unwrap();
+        assert_eq!(json["details"]["stage"], "object_write");
+        assert_eq!(json["details"]["archive_path"], "objects/sha256/ab");
+
+        let mut counts = Counts::default();
+        let refusal =
+            walk(&fan_out, "records/cases", "record", MAX_DEPTH, &mut counts).unwrap_err();
+        assert_eq!(
+            serde_json::to_value(&refusal).unwrap()["details"]["stage"],
+            "record_write"
+        );
     }
 }

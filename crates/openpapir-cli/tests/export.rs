@@ -418,6 +418,123 @@ fn a_corrupted_source_object_is_reported_as_a_copy_mismatch() {
     );
 }
 
+/// An interrupted object copy names the stage it was in. A stored object the
+/// process cannot read stops the copy of that object, and the write bucket
+/// names `object_write` for exactly that. Unix-only, because withholding read
+/// access is a mode change.
+#[cfg(unix)]
+#[test]
+fn an_interrupted_object_copy_reports_the_object_write_stage() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let fixture = Fixture::build();
+    let stored = fixture.stored_object(&fixture.bare(0));
+    fs::set_permissions(&stored, fs::Permissions::from_mode(0o000))
+        .expect("withhold access to the stored object");
+    if fs::File::open(&stored).is_ok() {
+        // The process can read the object anyway, which happens when the
+        // tests run with privileges that ignore the permission bits.
+        fs::set_permissions(&stored, fs::Permissions::from_mode(0o400)).unwrap();
+        return;
+    }
+    let destination = fixture.destination("export");
+    let output = fixture.export_to(&destination);
+    fs::set_permissions(&stored, fs::Permissions::from_mode(0o400)).expect("restore access");
+
+    assert_eq!(output.status.code(), Some(4));
+    let envelope = stdout_json(&output);
+    assert_eq!(envelope["error"]["code"], "write.interrupted");
+    assert_eq!(
+        envelope["error"]["details"]["stage"], "object_write",
+        "an interrupted object copy is never reported as a record write"
+    );
+    assert_eq!(envelope["error"]["details"]["bucket"], "write");
+    assert!(
+        !destination.exists(),
+        "a destination the failed export created is removed again"
+    );
+}
+
+/// A destination the export may read but not write to interrupts the copy at
+/// the objects directory, which belongs to the object copy that asked for it.
+#[cfg(unix)]
+#[test]
+fn a_destination_that_cannot_be_written_reports_the_stage_it_was_writing() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let fixture = Fixture::build();
+    let destination = fixture.destination("read-only");
+    fs::create_dir(&destination).unwrap();
+    fs::set_permissions(&destination, fs::Permissions::from_mode(0o500))
+        .expect("withhold write access to the destination");
+    if fs::create_dir(destination.join("probe")).is_ok() {
+        // The process can write anyway, which happens when the tests run with
+        // privileges that ignore the permission bits.
+        fs::set_permissions(&destination, fs::Permissions::from_mode(0o700)).unwrap();
+        return;
+    }
+    let output = fixture.export_to(&destination);
+    fs::set_permissions(&destination, fs::Permissions::from_mode(0o700)).expect("restore access");
+
+    assert_eq!(output.status.code(), Some(4));
+    let envelope = stdout_json(&output);
+    assert_eq!(envelope["error"]["code"], "write.interrupted");
+    assert_eq!(envelope["error"]["details"]["stage"], "object_write");
+    assert_eq!(
+        envelope["error"]["details"]["scope"], "export_destination",
+        "a destination refusal stays a destination refusal"
+    );
+    assert!(
+        envelope["error"]["details"].get("archive_path").is_none(),
+        "a destination refusal never names an archive-relative path"
+    );
+}
+
+/// A case with no objects at all reaches the record write first, so the same
+/// unwritable destination reports `record_write` instead.
+#[cfg(unix)]
+#[test]
+fn an_interrupted_record_write_reports_the_record_write_stage() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let fixture = Fixture::build();
+    let empty = stdout_json(&run(&[
+        "case",
+        "create",
+        "--archive",
+        &text(&fixture.root),
+        "--title",
+        "A matter with no artefacts",
+        "--json",
+    ]));
+    let case_id = empty["data"]["case"]["id"]
+        .as_str()
+        .expect("an id")
+        .to_owned();
+
+    let destination = fixture.destination("records-only");
+    fs::create_dir(&destination).unwrap();
+    fs::set_permissions(&destination, fs::Permissions::from_mode(0o500))
+        .expect("withhold write access to the destination");
+    if fs::create_dir(destination.join("probe")).is_ok() {
+        fs::set_permissions(&destination, fs::Permissions::from_mode(0o700)).unwrap();
+        return;
+    }
+    let output = run(&[
+        "case",
+        "export",
+        "--archive",
+        &text(&fixture.root),
+        "--case",
+        &case_id,
+        "--to",
+        &text(&destination),
+        "--json",
+    ]);
+    fs::set_permissions(&destination, fs::Permissions::from_mode(0o700)).expect("restore access");
+
+    let envelope = stdout_json(&output);
+    assert_eq!(envelope["error"]["code"], "write.interrupted");
+    assert_eq!(envelope["error"]["details"]["stage"], "record_write");
+}
+
 #[cfg(unix)]
 #[test]
 fn a_failed_export_leaves_a_destination_the_user_made_empty() {
@@ -642,6 +759,51 @@ fn the_repair_narrows_a_widened_archive_and_widens_nothing() {
     assert_eq!(
         again["data"]["paths_changed"], 0,
         "a narrow archive is left alone"
+    );
+}
+
+/// A repair that cannot read a fan-out directory of the object store reports
+/// the kind it was inspecting, an object, rather than a record.
+#[cfg(unix)]
+#[test]
+fn a_repair_of_an_unreadable_object_reports_the_object_write_stage() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let fixture = Fixture::build();
+    let fan_out = fixture
+        .stored_object(&fixture.bare(0))
+        .parent()
+        .expect("the fan-out directory")
+        .to_path_buf();
+    fs::set_permissions(&fan_out, fs::Permissions::from_mode(0o000))
+        .expect("withhold access to the fan-out directory");
+    if fs::read_dir(&fan_out).is_ok() {
+        // The process can read the directory anyway, which happens when the
+        // tests run with privileges that ignore the permission bits.
+        fs::set_permissions(&fan_out, fs::Permissions::from_mode(0o700)).unwrap();
+        return;
+    }
+    let output = run(&[
+        "archive",
+        "repair-permissions",
+        "--archive",
+        &text(&fixture.root),
+        "--json",
+    ]);
+    fs::set_permissions(&fan_out, fs::Permissions::from_mode(0o700)).expect("restore access");
+
+    assert_eq!(output.status.code(), Some(4));
+    let envelope = stdout_json(&output);
+    assert_eq!(envelope["error"]["code"], "write.interrupted");
+    assert_eq!(
+        envelope["error"]["details"]["stage"], "object_write",
+        "the repair reports the kind of path it was inspecting"
+    );
+    assert!(
+        envelope["error"]["details"]["archive_path"]
+            .as_str()
+            .expect("an archive-relative path")
+            .starts_with("objects/sha256"),
+        "the path is archive-relative and names the object store"
     );
 }
 

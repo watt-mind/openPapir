@@ -36,6 +36,22 @@ pub const RECORDS_DIR: &str = "records";
 /// The manifest's file name, relative to the destination.
 pub const MANIFEST_FILE: &str = "manifest.json";
 
+/// The stage an interrupted copy of a stored object reports.
+///
+/// It covers the objects directory as well as the copies in it: a failure to
+/// make that directory interrupted the object copy that asked for it.
+pub const OBJECT_WRITE: &str = "object_write";
+/// The stage an interrupted write of a record document reports.
+///
+/// It covers the record directories for the same reason.
+pub const RECORD_WRITE: &str = "record_write";
+/// The stage the destination's own top-level writes report.
+///
+/// The destination directory itself and `manifest.json` are the export's
+/// equivalent of the archive marker: they describe the export rather than
+/// belonging to any one record or object (`docs/error-contract.md`).
+pub const MARKER_WRITE: &str = "marker_write";
+
 /// One path this export created, so that a failure can undo exactly it.
 #[derive(Debug)]
 enum Created {
@@ -67,7 +83,7 @@ impl Destination {
     /// Returns `path.symlink`, `export.destination_conflict`, or
     /// `write.interrupted`.
     pub fn objects_directory(&self) -> Result<PathBuf, Diagnostic> {
-        self.directory(OBJECTS_DIR)
+        self.directory(OBJECTS_DIR, OBJECT_WRITE)
     }
 
     /// Create the directory one record kind goes into, once.
@@ -80,8 +96,8 @@ impl Destination {
     /// Returns `path.symlink`, `export.destination_conflict`, or
     /// `write.interrupted`.
     pub fn records_directory(&self, kind: &str) -> Result<PathBuf, Diagnostic> {
-        self.directory(RECORDS_DIR)?;
-        self.directory(&format!("{RECORDS_DIR}/{kind}"))
+        self.directory(RECORDS_DIR, RECORD_WRITE)?;
+        self.directory(&format!("{RECORDS_DIR}/{kind}"), RECORD_WRITE)
     }
 
     /// Create one directory inside the destination, owner-only.
@@ -89,7 +105,7 @@ impl Destination {
     /// A directory this call makes is remembered, so that a failed export can
     /// remove it again. One that was already there is left in the record
     /// untouched, because the export did not create it and may not remove it.
-    fn directory(&self, relative: &str) -> Result<PathBuf, Diagnostic> {
+    fn directory(&self, relative: &str, stage: &'static str) -> Result<PathBuf, Diagnostic> {
         let path = self.path.join(relative);
         if paths::is_symlink(&path) {
             return Err(symlink_refusal(relative));
@@ -97,7 +113,7 @@ impl Destination {
         if path.is_dir() {
             return Ok(path);
         }
-        paths::create_dir_owner_only(&path).map_err(|error| refusal(&error, relative))?;
+        paths::create_dir_owner_only(&path).map_err(|error| refusal(&error, relative, stage))?;
         self.created
             .borrow_mut()
             .push(Created::Directory(path.clone()));
@@ -119,6 +135,7 @@ impl Destination {
         directory: &Path,
         file_name: &str,
         relative: &str,
+        stage: &'static str,
     ) -> Result<File, Diagnostic> {
         let target = directory.join(file_name);
         refuse_existing(&target, relative)?;
@@ -126,7 +143,7 @@ impl Destination {
             if error.kind() == io::ErrorKind::AlreadyExists {
                 conflict(relative, 1)
             } else {
-                refusal(&error, relative)
+                refusal(&error, relative, stage)
             }
         })?;
         self.created.borrow_mut().push(Created::File(target));
@@ -143,12 +160,13 @@ impl Destination {
         directory: &Path,
         file_name: &str,
         relative: &str,
+        stage: &'static str,
         content: &[u8],
     ) -> Result<(), Diagnostic> {
-        let mut file = self.create(directory, file_name, relative)?;
+        let mut file = self.create(directory, file_name, relative, stage)?;
         file.write_all(content)
             .and_then(|()| file.sync_all())
-            .map_err(|error| refusal(&error, relative))
+            .map_err(|error| refusal(&error, relative, stage))
     }
 
     /// Remove one file this export created, before the export goes on.
@@ -226,7 +244,8 @@ pub fn prepare(archive_root: &Path, destination: &Path) -> Result<Destination, D
         Ok(metadata) if metadata.is_dir() => refuse_non_empty(destination)?,
         Ok(_) => return Err(unusable()),
         Err(_) => {
-            paths::create_dir_owner_only(destination).map_err(|error| refusal(&error, "."))?;
+            paths::create_dir_owner_only(destination)
+                .map_err(|error| refusal(&error, ".", MARKER_WRITE))?;
             created_root = true;
         }
     }
@@ -355,8 +374,14 @@ fn unresolvable() -> Diagnostic {
 /// An existing path is a conflict rather than an overwrite, because the
 /// destination is outside the archive; everything else interrupted the write,
 /// and the export removes what it had already created.
+///
+/// The stage is the caller's, because only the caller knows what it was
+/// writing: an object copy reports [`OBJECT_WRITE`], a record document
+/// [`RECORD_WRITE`], and the destination itself or the manifest
+/// [`MARKER_WRITE`]. Reporting one stage for all three would describe an
+/// interrupted object copy as a record write.
 #[must_use]
-pub fn refusal(error: &io::Error, relative: &str) -> Diagnostic {
+pub fn refusal(error: &io::Error, relative: &str, stage: &'static str) -> Diagnostic {
     if error.kind() == io::ErrorKind::AlreadyExists {
         return conflict(relative, 1);
     }
@@ -364,7 +389,7 @@ pub fn refusal(error: &io::Error, relative: &str) -> Diagnostic {
         codes::WRITE_INTERRUPTED,
         "A write into the export destination was interrupted before it could be completed.",
         Details::new()
-            .text("stage", "record_write")
+            .text("stage", stage)
             .text("scope", "export_destination"),
     )
     .retryable()
@@ -463,11 +488,11 @@ mod tests {
         let prepared = prepare(&root, &destination).unwrap();
         let objects = prepared.objects_directory().unwrap();
         prepared
-            .write_new(&objects, "name", "objects/name", b"first\n")
+            .write_new(&objects, "name", "objects/name", OBJECT_WRITE, b"first\n")
             .unwrap();
         assert_eq!(fs::read(objects.join("name")).unwrap(), b"first\n");
         let refusal = prepared
-            .write_new(&objects, "name", "objects/name", b"second\n")
+            .write_new(&objects, "name", "objects/name", OBJECT_WRITE, b"second\n")
             .unwrap_err();
         assert_eq!(refusal.code, codes::EXPORT_DESTINATION_CONFLICT);
         assert_eq!(
@@ -484,11 +509,17 @@ mod tests {
         let prepared = prepare(&root, &destination).unwrap();
         let objects = prepared.objects_directory().unwrap();
         prepared
-            .write_new(&objects, "name", "objects/name", b"copied\n")
+            .write_new(&objects, "name", "objects/name", OBJECT_WRITE, b"copied\n")
             .unwrap();
         let records = prepared.records_directory("case").unwrap();
         prepared
-            .write_new(&records, "id.json", "records/case/id.json", b"{}\n")
+            .write_new(
+                &records,
+                "id.json",
+                "records/case/id.json",
+                RECORD_WRITE,
+                b"{}\n",
+            )
             .unwrap();
         prepared.discard();
         assert!(
@@ -501,7 +532,7 @@ mod tests {
         let prepared = prepare(&root, &existing).unwrap();
         let objects = prepared.objects_directory().unwrap();
         prepared
-            .write_new(&objects, "name", "objects/name", b"copied\n")
+            .write_new(&objects, "name", "objects/name", OBJECT_WRITE, b"copied\n")
             .unwrap();
         prepared.discard();
         assert!(
@@ -522,7 +553,7 @@ mod tests {
         let prepared = prepare(&root, &destination).unwrap();
         let objects = prepared.objects_directory().unwrap();
         prepared
-            .write_new(&objects, "name", "objects/name", b"copied\n")
+            .write_new(&objects, "name", "objects/name", OBJECT_WRITE, b"copied\n")
             .unwrap();
         prepared.remove_created(&objects.join("name"));
         assert!(!objects.join("name").exists());
@@ -552,7 +583,7 @@ mod tests {
         let target = objects.join("name");
         std::os::unix::fs::symlink(home.path().join("outside"), &target).unwrap();
         let refusal = prepared
-            .write_new(&objects, "name", "objects/name", b"x")
+            .write_new(&objects, "name", "objects/name", OBJECT_WRITE, b"x")
             .unwrap_err();
         assert_eq!(refusal.code, codes::PATH_SYMLINK);
         assert!(
@@ -566,20 +597,65 @@ mod tests {
         );
     }
 
+    /// The outward no-follow rule on a directory component is a check before
+    /// the create, not a no-follow open: a directory the export would have to
+    /// descend through is refused when it is a link, so no write ever
+    /// descends through one (`docs/architecture.md`).
+    #[cfg(unix)]
+    #[test]
+    fn a_linked_directory_component_is_refused_rather_than_descended_into() {
+        let (home, root) = archive_and_home();
+        let elsewhere = home.path().join("elsewhere");
+        fs::create_dir(&elsewhere).unwrap();
+        let destination = home.path().join("export");
+        let prepared = prepare(&root, &destination).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, destination.join(OBJECTS_DIR)).unwrap();
+        let refusal = prepared.objects_directory().unwrap_err();
+        assert_eq!(refusal.code, codes::PATH_SYMLINK);
+        assert_eq!(
+            serde_json::to_value(&refusal).unwrap()["details"]["export_path"],
+            OBJECTS_DIR
+        );
+
+        std::os::unix::fs::symlink(&elsewhere, destination.join(RECORDS_DIR)).unwrap();
+        assert_eq!(
+            prepared.records_directory("case").unwrap_err().code,
+            codes::PATH_SYMLINK
+        );
+        assert_eq!(
+            fs::read_dir(&elsewhere).unwrap().count(),
+            0,
+            "nothing is ever written through the link"
+        );
+    }
+
     #[test]
     fn an_interrupted_write_is_reported_without_an_archive_path() {
         let error = io::Error::new(io::ErrorKind::PermissionDenied, "denied");
-        let interrupted = refusal(&error, "objects/name");
+        let interrupted = refusal(&error, "objects/name", OBJECT_WRITE);
         assert_eq!(interrupted.code, codes::WRITE_INTERRUPTED);
         assert!(interrupted.is_retryable());
         let json = serde_json::to_value(&interrupted).unwrap();
         assert_eq!(json["details"]["scope"], "export_destination");
+        assert_eq!(
+            json["details"]["stage"], "object_write",
+            "the caller's stage is reported rather than one fixed name"
+        );
         assert!(
             json["details"].get("archive_path").is_none(),
             "a destination refusal never names an archive-relative path"
         );
+        for stage in [RECORD_WRITE, MARKER_WRITE] {
+            let reported = serde_json::to_value(refusal(&error, ".", stage)).unwrap();
+            assert_eq!(reported["details"]["stage"], stage);
+        }
         assert_eq!(
-            refusal(&io::Error::new(io::ErrorKind::AlreadyExists, "exists"), ".").code,
+            refusal(
+                &io::Error::new(io::ErrorKind::AlreadyExists, "exists"),
+                ".",
+                RECORD_WRITE
+            )
+            .code,
             codes::EXPORT_DESTINATION_CONFLICT
         );
     }

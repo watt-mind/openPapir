@@ -6,6 +6,11 @@
 //! length and every written record with its kind and identifier, and it is
 //! authoritative for what the export contains.
 //!
+//! The manifest is the destination's own top-level document, so a write of it
+//! that is interrupted reports the stage `marker_write` rather than
+//! `record_write`: it describes the export rather than belonging to any one
+//! record (`docs/error-contract.md`).
+//!
 //! It carries no original filename. An exported object is named by its digest
 //! alone, and the filename the user's own import recorded stays where it has
 //! always been: an attribute inside the exported import-event record
@@ -57,6 +62,7 @@ pub fn write(
         destination.path(),
         destination::MANIFEST_FILE,
         destination::MANIFEST_FILE,
+        destination::MARKER_WRITE,
         document.as_bytes(),
     )
 }
@@ -132,6 +138,34 @@ mod tests {
         assert_eq!(parsed["records"][0]["kind"], "case");
         assert!(parsed["exported_at"].as_str().unwrap().ends_with('Z'));
         assert_eq!(parsed.as_object().unwrap().len(), 6);
+    }
+
+    /// The manifest is the destination's own top-level document, so an
+    /// interrupted write of it is a marker write. Unix-only, because
+    /// withholding write access from the destination is a mode change.
+    #[cfg(unix)]
+    #[test]
+    fn an_interrupted_manifest_write_reports_the_marker_write_stage() {
+        use crate::error::codes;
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let home = tempfile::tempdir().unwrap();
+        let root = home.path().join("archive");
+        std::fs::create_dir(&root).unwrap();
+        let destination = home.path().join("export");
+        let prepared = destination::prepare(&root, &destination).unwrap();
+        std::fs::set_permissions(&destination, std::fs::Permissions::from_mode(0o500)).unwrap();
+        let refused = write(&prepared, "0123456789abcdef0123456789abcdef", &[], &[]);
+        std::fs::set_permissions(&destination, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let Err(refusal) = refused else {
+            // The process can write anyway, which happens when the tests run
+            // with privileges that ignore the permission bits.
+            return;
+        };
+        assert_eq!(refusal.code, codes::WRITE_INTERRUPTED);
+        let json = serde_json::to_value(&refusal).unwrap();
+        assert_eq!(json["details"]["stage"], "marker_write");
+        assert_eq!(json["details"]["scope"], "export_destination");
     }
 
     #[test]

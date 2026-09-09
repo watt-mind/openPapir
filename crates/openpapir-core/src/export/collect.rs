@@ -193,7 +193,13 @@ fn write_kind<R: Record>(
         let file_name = format!("{}.json", record.id());
         let relative = format!("{}/{}/{file_name}", destination::RECORDS_DIR, R::KIND);
         let document = document::document(record)?;
-        destination.write_new(&directory, &file_name, &relative, document.as_bytes())?;
+        destination.write_new(
+            &directory,
+            &file_name,
+            &relative,
+            destination::RECORD_WRITE,
+            document.as_bytes(),
+        )?;
         entries.push(RecordEntry {
             id: record.id().to_owned(),
             kind: R::KIND.to_owned(),
