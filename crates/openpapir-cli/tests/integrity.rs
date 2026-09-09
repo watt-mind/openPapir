@@ -200,6 +200,7 @@ fn a_clean_archive_passes_and_reports_only_counts() {
     assert_eq!(data["orphan_objects"], 0);
     assert_eq!(data["staging_files"], 0);
     assert_eq!(data["objects_unchecked"], 0);
+    assert_eq!(data["records_unchecked"], 0);
     assert!(problems(data).values().all(|count| *count == 0));
     assert_eq!(
         stdout_json(&check(&root)),
@@ -553,6 +554,64 @@ fn an_unlistable_fan_out_directory_is_counted_rather_than_called_dangling() {
     );
     assert_eq!(counts["integrity.digest_mismatch"], 0);
     assert_eq!(counts["path.symlink"], 0);
+}
+
+/// A record directory the check cannot list leaves the records it may hold
+/// unread, so no stored object may be called an orphan over it. Unix-only for
+/// the same reason as the tests above: a permission bit is the only portable
+/// way to withhold read access here, and on Windows owner-only access is an
+/// access-control list, which the archive already reports as a named
+/// degradation rather than making a directory unlistable.
+#[test]
+#[cfg(unix)]
+fn an_unreadable_record_directory_is_counted_rather_than_read_as_empty() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let (_home, root) = archive();
+    let imports = root.join("records/imports");
+    fs::set_permissions(&imports, fs::Permissions::from_mode(0o000))
+        .expect("withhold access to the record directory");
+    if fs::read_dir(&imports).is_ok() {
+        // The process can read the directory anyway, which happens when the
+        // tests run with privileges that ignore the permission bits.
+        fs::set_permissions(&imports, fs::Permissions::from_mode(0o700)).unwrap();
+        return;
+    }
+    let output = check(&root);
+    fs::set_permissions(&imports, fs::Permissions::from_mode(0o700)).expect("restore access");
+    let envelope = assert_report(&output, true, None, 0);
+    let data = &envelope["data"];
+    assert_eq!(
+        data["records_unchecked"], 1,
+        "the directory is counted unread"
+    );
+    assert_eq!(data["records_checked"], 0);
+    assert_eq!(data["objects_checked"], 1, "the store is still checked");
+    assert_eq!(data["orphan_objects"], 0);
+    let counts = problems(data);
+    assert_eq!(
+        counts["integrity.orphan_object"], 0,
+        "an object whose referencing records were not read is not an orphan"
+    );
+    assert_eq!(
+        counts["integrity.dangling_reference"], 0,
+        "a record the check could not read names nothing"
+    );
+    assert_eq!(
+        counts["record.malformed"], 0,
+        "no document was found broken"
+    );
+}
+
+/// A record directory that is simply absent still reads as empty, which is
+/// what makes the counter above mean something.
+#[test]
+fn an_absent_record_directory_reads_as_empty_rather_than_unchecked() {
+    let (_home, root) = archive();
+    fs::remove_dir(root.join("records/associations")).expect("remove an empty record directory");
+    let data = assert_report(&check(&root), true, None, 0)["data"].clone();
+    assert_eq!(data["records_unchecked"], 0);
+    assert_eq!(data["records_checked"], 1);
 }
 
 #[test]

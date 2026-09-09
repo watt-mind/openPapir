@@ -249,6 +249,7 @@ question the privacy rule allows an answer to.
       { "code": "record.malformed", "count": 0 }
     ],
     "records_checked": 1,
+    "records_unchecked": 0,
     "staging_files": 0
   },
   "verified": false
@@ -266,7 +267,16 @@ is not counted as a dangling reference either: an object the check could not
 look for is not an object the archive does not hold. Whether a directory is
 absent or merely unreadable is taken from the failure itself, because a
 directory the process cannot search reports as missing when it is asked
-whether it exists. `staging_files` counts what `objects/incoming/` still holds.
+whether it exists. `records_unchecked` counts the same condition on the record
+side: each `records/<kind>` directory that is there and could not be listed.
+The records it may hold were not read, so nothing is concluded from their
+absence. While `records/imports`, `records/receipts`, or `records/submissions`
+is unread no stored object is reported as `integrity.orphan_object`, because
+only those three kinds reference an object; while `records/cases` or
+`records/associations` is unread a reference that would name one of them is
+left unjudged rather than counted as a dangling reference. A record directory
+that is simply absent is read as empty and is not counted here.
+`staging_files` counts what `objects/incoming/` still holds.
 
 A clean archive exits `0` with `ok` `true`. When the check finds something,
 `ok` is `false`, the report stays in `data`, and `error` names the first
@@ -288,7 +298,7 @@ Human output prints the same counts in the same order and no path.
 ```text
 Checked 1 object(s) and 1 record(s); 16 byte(s) digested.
 No problem found.
-Orphan object(s): 0. Object(s) not digested: 0. Leftover staging file(s): 0.
+Orphan object(s): 0. Object(s) not digested: 0. Record directory(ies) not read: 0. Leftover staging file(s): 0.
 The check read the archive and changed nothing. A digest identifies bytes only: a passing check is storage integrity, never authenticity, delivery, or legal effect.
 ```
 
@@ -719,7 +729,10 @@ follows, and no other reserved code became reachable:
    digest is its own path and such an entry disagrees with the path it has.
    An object the check could not read, because it exceeds the single-file cap
    or the open failed, is counted in `objects_unchecked` and is never
-   reported as damaged: the check did not read the bytes to say so.
+   reported as damaged: the check did not read the bytes to say so. A record
+   directory the check could not list is counted in `records_unchecked` for
+   the same reason, and suppresses the orphan and dangling judgements the
+   records it may hold would have settled.
 10. `archive check` is the one command whose `data` is not `{}` when `ok` is
     `false`. Its stated work is to produce the report, which it completed, so
     the counts stay in `data` and the error names the first of them. Every

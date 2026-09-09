@@ -227,7 +227,7 @@ fn check_object(
     };
     store.objects_checked += 1;
     store.present.insert(key);
-    if !references.referenced.contains(&key) {
+    if references.orphaned(&key) {
         counts.orphan += 1;
     }
     let Some((digest, byte_length)) = digest_of(&path, metadata.len(), buffer, store) else {

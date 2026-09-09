@@ -552,6 +552,7 @@ or record titles:
       { "code": "record.malformed", "count": 0 }
     ],
     "records_checked": 1,
+    "records_unchecked": 0,
     "staging_files": 0
   },
   "verified": false
@@ -560,15 +561,21 @@ or record titles:
 
 `problems` lists every code the check can report, including the ones it did
 not see, ordered by code, so a caller reads a count rather than testing for a
-key. `objects_unchecked` and `staging_files` were added additively by the
-implementation. The first counts what the check could not read: an object
-over the single-file cap, an entry whose metadata could not be read, and each
-directory under `objects/` that could not be listed, including the store
-itself. The second counts what `objects/incoming/` still holds. Neither is
-damage, and the check removes neither. A digest under a directory that could
-not be listed is left uncounted rather than reported as a dangling reference,
-because an object the check could not look for is not an object the archive
-does not hold.
+key. `objects_unchecked`, `records_unchecked`, and `staging_files` were added
+additively by the implementation. The first counts what the check could not
+read under `objects/`: an object over the single-file cap, an entry whose
+metadata could not be read, and each directory under `objects/` that could not
+be listed, including the store itself. The second counts each `records/<kind>`
+directory that is there and could not be listed; a directory that is absent
+reads as empty and is not counted. The third counts what `objects/incoming/`
+still holds. None of them is damage, and the check removes none of them. A
+digest under a directory that could not be listed is left uncounted rather
+than reported as a dangling reference, because an object the check could not
+look for is not an object the archive does not hold. The same rule governs an
+unread record directory: while `records/imports`, `records/receipts`, or
+`records/submissions` is unread no object is reported as
+`integrity.orphan_object`, and a reference into any unread kind is left
+unjudged rather than reported as `integrity.dangling_reference`.
 
 `ok` is `true` and the exit code `0` when the check found nothing. When it
 found something, the check still completed its stated work, so the report

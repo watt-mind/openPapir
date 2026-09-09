@@ -13,7 +13,7 @@ use crate::archive::import::ImportEvent;
 use crate::integrity::store::Store;
 use crate::records::association::Association;
 use crate::records::case::Case;
-use crate::records::document::{self, is_identifier};
+use crate::records::document::{self, Visited, is_identifier};
 use crate::records::receipt::Receipt;
 use crate::records::submission::Submission;
 use crate::records::{DIGEST_PREFIX, is_digest};
@@ -87,13 +87,53 @@ pub struct References {
     pub ids: [BTreeSet<IdKey>; 5],
     /// How many documents of each kind could not be read as a record.
     pub malformed: [u64; 5],
+    /// Whether each kind's directory could not be listed, in the order of
+    /// [`KINDS`]. A directory that is not there is not one of these: it
+    /// genuinely holds no records.
+    pub unchecked: [bool; 5],
     /// How many record documents were examined, readable or not.
     pub records_checked: u64,
 }
 
 impl References {
-    fn holds(&self, kind: usize, id: &str) -> bool {
-        id_key(id).is_some_and(|key| self.ids[kind].contains(&key))
+    /// Whether the archive holds a record of this kind: `Some(true)` when the
+    /// identifier was read, `Some(false)` when the directory was read and does
+    /// not hold it, and `None` when the directory could not be listed.
+    ///
+    /// The third answer mirrors [`Store::holds`]: a record the check could not
+    /// look for is not a record the archive does not hold, so a reference to
+    /// it is left unjudged rather than reported as dangling.
+    fn holds(&self, kind: usize, id: &str) -> Option<bool> {
+        if self.unchecked[kind] {
+            return None;
+        }
+        Some(id_key(id).is_some_and(|key| self.ids[kind].contains(&key)))
+    }
+
+    /// How many record directories could not be listed.
+    #[must_use]
+    pub fn records_unchecked(&self) -> u64 {
+        self.unchecked
+            .iter()
+            .filter(|unchecked| **unchecked)
+            .count() as u64
+    }
+
+    /// Whether a stored object that no record names may be called an orphan.
+    ///
+    /// Only an import event, a receipt, or a submission references an object,
+    /// so if any of those three directories could not be listed the check
+    /// cannot say that nothing references a digest: the records that would
+    /// were never read.
+    #[must_use]
+    pub fn may_judge_orphans(&self) -> bool {
+        !self.unchecked[IMPORTS] && !self.unchecked[SUBMISSIONS] && !self.unchecked[RECEIPTS]
+    }
+
+    /// Whether a stored object is referenced by no record the check read.
+    #[must_use]
+    pub fn orphaned(&self, key: &DigestKey) -> bool {
+        self.may_judge_orphans() && !self.referenced.contains(key)
     }
 }
 
@@ -105,16 +145,21 @@ const RECEIPTS: usize = 3;
 const ASSOCIATIONS: usize = 4;
 
 /// Read every record and keep only the keys the object pass needs.
+///
+/// A record directory that is not there holds no records. One that is there
+/// and could not be listed is recorded as unchecked instead, so that nothing
+/// is concluded from records the check never read.
 #[must_use]
 pub fn collect(root: &Path) -> References {
     let mut found = References::default();
-    let count = |records: u64, unreadable: u64, kind: usize, found: &mut References| {
-        found.records_checked += records + unreadable;
-        found.malformed[kind] = unreadable;
+    let count = |records: u64, visited: Visited, kind: usize, found: &mut References| {
+        found.records_checked += records + visited.unreadable;
+        found.malformed[kind] = visited.unreadable;
+        found.unchecked[kind] = visited.unchecked;
     };
 
     let mut records = 0_u64;
-    let unreadable = document::visit_records::<ImportEvent, _>(root, |event| {
+    let visited = document::visit_records_checked::<ImportEvent, _>(root, |event| {
         records += 1;
         if let Some(id) = id_key(&event.id) {
             found.ids[IMPORTS].insert(id);
@@ -128,19 +173,19 @@ pub fn collect(root: &Path) -> References {
                 .insert(event.byte_length);
         }
     });
-    count(records, unreadable, IMPORTS, &mut found);
+    count(records, visited, IMPORTS, &mut found);
 
     let mut records = 0_u64;
-    let unreadable = document::visit_records::<Case, _>(root, |case| {
+    let visited = document::visit_records_checked::<Case, _>(root, |case| {
         records += 1;
         if let Some(id) = id_key(&case.id) {
             found.ids[CASES].insert(id);
         }
     });
-    count(records, unreadable, CASES, &mut found);
+    count(records, visited, CASES, &mut found);
 
     let mut records = 0_u64;
-    let unreadable = document::visit_records::<Submission, _>(root, |submission| {
+    let visited = document::visit_records_checked::<Submission, _>(root, |submission| {
         records += 1;
         if let Some(id) = id_key(&submission.id) {
             found.ids[SUBMISSIONS].insert(id);
@@ -151,10 +196,10 @@ pub fn collect(root: &Path) -> References {
             }
         }
     });
-    count(records, unreadable, SUBMISSIONS, &mut found);
+    count(records, visited, SUBMISSIONS, &mut found);
 
     let mut records = 0_u64;
-    let unreadable = document::visit_records::<Receipt, _>(root, |receipt| {
+    let visited = document::visit_records_checked::<Receipt, _>(root, |receipt| {
         records += 1;
         if let Some(id) = id_key(&receipt.id) {
             found.ids[RECEIPTS].insert(id);
@@ -163,16 +208,16 @@ pub fn collect(root: &Path) -> References {
             found.referenced.insert(digest);
         }
     });
-    count(records, unreadable, RECEIPTS, &mut found);
+    count(records, visited, RECEIPTS, &mut found);
 
     let mut records = 0_u64;
-    let unreadable = document::visit_records::<Association, _>(root, |association| {
+    let visited = document::visit_records_checked::<Association, _>(root, |association| {
         records += 1;
         if let Some(id) = id_key(&association.id) {
             found.ids[ASSOCIATIONS].insert(id);
         }
     });
-    count(records, unreadable, ASSOCIATIONS, &mut found);
+    count(records, visited, ASSOCIATIONS, &mut found);
 
     found
 }
@@ -182,7 +227,8 @@ pub fn collect(root: &Path) -> References {
 ///
 /// A digest whose fan-out directory could not be listed is not counted: the
 /// check could not look for it, which is not the same as the archive not
-/// holding it.
+/// holding it. A reference into a record directory that could not be listed
+/// is left unjudged for the same reason.
 ///
 /// The pass reads the records a second time rather than holding them, because
 /// a reference can only be judged once every identifier is known.
@@ -214,7 +260,7 @@ pub fn dangling(root: &Path, found: &References, objects: &Store) -> (u64, Optio
         }
     });
     document::visit_records::<Submission, _>(root, |submission| {
-        if !found.holds(CASES, &submission.case_id) {
+        if found.holds(CASES, &submission.case_id) == Some(false) {
             note("submission", "case_id");
         }
         for artefact in &submission.artefacts {
@@ -227,26 +273,26 @@ pub fn dangling(root: &Path, found: &References, objects: &Store) -> (u64, Optio
         if !stored(&receipt.artefact_digest) {
             note("receipt", "artefact_digest");
         }
-        if !found.holds(IMPORTS, &receipt.import_event_id) {
+        if found.holds(IMPORTS, &receipt.import_event_id) == Some(false) {
             note("receipt", "import_event_id");
         }
     });
     document::visit_records::<Association, _>(root, |association| {
-        if !found.holds(RECEIPTS, &association.receipt_id) {
+        if found.holds(RECEIPTS, &association.receipt_id) == Some(false) {
             note("association", "receipt_id");
         }
         if let Some(submission_id) = &association.submission_id
-            && !found.holds(SUBMISSIONS, submission_id)
+            && found.holds(SUBMISSIONS, submission_id) == Some(false)
         {
             note("association", "submission_id");
         }
         for candidate in &association.candidates {
-            if !found.holds(SUBMISSIONS, &candidate.submission_id) {
+            if found.holds(SUBMISSIONS, &candidate.submission_id) == Some(false) {
                 note("association", "submission_id");
             }
         }
         if let Some(supersedes) = &association.supersedes
-            && !found.holds(ASSOCIATIONS, supersedes)
+            && found.holds(ASSOCIATIONS, supersedes) == Some(false)
         {
             note("association", "association_id");
         }
@@ -287,5 +333,48 @@ mod tests {
         assert_eq!(count, 0);
         assert_eq!(first, None);
         assert_eq!(KINDS.len(), 5);
+        assert_eq!(found.records_unchecked(), 0);
+        assert!(found.may_judge_orphans());
+        assert!(found.orphaned(&object_key(DIGEST).unwrap()));
+    }
+
+    #[test]
+    fn a_kind_that_could_not_be_listed_leaves_what_it_would_name_unjudged() {
+        let key = object_key(DIGEST).unwrap();
+        for kind in [IMPORTS, SUBMISSIONS, RECEIPTS] {
+            let mut found = References::default();
+            found.unchecked[kind] = true;
+            assert!(!found.may_judge_orphans(), "{}", KINDS[kind]);
+            assert!(
+                !found.orphaned(&key),
+                "an object whose referencing records were not read is not an orphan"
+            );
+            assert_eq!(found.records_unchecked(), 1);
+            assert_eq!(found.holds(kind, ID), None);
+        }
+        for kind in [CASES, ASSOCIATIONS] {
+            let mut found = References::default();
+            found.unchecked[kind] = true;
+            assert!(
+                found.may_judge_orphans(),
+                "no object is referenced from {}",
+                KINDS[kind]
+            );
+            assert!(found.orphaned(&key));
+            assert_eq!(found.holds(kind, ID), None, "the kind was not read");
+        }
+        let found = References::default();
+        assert_eq!(found.holds(CASES, ID), Some(false), "the kind was read");
+        let mut found = References::default();
+        found.ids[CASES].insert(id_key(ID).unwrap());
+        assert_eq!(found.holds(CASES, ID), Some(true));
+        assert_eq!(
+            References {
+                unchecked: [true; 5],
+                ..References::default()
+            }
+            .records_unchecked(),
+            5
+        );
     }
 }

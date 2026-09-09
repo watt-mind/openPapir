@@ -81,8 +81,11 @@ pub fn integrity(report: &Report) -> Vec<String> {
         }
     }
     lines.push(format!(
-        "Orphan object(s): {}. Object(s) not digested: {}. Leftover staging file(s): {}.",
-        report.orphan_objects, report.objects_unchecked, report.staging_files
+        "Orphan object(s): {}. Object(s) not digested: {}. Record directory(ies) not read: {}. Leftover staging file(s): {}.",
+        report.orphan_objects,
+        report.objects_unchecked,
+        report.records_unchecked,
+        report.staging_files
     ));
     lines.push(
         "The check read the archive and changed nothing. A digest identifies bytes only: a passing check is storage integrity, never authenticity, delivery, or legal effect."
