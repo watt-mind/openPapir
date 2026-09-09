@@ -45,7 +45,10 @@ follow today.
    [architecture and CLI contract](architecture.md).
 3. **A changelog cut.** Move the accumulated entries from `Unreleased` into a
    dated version section in [CHANGELOG.md](../CHANGELOG.md), keeping the
-   Keep a Changelog categories.
+   Keep a Changelog categories. From the first published crate version,
+   changes to `openpapir-core`'s public Rust API are logged as well, which the
+   changelog rules in [contributing](../CONTRIBUTING.md) waive while no
+   version is published.
 4. **A green baseline.** `./scripts/check.sh`, the release build, and the
    full CI matrix pass on the promotion pull request, not only on `develop`.
 5. **A tag.** Tag the merge commit on `master`. Tags are not created on

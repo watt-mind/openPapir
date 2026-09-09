@@ -11,8 +11,8 @@ There are no published releases. Every entry below is unreleased work on
 `schema_version` field, which is `1`.
 
 Every pull request adds an entry under Unreleased, in the category that
-matches the observable difference. See the Documentation section of
-[CONTRIBUTING.md](CONTRIBUTING.md).
+matches the observable difference, unless the changelog rules waive it. See
+the Documentation section of [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Unreleased
 
@@ -282,6 +282,13 @@ envelope.
 
 ### Changed
 
+- The changelog rules in `CONTRIBUTING.md` say which changes to
+  `openpapir-core`'s public Rust API are logged. While the crate has no
+  published version they need no entry, the CLI contract in
+  [architecture](docs/architecture.md) is the only public contract, and every
+  change to it is logged; from the first published version library API changes
+  are logged under their own heading. `docs/releasing.md` states the same in
+  its changelog cut step. No behaviour, contract, or output changes.
 - The documentation states the stage the binary reports. `README.md` says
   `alpha` in its status line and in its sample `capabilities --json` output,
   which is regenerated from the binary and lists the same fifteen operations,
