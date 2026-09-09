@@ -73,3 +73,76 @@ fn missing_or_unimplemented_commands_fail() {
         assert!(!output.stderr.is_empty());
     }
 }
+
+/// A machine caller that asked for JSON is answered in JSON, including when
+/// the argument parser is what refused the invocation.
+#[test]
+fn an_argument_parse_failure_is_an_envelope_under_json() {
+    for (args, command, argument) in [
+        (&["import", "--json"][..], "import", Some("archive")),
+        (
+            &["archive", "init", "--json"][..],
+            "archive.init",
+            Some("root"),
+        ),
+        (
+            &["capabilities", "--unknown", "--json"][..],
+            "capabilities",
+            None,
+        ),
+        (&["--bogus", "--json"][..], "openpapir", None),
+        (&["bogus", "--json"][..], "openpapir", None),
+    ] {
+        let output = run(args);
+        assert_eq!(output.status.code(), Some(2), "usage exits 2 for {command}");
+        assert!(
+            output.stderr.is_empty(),
+            "the JSON form writes no usage text to stderr"
+        );
+        let text = String::from_utf8(output.stdout).unwrap();
+        assert_eq!(text.lines().count(), 1, "exactly one line of JSON");
+        let envelope: serde_json::Value = serde_json::from_str(text.trim()).unwrap();
+        assert_eq!(envelope["schema_version"], 1);
+        assert_eq!(envelope["ok"], false);
+        assert_eq!(envelope["command"], command);
+        assert_eq!(envelope["data"], serde_json::json!({}));
+        assert_eq!(envelope["verified"], false);
+        assert_eq!(envelope["error"]["code"], "usage.arguments");
+        assert_eq!(envelope["error"]["details"]["bucket"], "usage");
+        match argument {
+            Some(name) => assert_eq!(envelope["error"]["details"]["argument"], name),
+            None => assert!(
+                envelope["error"]["details"].get("argument").is_none(),
+                "a token this build does not define is never echoed"
+            ),
+        }
+    }
+}
+
+/// The same failures without `--json` keep the parser's own usage text, and
+/// help and version stay successes rather than becoming refusals.
+#[test]
+fn the_human_form_keeps_the_usage_text_and_help_still_succeeds() {
+    let output = run(&["import"]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty(), "usage text is not a result");
+    let text = String::from_utf8(output.stderr).unwrap();
+    assert!(text.contains("Usage:"), "the parser's own text is kept");
+    assert!(!text.contains("usage.arguments"), "no envelope on stderr");
+
+    for args in [&["--help"][..], &["--version"][..], &["help"][..]] {
+        let output = run(args);
+        assert_eq!(output.status.code(), Some(0), "help and version succeed");
+        assert!(!output.stdout.is_empty());
+    }
+}
+
+/// A user-supplied value after `--` is a positional, never the JSON flag, so
+/// it cannot turn a human invocation into a machine one.
+#[test]
+fn a_positional_that_looks_like_the_json_flag_does_not_ask_for_json() {
+    let output = run(&["bogus", "--", "--json"]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty(), "no envelope was asked for");
+    assert!(!output.stderr.is_empty());
+}

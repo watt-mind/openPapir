@@ -118,7 +118,8 @@ fn assert_human_stderr(output: &Output, forbidden: &[&str]) {
     for line in text.lines() {
         assert!(
             line.starts_with("warning platform.owner_only_via_acl")
-                || line.starts_with("warning platform.no_directory_fsync"),
+                || line.starts_with("warning platform.no_directory_fsync")
+                || line.starts_with("warning platform.no_follow_after_open"),
             "stderr carries only the named platform degradations"
         );
     }
@@ -143,7 +144,9 @@ fn assert_warnings(envelope: &Value) {
         assert!(
             matches!(
                 warning["code"].as_str().unwrap_or_default(),
-                "platform.no_directory_fsync" | "platform.owner_only_via_acl"
+                "platform.no_directory_fsync"
+                    | "platform.owner_only_via_acl"
+                    | "platform.no_follow_after_open"
             ),
             "only the named degradations are reported"
         );
@@ -437,12 +440,20 @@ fn every_cap_is_refused_before_the_input_is_read() {
 
     // Short relative names, run from the input directory: the refusal happens
     // before any input is opened, and a thousand absolute paths would exceed
-    // the command-line length some platforms accept.
-    let many: Vec<String> = (0..1001).map(|index| index.to_string()).collect();
+    // the command-line length some platforms accept. The names share a
+    // distinctive stem, so the refusal is checked for the same leak as every
+    // other one rather than against an empty list.
+    let many: Vec<String> = (0..1001).map(|index| format!("leakstem{index}")).collect();
     let mut args = vec!["import", "--archive", path(root.path()), "--json"];
     args.extend(many.iter().map(String::as_str));
     let output = run_in(inputs.path(), &args);
-    assert_refusal(&output, "import", "input.cap.import_files", 3, &[]);
+    assert_refusal(
+        &output,
+        "import",
+        "input.cap.import_files",
+        3,
+        &["leakstem"],
+    );
     assert_eq!(
         stdout_json(&output)["error"]["details"]["observed_count"],
         1001
@@ -520,6 +531,17 @@ fn a_symbolic_link_is_refused_as_an_input_and_as_a_root() {
         path(&link),
     ]);
     assert_refusal(&output, "import", "path.symlink", 3, &["link.txt"]);
+    assert_eq!(
+        stdout_json(&output)["error"]["details"]["scope"],
+        "input",
+        "a link outside the archive names the input scope"
+    );
+    assert!(
+        stdout_json(&output)["error"]["details"]
+            .get("archive_path")
+            .is_none(),
+        "an input has no archive-relative path"
+    );
 
     let linked_root = inputs.path().join("linked-root");
     std::os::unix::fs::symlink(root.path(), &linked_root).unwrap();
@@ -531,14 +553,21 @@ fn a_symbolic_link_is_refused_as_an_input_and_as_a_root() {
         path(&target),
     ]);
     assert_refusal(&output, "import", "path.symlink", 3, &["linked-root"]);
+    assert_eq!(
+        stdout_json(&output)["error"]["details"]["scope"],
+        "archive",
+        "a link that would be the archive names the archive scope"
+    );
 }
 
 #[test]
 #[cfg(not(unix))]
 fn a_symbolic_link_is_refused_as_an_input_and_as_a_root() {
-    // Skipped with a reason: creating a symbolic link on this platform needs a
-    // privilege the test environment does not grant, and the no-follow flag
-    // the design requires has no portable equivalent here.
+    // Skipped with a reason: creating a symbolic link or an NTFS junction on
+    // this platform needs a privilege the test environment does not grant.
+    // The no-follow open itself is exercised on every platform by the import
+    // of a regular file, and the refusal of a reparse point is asserted in the
+    // `openpapir-core` unit tests, which do not need the privilege.
 }
 
 #[test]
@@ -565,6 +594,54 @@ fn an_object_path_holding_something_else_is_never_replaced() {
     ]);
     assert_refusal(&output, "import", "path.overwrite", 3, &["note.txt"]);
     assert!(occupied.is_dir(), "the existing path is left untouched");
+
+    // Shape is checked before permissions, so a wide directory at an object's
+    // path is still what openPapir did not create rather than an archive whose
+    // permissions it might repair.
+    #[cfg(unix)]
+    {
+        widen(&occupied);
+        let output = run(&[
+            "import",
+            "--archive",
+            path(root.path()),
+            "--json",
+            path(&file),
+        ]);
+        assert_refusal(&output, "import", "path.overwrite", 3, &["note.txt"]);
+        assert_eq!(
+            stdout_json(&output)["error"]["details"]["archive_path"],
+            format!("objects/sha256/{}/{}/{hex}", &hex[0..2], &hex[2..4])
+        );
+        assert!(occupied.is_dir(), "the existing path is left untouched");
+    }
+}
+
+/// A filesystem with no hard links refuses the archive rather than inviting a
+/// retry that can never succeed.
+///
+/// Skipped with a reason at this level: creating a FAT32 or exFAT volume needs
+/// a privilege no test environment grants, so the mapping from the codes
+/// `hard_link` reports there to `platform.filesystem_unsupported` is asserted
+/// directly in the `openpapir-core` unit tests. What is asserted here is that
+/// a filesystem which does support hard links publishes normally and reports
+/// no platform refusal.
+#[test]
+fn a_filesystem_that_supports_hard_links_publishes_without_a_platform_refusal() {
+    let (root, inputs) = archive();
+    let file = write_input(inputs.path(), "note.txt", PAYLOAD);
+    let output = run(&[
+        "import",
+        "--archive",
+        path(root.path()),
+        "--json",
+        path(&file),
+    ]);
+    let envelope = stdout_json(&output);
+    assert_envelope(&envelope, "import", true);
+    assert_eq!(output.status.code(), Some(0));
+    assert_ne!(output.status.code(), Some(5), "no platform refusal applies");
+    assert_warnings(&envelope);
 }
 
 #[test]
