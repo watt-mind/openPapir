@@ -1003,17 +1003,24 @@ object `--purge` would otherwise have removed is retained with the reason
 still go, `ok` stays `true`, and the same reference on a record that is
 **going** changes nothing, because that record and its claim both leave.
 
-The number of such references is reported as a `record.malformed` warning
-carrying `stage` and `malformed_count`, and **only when the reference held an
-object of this deletion back**: `--purge` was given and this case had a
-candidate the purge would otherwise have removed. The scan reads the whole
-archive, so one hand-edited document anywhere would otherwise attach the
+Such references are reported as a `record.malformed` warning carrying
+`stage`, `malformed_count`, and `withheld_count`, and **only when the
+reference held an object of this deletion back**: `--purge` was given and this
+case had a candidate the purge would otherwise have removed. `malformed_count`
+is how many such references the scan read anywhere in the archive.
+`withheld_count` is how many candidate objects of this deletion they held
+back, which is the number the message's `for this case` describes. They count
+different things, so either may be the larger: one such reference holds back
+every candidate, and references on records of another case hold back none of
+this case's. Both are above zero wherever the warning is emitted at all, and
+neither is derived from the other. The scan reads the
+whole archive, so one hand-edited document anywhere would otherwise attach the
 warning to every later deletion, including ones with no candidate and ones
 that asked for no purge, and describe the archive rather than the command the
 user ran. The warning's text says `for this case` for the same reason.
 Finding such a document wherever it sits is `archive check`'s work, not
-`case delete`'s. The count is the whole of the warning: the record that holds
-the reference is not named, and neither is the value.
+`case delete`'s. The counts are the whole of the warning: the record that
+holds the reference is not named, and neither is the value.
 
 Without `--purge` nothing was going to be unlinked, so the unresolvable
 reference decided nothing: a candidate no remaining record names keeps
@@ -1470,7 +1477,7 @@ changes the exit code.
 | `platform.no_directory_fsync` | The directory entry a publish created may not be durable, although the file content was flushed. Emitted where the platform has no directory flush, and also where the flush was attempted and failed, with `stage`. |
 | `platform.owner_only_via_acl` | Owner-only access is an access-control list rather than a permission bit, so it depends on the filesystem. Emitted on Windows. |
 | `platform.no_follow_after_open` | The no-follow flag opens the link itself rather than failing, so the refusal comes from the handle openPapir opened, and the reparse tag is not distinguished. Emitted on Windows, once per archive opened. |
-| `record.malformed` | A record `case delete` keeps names an artefact by something that is not a digest, so the archive cannot say which object it means. Emitted by `case delete`, with `stage` and `malformed_count`, and only where it held an object of that deletion back: `--purge` was given and this case had a candidate the purge would otherwise have removed. Those objects are retained as `referenced_elsewhere`, and the records the deletion planned to remove still go. Without `--purge` a candidate keeps `purge_not_requested` and no warning is emitted. |
+| `record.malformed` | A record `case delete` keeps names an artefact by something that is not a digest, so the archive cannot say which object it means. Emitted by `case delete`, with `stage`, `malformed_count`, the archive-wide number of such references the scan read, and `withheld_count`, the number of this case's candidate objects they held back, and only where it held an object of that deletion back: `--purge` was given and this case had a candidate the purge would otherwise have removed. Those objects are retained as `referenced_elsewhere`, and the records the deletion planned to remove still go. Without `--purge` a candidate keeps `purge_not_requested` and no warning is emitted. |
 | `platform.replace_while_open` | A purge could not unlink an object now because another process holds it open, so the removal is deferred to the user closing it. Emitted by `case delete` on platforms that defer an unlink, with `stage`, and with `read_only_restored` only where the read-only attribute was actually cleared; its absence says it never was. The object is counted as `unremovable` and the command still reports what it did remove. Reported once however many objects deferred, carrying the worst outcome any of them saw. |
 
 On Windows a no-follow open carries `FILE_FLAG_OPEN_REPARSE_POINT`, so the

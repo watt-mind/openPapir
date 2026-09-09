@@ -414,6 +414,15 @@ envelope.
 
 ### Fixed
 
+- `case delete`'s `record.malformed` warning now reports both counts it is
+  built from. The warning is raised only where an unresolvable reference held
+  a candidate object of this deletion back, and its message says "for this
+  case", but `malformed_count` is the archive-wide number of such references
+  the scan read, so the message could carry a number larger than what this
+  deletion lost. `malformed_count` keeps that archive-wide meaning and a new
+  `withheld_count` carries the per-case number the message describes. No
+  existing key changed meaning, and nothing that was retained becomes
+  removable.
 - `case delete` scopes the `record.malformed` warning to the deletion it
   actually changed. The scan reads the whole archive, so one hand-edited
   document anywhere made every later deletion carry the warning, including
