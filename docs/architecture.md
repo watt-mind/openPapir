@@ -752,12 +752,11 @@ openat-style walk that holds a directory handle for every component would
 close that gap, and is not implemented; it would need a per-platform
 implementation for a destination the archive does not own.
 
-An interrupted write in the destination reports the stage it was in:
-`object_write` while copying a stored object or making the directory the
-copies go in, `record_write` while writing a record document or its
-directory, and `marker_write` for the destination itself and for
-`manifest.json`, which describe the export rather than any one record
-([error contract](error-contract.md)).
+An interrupted write in the destination reports the stage it was in, from the
+one table of [write stages](#write-stages): the copies and the directory they
+go in are an object write, a record document and its directory a record write,
+and the destination itself and its `manifest.json` a marker write, because
+they describe the export rather than any one record.
 
 The archive's own publish step, a hard link into place, is deliberately not
 used outside the root. A destination may be a filesystem that cannot create a
@@ -907,11 +906,9 @@ narrowed. Changing a link's permissions changes its target's, and a link out
 of the archive would be a file the archive does not own.
 
 A path the repair cannot read or cannot narrow is `write.interrupted`, and its
-`stage` is the kind of path the repair was inspecting: `object_write` for a
-stored object, a fan-out directory it cannot list, or a leftover staging
-file, `marker_write` for the marker, and `record_write` for a record
-document, a cached file, a layout directory, a fan-out directory it cannot
-narrow, or the root ([error contract](error-contract.md)).
+`stage` is the kind of path the repair was inspecting, read from the one table
+of [write stages](#write-stages). The kind is a closed set, so a path the
+repair walks never reaches a stage by falling through a default.
 
 `data` reports counts by kind, in a fixed order, including the kinds nothing
 changed for, so a caller reads a count rather than testing for a key.
@@ -1192,6 +1189,24 @@ description: >-
 | Copies outward | An export writes only into a destination outside the archive root, creates every file there with create-new semantics, follows no symbolic link, replaces nothing, and re-digests every copy before it is published. A destination the export itself created is removed again when the export fails. |
 | Path safety | Input files are opened with the platform's no-follow flag, `O_NOFOLLOW` on Unix and `FILE_FLAG_OPEN_REPARSE_POINT` on Windows, and no path is stat-ed before it is opened. Symbolic links inside the archive are refused, on Windows together with NTFS junctions and every other reparse point, and a user-supplied filename is never joined into a path. |
 | Single writer | A `lock` file recording the holder's process identifier, host, and start time admits one writer. A second writer refuses with `lock.held` rather than waiting. |
+
+### Write stages
+
+A `write.interrupted` refusal carries a `stage`, the kind of path that was
+being written, never the module that reported it. The three stages and the
+paths each one names are the same set the
+[error contract](error-contract.md) lists, and a test parses both tables and
+holds them to it.
+
+| Stage | What it names |
+| --- | --- |
+| `object_write` | A stored object or an exported copy of one, the directory a copy is created in, a fan-out directory the repair cannot list, and a leftover staging file inside the object store. |
+| `record_write` | A record document, the directory one is written into, a cached file, a layout directory, a fan-out directory the repair cannot narrow, and the archive root. |
+| `marker_write` | The archive marker, and outside the archive the export destination itself and its `manifest.json`. |
+
+The kinds of path the repair walks are a closed set in the implementation, and
+each one names its stage: no kind falls through to `record_write` by default,
+so a kind added without a decided stage does not compile.
 
 ## Input caps
 
