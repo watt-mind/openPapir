@@ -7,15 +7,16 @@ correspondence: cases, submissions, attachments, and receipts.
 executable reports its capabilities, creates a local archive, imports files
 into a content-addressed store that preserves the original bytes, organises
 what it holds into cases and submissions, records receipts together with the
-user's own assertions about whether a receipt relates to a submission, and
-checks a whole archive against what its records claim without changing
-anything, copies one case out of the archive as plain files, narrows a
-restored archive's permissions back to owner-only, deletes a case when asked,
-removing stored bytes only on an explicit `--purge`, and writes the agent
-skill document it carries. Automatic matching, derived metadata, receipt
-parsing, import from an export, editing of a stored record, deleting a single
-submission or receipt, deleting an archive, signature verification, and
-government delivery are not implemented. There is no published release.
+user's own assertions about whether a receipt relates to a submission, checks
+a whole archive against what its records claim without changing anything,
+copies one case out of the archive as plain files, narrows a restored
+archive's permissions back to owner-only, deletes a case when asked, removing
+stored bytes only on an explicit `--purge`, and writes the agent skill
+document it carries. Automatic matching, derived metadata, receipt parsing,
+KRX and `.es3` handling, import from an export, editing of a stored record,
+deleting a single submission or receipt, deleting an archive, signature
+verification, and government delivery are not implemented. There is no
+published release.
 
 openPapir is an independent open-source project. It is not the government's
 e-Papír service, is not affiliated with its operators, and does not submit
@@ -78,44 +79,68 @@ The capabilities command reports the current implementation honestly:
 }
 ```
 
-The operation list names exactly what can process input today, plus `skill`,
-which writes the embedded agent skill document and touches no archive.
-`archive init` needs an existing, empty directory and refuses to adopt
-anything else.
-`import` stores each file's bytes unchanged, records one import event per
-input, and reports a re-import of the same bytes as a duplicate rather than an
-error. Every record is the user's own local record: openPapir sends nothing
-and reads no artefact bytes, so a submission is what the user states they
-sent, a receipt is an artefact the user believes to be one, an association is
-what the user asserts about it, and a date they supply is stored verbatim and
-never read as a delivery or receipt date. `archive check` re-digests what the
-store holds and reports counts only; it takes no lock, changes nothing, and a
-passing check is storage integrity rather than authenticity. `case export`
-copies one case out as plain files, the original bytes named by their digest
-plus readable JSON records and a manifest, without changing the archive, and
-re-digests every copy. `archive repair-permissions` narrows a restored
-archive back to owner-only; it never widens anything. `case delete` is the one
-destructive command: it removes a case and its submissions, and the receipts
-and associations tied only to them, but it removes no stored bytes unless
-`--purge` is given, and even then only bytes nothing that remains references.
-It reports counts and record kinds, never a digest or a filename, records no
-deletion anywhere, and does not erase data from the storage medium.
-`verified: false` means no cryptographic verification was performed: a
-digest identifies bytes, and says nothing about authenticity or delivery.
-The full contract, including the error codes and exit codes, is in
-[architecture and CLI contract](docs/architecture.md).
+The operation list names exactly what is implemented today, one sentence
+each. All but the last can process input:
+
+- `archive init` creates an archive in an existing, empty directory, writing
+  the marker first and refusing to adopt anything else.
+- `import` stores each file's bytes unchanged, records one import event per
+  input, and reports a re-import of the same bytes as a duplicate rather than
+  an error.
+- `case create` records one case, the user's own folder of related
+  correspondence.
+- `case list` lists every case in the archive.
+- `case show` shows one case with the submissions recorded against it and
+  their artefact references.
+- `submission add` records one submission the user states they sent, against
+  a case.
+- `receipt add` records that the user believes one stored artefact to be a
+  receipt.
+- `receipt list` lists every receipt in the archive.
+- `association create` records what the user asserts about one receipt, with
+  one of the outcomes `unassociated`, `candidate`, `associated`, and
+  `contradictory`.
+- `association list` lists one receipt's whole association history, newest
+  first, superseded records included.
+- `archive check` re-digests what the store holds and reports counts only; it
+  takes no lock, changes nothing, and a passing check is storage integrity
+  rather than authenticity.
+- `case export` copies one case out as plain files, the original bytes named
+  by their digest plus readable JSON records and a manifest, without changing
+  the archive, and re-digests every copy.
+- `archive repair-permissions` narrows a restored archive back to owner-only;
+  it never widens anything.
+- `case delete` is the one destructive command: it removes a case and its
+  submissions, and the receipts and associations tied only to them, but it
+  removes no stored bytes unless `--purge` is given, and even then only bytes
+  nothing that remains references. It reports counts and record kinds, never a
+  digest or a filename, records no deletion anywhere, and does not erase data
+  from the storage medium.
+- `skill` writes the embedded agent skill document to stdout byte for byte and
+  adds nothing. It takes no file and no `--json`, touches no archive, and is
+  the one operation that processes no input.
+
+Every record is the user's own local record: openPapir sends nothing and reads
+no artefact bytes, so a submission is what the user states they sent, a
+receipt is an artefact the user believes to be one, an association is what the
+user asserts about it, and a date they supply is stored verbatim and never
+read as a delivery or receipt date. `verified: false` means no cryptographic
+verification was performed: a digest identifies bytes, and says nothing about
+authenticity or delivery. The full contract, including the error codes and
+exit codes, is in [architecture and CLI contract](docs/architecture.md).
 
 ## Intended responsibilities
 
-- Preserve original submission and receipt bytes in a local case archive.
-- Associate submissions, attachments, and receipts with explicit provenance.
-- Expose searchable case information through a CLI and structured JSON.
-- Delegate KRX container processing to
-  [openKRX](https://github.com/watt-mind/openKRX) and `.es3` processing to
-  [openSzigno](https://github.com/watt-mind/openSzigno).
+| Responsibility | State |
+| --- | --- |
+| Preserve original submission and receipt bytes in a local case archive. | Implemented by `import` and the write-once artefact store. |
+| Associate submissions, attachments, and receipts with explicit provenance. | Implemented for the user's own assertions; automatic matching, derived metadata, and receipt parsing are not implemented. |
+| Expose case information through a CLI and structured JSON. | Implemented by the list, show, and export commands; search is not implemented. |
+| Delegate KRX container processing to [openKRX](https://github.com/watt-mind/openKRX) and `.es3` processing to [openSzigno](https://github.com/watt-mind/openSzigno). | Not implemented. Neither sibling project is a build dependency of this scaffold, and neither parser is copied into it. |
+| Delegated authenticity verification, reported with its exact scope and trust context. | Not implemented. No cryptographic check of any kind exists here. |
+| Government submission and delivery. | Not implemented and out of scope for now. |
 
-Those are roadmap goals. Neither sibling project is a build dependency of this
-scaffold. Importing a receipt, matching it to a submission, and verifying its
+Importing a receipt, matching it to a submission, and verifying its
 cryptographic authenticity remain separate records: an association changes
 nothing about the artefact and creates no verification result. Matching alone
 must never assert legal effect or successful delivery.
