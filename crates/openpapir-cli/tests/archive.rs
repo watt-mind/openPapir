@@ -24,6 +24,17 @@ fn run(args: &[&str]) -> Output {
         .expect("run the openpapir binary")
 }
 
+/// Run the binary from a working directory, so that a long argument list can
+/// use short relative names. A command line of a thousand absolute temporary
+/// paths exceeds what some platforms accept at process spawn.
+fn run_in(directory: &Path, args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_openpapir"))
+        .current_dir(directory)
+        .args(args)
+        .output()
+        .expect("run the openpapir binary")
+}
+
 fn stdout_json(output: &Output) -> Value {
     let text = String::from_utf8(output.stdout.clone()).expect("stdout is UTF-8");
     assert_eq!(text.lines().count(), 1, "exactly one line of JSON");
@@ -74,7 +85,11 @@ fn assert_envelope(envelope: &Value, command: &str, ok: bool) {
 }
 
 /// Assert a refusal's code and exit code, and that nothing private leaked.
-fn assert_refusal(output: &Output, command: &str, code: &str, exit: i32, secrets: &[&str]) {
+///
+/// `forbidden` holds fragments the privacy rule keeps out of output, such as a
+/// filename or a path. Only their absence is asserted, and no fragment is ever
+/// printed, so nothing private can reach a test log even on a failure.
+fn assert_refusal(output: &Output, command: &str, code: &str, exit: i32, forbidden: &[&str]) {
     let envelope = stdout_json(output);
     assert_envelope(&envelope, command, false);
     assert_eq!(envelope["error"]["code"], code, "refusal code");
@@ -82,8 +97,65 @@ fn assert_refusal(output: &Output, command: &str, code: &str, exit: i32, secrets
     assert_ne!(output.status.code(), Some(1), "exit code 1 is reserved");
     assert!(output.stderr.is_empty(), "the JSON form writes no stderr");
     let rendered = String::from_utf8(output.stdout.clone()).unwrap();
-    for secret in secrets {
-        assert!(!rendered.contains(secret), "output must not carry {secret}");
+    for (position, fragment) in forbidden.iter().enumerate() {
+        assert!(
+            !rendered.contains(fragment),
+            "output carries the forbidden fragment at position {position}"
+        );
+    }
+}
+
+/// Assert what a human-form command wrote to stderr.
+///
+/// On Unix nothing is expected. On Windows the archive correctly reports the
+/// named platform degradations, so only those lines are allowed, and never a
+/// path or a filename.
+fn assert_human_stderr(output: &Output, forbidden: &[&str]) {
+    let text = String::from_utf8(output.stderr.clone()).expect("stderr is UTF-8");
+    #[cfg(unix)]
+    assert!(text.is_empty(), "no degradation applies on this platform");
+    #[cfg(not(unix))]
+    for line in text.lines() {
+        assert!(
+            line.starts_with("warning platform.owner_only_via_acl")
+                || line.starts_with("warning platform.no_directory_fsync"),
+            "stderr carries only the named platform degradations"
+        );
+    }
+    for (position, fragment) in forbidden.iter().enumerate() {
+        assert!(
+            !text.contains(fragment),
+            "stderr carries the forbidden fragment at position {position}"
+        );
+    }
+}
+
+/// Assert that any warning is one of the named platform degradations.
+///
+/// Where a guarantee cannot hold, the condition is reported and never
+/// silently accepted; where it holds, no warning is emitted. A platform that
+/// cannot express owner-only access always says so.
+fn assert_warnings(envelope: &Value) {
+    let warnings = envelope.get("warnings").map_or_else(Vec::new, |value| {
+        value.as_array().expect("warnings is an array").clone()
+    });
+    for warning in &warnings {
+        assert!(
+            matches!(
+                warning["code"].as_str().unwrap_or_default(),
+                "platform.no_directory_fsync" | "platform.owner_only_via_acl"
+            ),
+            "only the named degradations are reported"
+        );
+        assert!(warning["details"]["bucket"] == "platform");
+    }
+    if !cfg!(unix) {
+        assert!(
+            warnings
+                .iter()
+                .any(|warning| warning["code"] == "platform.owner_only_via_acl"),
+            "this platform reports how owner-only access is expressed"
+        );
     }
 }
 
@@ -219,7 +291,7 @@ fn importing_preserves_the_bytes_and_stores_a_read_only_object() {
     assert_eq!(artefact["byte_length"], PAYLOAD.len());
     assert_eq!(artefact["created_object"], true);
     assert_eq!(artefact["import_event"].as_str().unwrap().len(), 32);
-    assert!(envelope.get("warnings").is_none() == cfg!(unix));
+    assert_warnings(&envelope);
 
     let hex = PAYLOAD_DIGEST.strip_prefix("sha256:").unwrap();
     let object = root
@@ -361,31 +433,39 @@ fn every_cap_is_refused_before_the_input_is_read() {
         &["part0.bin"],
     );
 
-    let many: Vec<String> = (0..1001)
-        .map(|index| format!("{}/absent{index}", path(inputs.path())))
-        .collect();
+    // Short relative names, run from the input directory: the refusal happens
+    // before any input is opened, and a thousand absolute paths would exceed
+    // the command-line length some platforms accept.
+    let many: Vec<String> = (0..1001).map(|index| index.to_string()).collect();
     let mut args = vec!["import", "--archive", path(root.path()), "--json"];
     args.extend(many.iter().map(String::as_str));
-    let output = run(&args);
-    assert_refusal(&output, "import", "input.cap.import_files", 3, &["absent0"]);
+    let output = run_in(inputs.path(), &args);
+    assert_refusal(&output, "import", "input.cap.import_files", 3, &[]);
     assert_eq!(
         stdout_json(&output)["error"]["details"]["observed_count"],
         1001
     );
 
-    let long_name = format!("{}/{}", path(inputs.path()), "n".repeat(256));
-    let output = run(&[
-        "import",
-        "--archive",
-        path(root.path()),
-        "--json",
-        &long_name,
-    ]);
-    assert_refusal(&output, "import", "input.cap.filename_length", 3, &["nnnn"]);
-    assert_eq!(
-        stdout_json(&output)["error"]["details"]["observed_bytes"],
-        256
-    );
+    // Skipped on platforms that refuse a 256-byte path component at process
+    // spawn, where the command line never reaches the binary. The cap itself
+    // is asserted directly in the `openpapir-core` unit tests there, and the
+    // 255-byte cap is unchanged on every platform.
+    #[cfg(unix)]
+    {
+        let long_name = format!("{}/{}", path(inputs.path()), "n".repeat(256));
+        let output = run(&[
+            "import",
+            "--archive",
+            path(root.path()),
+            "--json",
+            &long_name,
+        ]);
+        assert_refusal(&output, "import", "input.cap.filename_length", 3, &["nnnn"]);
+        assert_eq!(
+            stdout_json(&output)["error"]["details"]["observed_bytes"],
+            256
+        );
+    }
 
     assert_eq!(
         fs::read_dir(root.path().join("objects/sha256"))
@@ -471,6 +551,9 @@ fn an_object_path_holding_something_else_is_never_replaced() {
         .join(&hex[2..4])
         .join(hex);
     fs::create_dir_all(&occupied).unwrap();
+    narrow(&occupied);
+    narrow(occupied.parent().unwrap());
+    narrow(occupied.parent().unwrap().parent().unwrap());
     let output = run(&[
         "import",
         "--archive",
@@ -520,6 +603,118 @@ fn a_stored_object_of_a_different_length_is_reported_as_damage() {
         fs::read(&object).unwrap(),
         b"a damaged store",
         "damage is reported, never overwritten"
+    );
+}
+
+/// Narrow a path a test created to owner-only, so that the fixture itself is
+/// not what the permission check refuses.
+fn narrow(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let mode = if path.is_dir() { 0o700 } else { 0o600 };
+        fs::set_permissions(path, fs::Permissions::from_mode(mode)).unwrap();
+    }
+    #[cfg(not(unix))]
+    let _ = path;
+}
+
+/// Widen a path, to check that openPapir refuses rather than repairing it.
+#[cfg(unix)]
+fn widen(path: &Path) {
+    use std::os::unix::fs::PermissionsExt as _;
+    let mode = if path.is_dir() { 0o755 } else { 0o644 };
+    fs::set_permissions(path, fs::Permissions::from_mode(mode)).unwrap();
+}
+
+#[test]
+#[cfg(unix)]
+fn a_wide_object_or_subdirectory_is_refused_and_never_repaired() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let (root, inputs) = archive();
+    let file = write_input(inputs.path(), "note.txt", PAYLOAD);
+    run(&[
+        "import",
+        "--archive",
+        path(root.path()),
+        "--json",
+        path(&file),
+    ]);
+    let hex = PAYLOAD_DIGEST.strip_prefix("sha256:").unwrap();
+    let object = root
+        .path()
+        .join("objects/sha256")
+        .join(&hex[0..2])
+        .join(&hex[2..4])
+        .join(hex);
+
+    widen(&object);
+    let output = run(&[
+        "import",
+        "--archive",
+        path(root.path()),
+        "--json",
+        path(&file),
+    ]);
+    assert_refusal(
+        &output,
+        "import",
+        "archive.permissions_wide",
+        4,
+        &["note.txt"],
+    );
+    assert_eq!(
+        fs::metadata(&object).unwrap().permissions().mode() & 0o777,
+        0o644,
+        "a wide path is refused, never repaired"
+    );
+    narrow(&object);
+
+    let fan_out = object.parent().unwrap().to_path_buf();
+    widen(&fan_out);
+    let output = run(&[
+        "import",
+        "--archive",
+        path(root.path()),
+        "--json",
+        path(&file),
+    ]);
+    assert_refusal(
+        &output,
+        "import",
+        "archive.permissions_wide",
+        4,
+        &["note.txt"],
+    );
+    assert_eq!(
+        stdout_json(&output)["error"]["details"]["archive_path"],
+        format!("objects/sha256/{}/{}", &hex[0..2], &hex[2..4])
+    );
+    narrow(&fan_out);
+
+    let records = root.path().join("records/imports");
+    widen(&records);
+    let output = run(&[
+        "import",
+        "--archive",
+        path(root.path()),
+        "--json",
+        path(&file),
+    ]);
+    assert_refusal(
+        &output,
+        "import",
+        "archive.permissions_wide",
+        4,
+        &["note.txt"],
+    );
+    let details = &stdout_json(&output)["error"]["details"];
+    assert_eq!(details["archive_path"], "records/imports");
+    assert_eq!(details["path_count"], 1);
+    assert_eq!(
+        fs::metadata(&records).unwrap().permissions().mode() & 0o777,
+        0o755,
+        "openPapir never narrows a directory on the way past"
     );
 }
 
@@ -575,11 +770,13 @@ fn a_leftover_staging_file_is_never_adopted() {
 fn a_held_lock_refuses_a_second_writer_without_naming_the_holder() {
     let (root, inputs) = archive();
     let file = write_input(inputs.path(), "note.txt", PAYLOAD);
+    let lock = root.path().join("lock");
     fs::write(
-        root.path().join("lock"),
+        &lock,
         b"{\"host\":\"elsewhere\",\"pid\":1,\"started_at\":\"2026-01-14T09:12:33Z\"}\n",
     )
     .unwrap();
+    narrow(&lock);
     let output = run(&[
         "import",
         "--archive",
@@ -706,12 +903,12 @@ fn human_output_reports_the_same_facts_without_a_path_or_a_filename() {
     let file = write_input(inputs.path(), "private-name.txt", PAYLOAD);
     let output = run(&["import", "--archive", path(root.path()), path(&file)]);
     assert_eq!(output.status.code(), Some(0));
-    let text = String::from_utf8(output.stdout).unwrap();
+    let text = String::from_utf8(output.stdout.clone()).unwrap();
     assert!(text.contains(PAYLOAD_DIGEST));
     assert!(text.contains("Nothing here is verified"));
     assert!(!text.contains("private-name"), "no filename is printed");
     assert!(!text.contains(path(inputs.path())), "no path is printed");
-    assert!(output.stderr.is_empty());
+    assert_human_stderr(&output, &["private-name", path(inputs.path())]);
 
     let output = run(&[
         "import",
