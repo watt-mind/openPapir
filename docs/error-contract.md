@@ -241,10 +241,16 @@ unknown or when including it would breach the privacy rule.
 
 Every cap is checked before allocation, from the size the filesystem reports,
 and enforced again while streaming ([archive-layout](archive-layout.md)); a
-mid-stream breach aborts the write and removes the staging file. All five are
-refusals of the input, never archive damage. All carry `bucket`, `cap_bytes`
-or `cap_count`, `observed_bytes` or `observed_count`, and `input_index`, the
-position of the offending input in the invocation, never its name.
+mid-stream breach aborts the write and removes the staging file. The record
+cap binds a stored document on the way in and on the way out: a record is
+checked against it before it is written and again, from the reported size,
+before it is read back. All six are refusals of the input, never archive
+damage, and all carry `bucket` with a cap and an observed value, `cap_bytes`
+or `cap_count` with `observed_bytes` or `observed_count`.
+
+The five import caps also carry `input_index`, the position of the offending
+input in the invocation, never its name. `input.cap.field_length` carries
+`field` instead, because a record field has no position in an input list.
 
 - **`input.cap.file_size`**: input, not retryable. One file exceeds the
   single-file cap (proposed 64 MiB).
@@ -324,15 +330,18 @@ followed ([archive-layout](archive-layout.md)).
 
 ### `record`: record documents
 
-- **`record.malformed`**: archive, not retryable. **Decided by the case and
+- **`record.malformed`**: record, not retryable. **Decided by the case and
   submission records.** A record document a command must read exists but is
   not valid JSON, is missing a required field, claims a record kind this build
   does not know, or does not name the file it lives in. It is reported rather
   than repaired, skipped, or guessed at. Details: `bucket`, `record_kind`, and
   `path_count`, the number of documents that could not be read. The document's
   path and content are never reported: the path would name an identifier the
-  caller never supplied, and the count answers the only useful question.
-- **`record.not_found`**: archive, not retryable. A reference names no record
+  caller never supplied, and the count answers the only useful question. A
+  document that is not a regular file, and one larger than the record cap,
+  report the same code and are never opened: the link is not followed and the
+  bytes are never allocated.
+- **`record.not_found`**: record, not retryable. A reference names no record
   or object in this archive: a case identifier with no case record, or an
   artefact digest with no stored object. An identifier that cannot name a
   record at all, because it is not openPapir's 32-character hexadecimal form,

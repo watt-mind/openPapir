@@ -3,9 +3,10 @@
 A proposed local-first Rust library and CLI for organising Hungarian government
 correspondence: cases, submissions, attachments, and receipts.
 
-**Status: early.** The executable reports its capabilities, creates a local
-archive, imports files into a content-addressed store that preserves the
-original bytes, and organises what it holds into cases and submissions.
+**Status: scaffold**, which is the stage the tool itself reports. The
+executable reports its capabilities, creates a local archive, imports files
+into a content-addressed store that preserves the original bytes, and
+organises what it holds into cases and submissions.
 Receipt matching, association, export, deletion, editing, signature
 verification, and government delivery are not implemented. There is no
 published release.

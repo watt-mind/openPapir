@@ -375,8 +375,10 @@ including all `export` and `delete` codes, `lock.stale`, `path.traversal`,
 
 ### Decisions this implementation had to make
 
-The error contract deferred five conditions to an implementing change. They
-are decided as follows, and no other reserved code became reachable:
+The error contract deferred four conditions to an implementing change, listed
+first below. `record.not_found` is not one of them: it is a new code, added
+additively under the contract's compatibility rule. They are decided as
+follows, and no other reserved code became reachable:
 
 1. A marker that cannot be read is `archive.marker_malformed`. It is reported,
    never repaired, and every operation on that archive is refused.
@@ -392,7 +394,13 @@ are decided as follows, and no other reserved code became reachable:
    that could not be read, and never the document's path or content. Reading a
    directory of records reports it rather than passing over the document
    silently; the one exception is a staging file, which is openPapir's own
-   transient artefact and never a record.
+   transient artefact and never a record. A stored document is untrusted
+   input: an entry that is not a regular file, and one larger than the record
+   cap, count as unreadable and are never opened, so a symbolic link in a
+   record directory is refused rather than followed and an oversized document
+   is refused from the size the filesystem reports. Reading one record by
+   identifier refuses an oversized document as `input.cap.record_size`, the
+   cap that bounds it.
 5. A reference that names no record or object is the additive
    `record.not_found`, whose `details` carry the kind that was not found and
    how it was referenced, never the value the user supplied. An identifier

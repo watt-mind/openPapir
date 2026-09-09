@@ -38,11 +38,17 @@ matches the observable difference. See the Documentation section of
   code: `title` 200 bytes, `notes` 4096 bytes, `description` 1024 bytes, and
   an artefact `role` 64 bytes. `capabilities` now reports `archive.init`,
   `import`, `case.create`, `case.list`, `case.show`, and `submission.add`.
-- New error codes `record.not_found`, for a case identifier or artefact digest
-  that names nothing in the archive, and `record.malformed`, for a stored
-  record document that cannot be read as a valid record. Both are `record`
-  refusals that exit `4` and report neither the reference the user supplied
-  nor the document's path or content.
+- New error code `record.not_found`, for a case identifier or artefact digest
+  that names nothing in the archive. It is a `record` refusal that exits `4`
+  and never echoes the reference the user supplied.
+- `record.malformed`, published until now as reserved, is implemented and its
+  condition decided: a record document a command must read that is not valid
+  JSON, is missing a required field, claims an unknown record kind, does not
+  name the file it lives in, is not a regular file, or is larger than the
+  record cap. Its details carry `record_kind` and `path_count`; the
+  `archive_path` key the reserved entry listed is deliberately not emitted,
+  because it would name an identifier the caller never supplied and the count
+  answers the only useful question.
 
 - `openpapir archive init <root>` creates a local archive in an existing,
   empty directory: the `papir-archive.json` marker is written first, then an
