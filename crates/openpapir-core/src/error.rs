@@ -256,6 +256,19 @@ impl Details {
         self.insert(key, DetailValue::List(values))
     }
 
+    /// The value of a boolean detail, when one is held under `key`.
+    ///
+    /// A caller that merges two diagnostics of the same code needs to read
+    /// the flag that tells them apart, so that it keeps the one reporting the
+    /// weaker guarantee rather than whichever arrived first.
+    #[must_use]
+    pub fn flag_value(&self, key: &str) -> Option<bool> {
+        match self.0.get(key) {
+            Some(DetailValue::Bool(value)) => Some(*value),
+            _ => None,
+        }
+    }
+
     /// The number of keys currently held.
     #[must_use]
     pub fn len(&self) -> usize {

@@ -84,7 +84,8 @@ matches the observable difference. See the Documentation section of
   the platform defers an unlink, carrying the additive `read_only_restored`
   flag: where the platform needs a read-only attribute cleared before an
   unlink, it is put back when the unlink still fails, so a surviving object
-  keeps the access it had.
+  keeps the access it had. The warning is reported once however many objects
+  deferred, and carries the worst outcome any of them saw.
 - `delete.records_retained` and `delete.record_entangled` are new error codes
   in the `delete` bucket. A record document the filesystem refuses to unlink
   stops the object pass entirely rather than purging around the record that

@@ -1136,7 +1136,10 @@ follows, and no other reserved code became reachable:
     what it could not remove. Its `details` also carry
     `read_only_restored`: where the platform needs the read-only attribute
     cleared before an unlink, it is put back when the unlink still fails, and
-    the flag says whether putting it back succeeded.
+    the flag says whether putting it back succeeded. A repeated warning is
+    reported once and carries the worst outcome any object saw, rather than
+    the first, so one object left writable is never hidden by another that
+    was restored.
 12. A record document the filesystem refuses to unlink is the additive
     `delete.records_retained`, a `delete` refusal that exits `4` and is never
     retryable. Its `details` carry `retained_count` and nothing else. It
@@ -1207,7 +1210,7 @@ changes the exit code.
 | `platform.no_directory_fsync` | The directory entry a publish created may not be durable, although the file content was flushed. Emitted where the platform has no directory flush, and also where the flush was attempted and failed, with `stage`. |
 | `platform.owner_only_via_acl` | Owner-only access is an access-control list rather than a permission bit, so it depends on the filesystem. Emitted on Windows. |
 | `platform.no_follow_after_open` | The no-follow flag opens the link itself rather than failing, so the refusal comes from the handle openPapir opened, and the reparse tag is not distinguished. Emitted on Windows, once per archive opened. |
-| `platform.replace_while_open` | A purge could not unlink an object now because another process holds it open, so the removal is deferred to the user closing it. Emitted by `case delete` on platforms that defer an unlink, with `stage`. The object is counted as `unremovable` and the command still reports what it did remove. |
+| `platform.replace_while_open` | A purge could not unlink an object now because another process holds it open, so the removal is deferred to the user closing it. Emitted by `case delete` on platforms that defer an unlink, with `stage` and `read_only_restored`. The object is counted as `unremovable` and the command still reports what it did remove. Reported once however many objects deferred, carrying the worst outcome any of them saw. |
 
 On Windows a no-follow open carries `FILE_FLAG_OPEN_REPARSE_POINT`, so the
 reparse point is opened and never its target, and the handle is then refused

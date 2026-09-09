@@ -526,7 +526,11 @@ storage medium and no message may claim that it does.
   before a file can be unlinked, it is put back when the unlink still fails,
   so a surviving object keeps the access it had; the flag says whether the
   restore succeeded, because a failure to restore it is a weakening the
-  caller must be told about.
+  caller must be told about. One purge may defer several objects, and the
+  code is still reported once: the entry carries the worst outcome any of
+  them saw, so `read_only_restored` is `false` whenever a single object was
+  left writable, whichever object it was and in whatever order it was
+  reached.
 - **`platform.owner_only_via_acl`**: platform. Used as a **warning**, never
   as an error; see below.
 

@@ -147,14 +147,29 @@ fn unlink_records<R: Record>(root: &Path, ids: &[String]) -> Unlinked {
     unlinked
 }
 
-/// Report a degradation once, however many paths saw it.
+/// The flag saying whether a cleared read-only attribute was put back.
+pub const READ_ONLY_RESTORED: &str = "read_only_restored";
+
+/// Report a degradation once, keeping the worst outcome any path saw.
 ///
 /// A warning here names a stage rather than a path, so a second copy of the
 /// same code would tell the caller nothing and would grow the array with the
-/// size of the archive.
+/// size of the archive. Two warnings of one code are not always equal,
+/// though: one may say a guarantee was restored and the next that it was not.
+/// Collapsing them by code alone would let the order of the objects decide
+/// what the caller is told, and would hide the object whose read-only
+/// attribute is still cleared. The kept warning is therefore replaced by an
+/// incoming one that reports the weaker outcome, so the array carries the
+/// worst thing that happened rather than the first.
 fn note(warnings: &mut Vec<Warning>, warning: Warning) {
-    if !warnings.iter().any(|seen| seen.code == warning.code) {
+    let Some(seen) = warnings.iter_mut().find(|seen| seen.code == warning.code) else {
         warnings.push(warning);
+        return;
+    };
+    let worse = warning.details.flag_value(READ_ONLY_RESTORED) == Some(false)
+        && seen.details.flag_value(READ_ONLY_RESTORED) != Some(false);
+    if worse {
+        *seen = warning;
     }
 }
 
@@ -255,7 +270,7 @@ fn replace_while_open(restored: bool) -> Warning {
         "A file could not be removed now because another process holds it open.",
         Details::new()
             .text("stage", "purge")
-            .flag("read_only_restored", restored),
+            .flag(READ_ONLY_RESTORED, restored),
     )
     .retryable()
 }
@@ -346,6 +361,60 @@ mod tests {
         );
         assert!(!directory.join(format!("{present}.json")).exists());
         assert!(directory.join("keep.json").exists(), "nothing else goes");
+    }
+
+    /// The merge rule is platform-independent, so the warnings are built
+    /// here rather than produced by an unlink: only Windows defers one, and
+    /// the rule that decides which of two survives has to hold everywhere.
+    #[test]
+    fn a_repeated_warning_keeps_the_worst_outcome_whatever_the_order() {
+        let deferred = |restored: bool| {
+            Diagnostic::new(
+                codes::PLATFORM_REPLACE_WHILE_OPEN,
+                "A file could not be removed now because another process holds it open.",
+                Details::new()
+                    .text("stage", "purge")
+                    .flag(READ_ONLY_RESTORED, restored),
+            )
+        };
+
+        for order in [[true, false], [false, true]] {
+            let mut warnings = Vec::new();
+            for restored in order {
+                note(&mut warnings, deferred(restored));
+            }
+            assert_eq!(warnings.len(), 1, "one code is reported once");
+            assert_eq!(
+                warnings[0].details.flag_value(READ_ONLY_RESTORED),
+                Some(false),
+                "an object left writable is reported whichever object saw it first"
+            );
+        }
+
+        let mut warnings = Vec::new();
+        note(&mut warnings, deferred(true));
+        note(&mut warnings, deferred(true));
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(
+            warnings[0].details.flag_value(READ_ONLY_RESTORED),
+            Some(true),
+            "nothing is worsened by repetition alone"
+        );
+
+        let mut warnings = Vec::new();
+        note(&mut warnings, deferred(false));
+        note(&mut warnings, paths::no_directory_fsync_warning("purge"));
+        assert_eq!(warnings.len(), 2, "a different code is its own entry");
+        assert_eq!(
+            warnings[0].details.flag_value(READ_ONLY_RESTORED),
+            Some(false),
+            "a flagless warning of another code never displaces one"
+        );
+        assert_eq!(
+            warnings[1].details.flag_value(READ_ONLY_RESTORED),
+            None,
+            "a warning with no such flag reads as none"
+        );
     }
 
     #[test]
