@@ -1010,11 +1010,11 @@ case had a candidate the purge would otherwise have removed. `malformed_count`
 is how many such references the scan read anywhere in the archive.
 `withheld_count` is how many candidate objects of this deletion they held
 back, which is the number the message's `for this case` describes. They count
-different things, so either may be the larger: one such reference holds back
-every candidate, and references on records of another case hold back none of
-this case's. Both are above zero wherever the warning is emitted at all, and
-neither is derived from the other. The scan reads the
-whole archive, so one hand-edited document anywhere would otherwise attach the
+different things, so either may be the larger: one such reference, wherever it
+sits, already holds back every candidate of this deletion, and several may
+hold back a single one. Both are above zero wherever the warning is emitted at
+all, and neither is derived from the other. The scan reads the whole archive,
+so one hand-edited document anywhere would otherwise attach the
 warning to every later deletion, including ones with no candidate and ones
 that asked for no purge, and describe the archive rather than the command the
 user ran. The warning's text says `for this case` for the same reason.
