@@ -538,14 +538,14 @@ fn a_refused_record_unlink_stops_the_purge_before_it_touches_an_object() {
     assert_eq!(envelope["error"]["code"], "delete.records_retained");
     assert_eq!(envelope["error"]["details"]["bucket"], "delete");
     assert_eq!(
-        envelope["error"]["details"]["retained_count"], 3,
-        "two submissions and the case it holds are all still there"
+        envelope["error"]["details"]["retained_count"], 4,
+        "two submissions, the case, and the import event the purge would have taken"
     );
     assert_private(&envelope);
 
     let data = &envelope["data"];
     assert_eq!(data["objects_removed"], 0, "no object may be touched");
-    assert_eq!(data["records_retained"], 3);
+    assert_eq!(data["records_retained"], 4);
     assert_eq!(data["records_removed_total"], 0);
     assert_eq!(
         retained(data),
@@ -657,8 +657,8 @@ fn an_interrupted_record_pass_unlinks_nothing_so_the_retry_purges_everything() {
     assert_eq!(envelope["ok"], false);
     assert_eq!(envelope["error"]["code"], "delete.records_retained");
     assert_eq!(
-        envelope["error"]["details"]["retained_count"], 4,
-        "the association, the receipt, the submission, and the case"
+        envelope["error"]["details"]["retained_count"], 6,
+        "the association, the receipt, the submission, the case, and both import events"
     );
     assert_private(&envelope);
 
@@ -667,7 +667,7 @@ fn an_interrupted_record_pass_unlinks_nothing_so_the_retry_purges_everything() {
         data["records_removed_total"], 0,
         "the refusal comes before the first unlink"
     );
-    assert_eq!(data["records_retained"], 4);
+    assert_eq!(data["records_retained"], 6);
     assert_eq!(data["objects_removed"], 0);
     assert_eq!(
         removed(data),
@@ -822,6 +822,87 @@ fn deleting_one_case_leaves_every_other_case_exactly_as_it_was() {
     assert_eq!(listed["cases"][0]["id"], kept);
     assert!(fixture.object(&digest).is_file());
     assert!(fixture.check().status.success());
+}
+
+/// A stored reference that is not a digest cannot be written through the
+/// CLI, which validates one on every write, so the record is hand-edited
+/// here. The rule it exercises is what a deletion does when it finds one on
+/// a record it keeps: the record still asserts that it references an
+/// artefact, the archive cannot resolve which, so no object may go.
+#[test]
+fn a_surviving_record_whose_reference_is_not_a_digest_stops_the_purge() {
+    let fixture = Fixture::new();
+    let own = fixture.import("own.bin", FIRST);
+    let case_id = fixture.case("A local matter");
+    fixture.submission(&case_id, &own);
+    let other = fixture.import("other.bin", SECOND);
+    let receipt = fixture.receipt(&other);
+    rewrite_reference(&fixture, &receipt, "sha256:not-a-digest");
+
+    let output = fixture.delete(&case_id, true);
+    assert!(output.status.success(), "the records still go");
+    let envelope = stdout_json(&output);
+    assert_eq!(envelope["ok"], true);
+    assert_private(&envelope);
+
+    let data = &envelope["data"];
+    assert_eq!(data["purge"], true);
+    assert_eq!(data["objects_removed"], 0, "no object was purged");
+    assert_eq!(
+        retained(data),
+        vec![
+            ("purge_not_requested".to_owned(), 0),
+            ("records_retained".to_owned(), 0),
+            ("referenced_elsewhere".to_owned(), 1),
+            ("unremovable".to_owned(), 0),
+        ],
+        "the candidate is retained as a reference to something unknown"
+    );
+    assert_eq!(
+        data["records_removed_total"], 2,
+        "the case and its submission"
+    );
+
+    let warnings = envelope["warnings"].as_array().expect("a warnings array");
+    assert_eq!(warnings.len(), 1);
+    assert_eq!(warnings[0]["code"], "record.malformed");
+    assert_eq!(warnings[0]["details"]["stage"], "delete");
+    assert_eq!(warnings[0]["details"]["malformed_count"], 1);
+
+    assert!(fixture.object(&own).is_file(), "the bytes are still here");
+    assert!(fixture.object(&other).is_file());
+    let imports = fs::read_dir(fixture.root.join("records/imports"))
+        .expect("the import directory")
+        .count();
+    assert_eq!(
+        imports, 2,
+        "no import event went with an object that stayed"
+    );
+}
+
+/// Replace one stored receipt's artefact reference, keeping the document's
+/// own permissions: the archive is owner-only and the test must not widen it.
+fn rewrite_reference(fixture: &Fixture, receipt_id: &str, digest: &str) {
+    use std::io::Write as _;
+
+    let path = fixture
+        .root
+        .join("records/receipts")
+        .join(format!("{receipt_id}.json"));
+    let text = fs::read_to_string(&path).expect("read the stored receipt");
+    let mut stored: Value = serde_json::from_str(&text).expect("a receipt document");
+    stored["artefact_digest"] = Value::String(digest.to_owned());
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .open(&path)
+        .expect("open the stored receipt for rewriting");
+    writeln!(
+        file,
+        "{}",
+        serde_json::to_string(&stored).expect("serialise")
+    )
+    .expect("rewrite the stored receipt");
 }
 
 /// Write an owner-only file, so that holding the lock is not itself a
