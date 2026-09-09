@@ -375,6 +375,33 @@ envelope.
 
 ### Fixed
 
+- `case delete` no longer unlinks part of its records before refusing. The
+  record pass is now all or nothing per case: before the first unlink, every
+  record directory the deletion would remove an entry from is opened without
+  following a link and its mode checked for owner write and search, and every
+  planned document is checked to be either already absent or a regular file.
+  Nothing destructive is attempted by the probe. A deletion that cannot run
+  in full is refused with `delete.records_retained` while the archive is
+  exactly as it was, so `records_removed_total` is `0` and re-running the
+  command after clearing the cause completes the whole deletion. Previously a
+  record directory made unwritable part way through the order, such as
+  `records/submissions`, let the association and receipt records go before
+  the refusal; a re-run then reported success while an object whose last
+  referencing record had already been removed stayed in the store with its
+  import event, which `archive check` reads as clean, and nothing told the
+  user. The probe reads permission bits before the unlink rather than
+  performing it, so a filesystem that changes in between, or that refuses
+  through an access-control list or an immutable flag, still stops the pass
+  part way; that limit is documented in `docs/architecture.md` and the
+  stop-at-first-refusal rule still holds behind it.
+- `platform.replace_while_open` from `case delete` now carries
+  `read_only_restored` only where the read-only attribute was actually
+  cleared. Where reading the permissions or clearing the attribute failed,
+  nothing was cleared and there was nothing to put back, and the flag is now
+  absent rather than reported as `true`, which claimed a restore that never
+  happened. Absence says the attribute was never cleared and nothing was
+  widened; `false` still says an object was left writable, and a warning
+  carrying no flag never displaces one that reports `false`.
 - A record document is now opened once and judged on that opened handle. The
   reader opens it with the platform's no-follow flag and takes both the file
   kind and the length from the handle it will read from, instead of checking

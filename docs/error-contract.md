@@ -500,6 +500,18 @@ would name belongs to an archive the refusal is not about.
   record kind that would narrow it to one document, no identifier, no path.
   Like `delete.objects_retained` it keeps the deletion's counts in `data`, and
   it is reported ahead of it, because it is the reason nothing was purged.
+  The record pass is all or nothing per case: every directory it would remove
+  an entry from, and every document it would unlink, is probed before the
+  first unlink, so this refusal normally arrives with `records_removed_total`
+  at `0` and the archive exactly as it was. A deletion that removed part of
+  its records and then stopped could not be finished by re-running it, and an
+  object whose last referencing record went in that pass would silently stop
+  being a purge candidate; refusing first is the only outcome the user can
+  undo. The probe is not a promise: it reads permission bits before the
+  unlink rather than performing it, so a filesystem that changes in between,
+  or refuses through an access-control list or an immutable flag, still stops
+  the pass part way and reports the same code with a non-zero
+  `records_removed_total` ([architecture](architecture.md)).
 - **`delete.record_entangled`**: archive, not retryable. **Added additively by
   `case delete`.** A record that has to survive the deletion names a record
   the deletion would remove. Only an association reaches it today, by naming
@@ -548,11 +560,18 @@ storage medium and no message may claim that it does.
   before a file can be unlinked, it is put back when the unlink still fails,
   so a surviving object keeps the access it had; the flag says whether the
   restore succeeded, because a failure to restore it is a weakening the
-  caller must be told about. One purge may defer several objects, and the
-  code is still reported once: the entry carries the worst outcome any of
-  them saw, so `read_only_restored` is `false` whenever a single object was
-  left writable, whichever object it was and in whatever order it was
-  reached.
+  caller must be told about. The flag is emitted **only on the path that
+  actually cleared the attribute**. Where reading the permissions or clearing
+  the attribute failed, nothing was cleared, the file is exactly as it was,
+  and the flag is **absent** rather than `true`: absence says the attribute
+  was never cleared and nothing was widened, which is a different statement
+  from a restore that succeeded, and a caller must not read one as the other.
+  One purge may defer several objects, and the code is still reported once:
+  the entry carries the worst outcome any of them saw, so
+  `read_only_restored` is `false` whenever a single object was left writable,
+  whichever object it was and in whatever order it was reached, and a
+  deferral that carried no flag at all never displaces one that reports
+  `false`.
 - **`platform.owner_only_via_acl`**: platform. Used as a **warning**, never
   as an error; see below.
 
