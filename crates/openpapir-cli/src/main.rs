@@ -31,7 +31,8 @@
 //! - `openpapir association create|list ... [--json]`, what the user asserts
 //!   about whether a receipt relates to a submission.
 //! - `openpapir skill`, the embedded agent skill document, written to stdout
-//!   byte for byte. It takes no file, no `--json`, and always exits `0`.
+//!   byte for byte. It takes no file and no `--json`. A reader that closed the
+//!   pipe still exits `0`; any other failing write exits `4`.
 //!
 //! There is no automatic matching, no derived metadata, no receipt parsing,
 //! no import from an export, no editing of a stored record, no deletion of a

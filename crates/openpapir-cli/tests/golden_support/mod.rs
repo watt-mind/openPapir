@@ -11,6 +11,8 @@ use std::process::{Command, Output};
 
 use tempfile::TempDir;
 
+pub mod compare;
+
 /// The three synthetic payloads every archive is built from.
 const ALPHA: &[u8] = b"synthetic submission alpha\n";
 const BETA: &[u8] = b"synthetic receipt beta\n";

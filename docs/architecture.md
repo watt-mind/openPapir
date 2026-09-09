@@ -1144,9 +1144,20 @@ orphan behind.
 `openpapir skill` writes the agent skill document the binary carries to
 stdout, byte for byte, and nothing else. It takes no file, no `--archive`, and
 no `--json`: the document is the whole output, so there is no envelope to
-render and no result to report in two forms. It always exits `0`. A stdout a
-pager or `head` closed is not a failure of the command and does not change
-that.
+render and no result to report in two forms.
+
+A stdout a pager or `head` closed is not a failure of the command: only
+`BrokenPipe` is swallowed, and the run still exits `0`, exactly as a reader
+that stopped reading intended. Every other write or flush failure is reported.
+The documented install path is a redirection, `openpapir skill > SKILL.md`, so
+a destination that cannot take the bytes, a full disk above all, would
+otherwise leave a truncated document behind and still exit `0`. It exits `4`
+instead, the `write` bucket's code, with one line on stderr saying the
+document could not be written. That line names no path and repeats no
+argument, because the destination is the caller's own redirection and
+openPapir never echoes one back
+([privacy of output](#privacy-of-output)). There is no envelope in either
+case: `skill` is outside it by construction.
 
 The document is embedded with `include_str!` from
 `crates/openpapir-cli/skills/openpapir/SKILL.md`, so the bytes the binary
