@@ -720,16 +720,54 @@ symmetric: until the user resolves the association themselves, neither case
 can be deleted. It is the only one of the three possible outcomes that loses
 nothing and can be undone.
 
-The record pass stops at the first unlink the filesystem refuses, and takes
-the object pass with it. The kinds go in the order of the references between
-them, associations, receipts, submissions, and then the case, so each kind
-goes only once everything that could name it has gone; carrying on past a
-refusal would remove a record something still there names, and purging
-afterwards would remove bytes a surviving record still names. Both are
-dangling references, so neither is attempted. The deletion keeps what it had
-already removed, touches no object at all, and reports
-`delete.records_retained` with the number of documents it planned to remove
-and did not, the ones it never reached included.
+The record pass is **all or nothing per case**. Before a single document is
+unlinked, every record directory the deletion would remove an entry from is
+probed: it is opened without following a link, and the mode of the opened
+handle must allow the owner to write and to search it. Each planned document
+is then looked at in turn and must be either already absent or a regular
+file. The probe attempts nothing destructive: nothing is created, moved, or
+removed, and no permission is changed. If any part of it says a document will
+not go, the deletion is refused with `delete.records_retained` before the
+first unlink, and the archive is exactly as it was. The directories probed
+are the ones the plan touches: associations, receipts, submissions, the case,
+and, when a purge would remove them, the import events naming the objects
+going with it.
+
+The rule exists because a record pass that stops part way through cannot be
+resumed. The documents it did remove are gone, so the next run plans a
+smaller deletion, and an object whose last referencing record went in the
+interrupted pass is no longer a purge candidate at all: it stays in the store
+with the import event that describes it, `archive check` calls the archive
+clean, and nothing tells the user that a purge they asked for did not happen.
+Refusing before anything goes is the only outcome the user can undo by
+clearing the cause and running the same command again.
+
+The probe is a check that precedes a use, so the window between them is a
+time-of-check-to-time-of-use gap, and openPapir says so rather than claiming
+more than it can. A mode changed, a filesystem remounted read only, or a
+quota reached after the probe and before the unlink still refuses. The probe
+reads permission bits rather than asking the kernel whether this process may
+write, so a refusal expressed as an access-control list, an immutable flag,
+or a mandatory lock is not seen by it either; on Windows, where the
+permission is an access-control list rather than a mode, the probe confirms
+only that each directory is a directory openPapir created rather than a
+reparse point. The writer lock is held across both the probe and the pass, so
+no other openPapir writer moves in between; nothing outside openPapir is
+under its control. The probe narrows the window that stranded a purge
+candidate. It does not close it.
+
+What still holds when the probe is wrong is the older rule: the record pass
+stops at the first unlink the filesystem refuses, and takes the object pass
+with it. The kinds go in the order of the references between them,
+associations, receipts, submissions, and then the case, so each kind goes only
+once everything that could name it has gone; carrying on past a refusal would
+remove a record something still there names, and purging afterwards would
+remove bytes a surviving record still names. Both are dangling references, so
+neither is attempted. The deletion keeps what it had already removed, touches
+no object at all, and reports `delete.records_retained` with the number of
+documents it planned to remove and did not, the ones it never reached
+included. The count is the same after a probe refusal, where that is every
+document the deletion planned to remove.
 
 Every removal is the unlink of one file openPapir created: a record document
 under `records/`, or an object at its own fan-out path under
@@ -782,7 +820,7 @@ a count rather than testing for a key. The three reasons are fixed:
 | --- | --- |
 | `purge_not_requested` | The object would have become unreferenced, and `--purge` was not given. |
 | `referenced_elsewhere` | A submission or receipt that remains still references the object. |
-| `records_retained` | A record document would not go, so the object pass never ran and none of these objects was attempted. |
+| `records_retained` | A record document would not go, so the object pass never ran and none of these objects was attempted. The record pass is all or nothing, so this normally means nothing at all was unlinked. |
 | `unremovable` | `--purge` was given and the unlink did not succeed. |
 
 A `records_retained` or `unremovable` count above zero makes `case.delete` the
@@ -1166,18 +1204,27 @@ follows, and no other reserved code became reachable:
     `platform.replace_while_open`, which the contract describes as an error,
     is emitted by `case delete` as a warning, because a deferred unlink stops
     that one object rather than the operation, which completes and reports
-    what it could not remove. Its `details` also carry
-    `read_only_restored`: where the platform needs the read-only attribute
-    cleared before an unlink, it is put back when the unlink still fails, and
-    the flag says whether putting it back succeeded. A repeated warning is
-    reported once and carries the worst outcome any object saw, rather than
-    the first, so one object left writable is never hidden by another that
-    was restored.
+    what it could not remove. Its `details` carry the **additive**
+    `read_only_restored` only where the read-only attribute was actually
+    cleared: where the platform needs it cleared before an unlink, it is put
+    back when the unlink still fails, and the flag says whether putting it
+    back succeeded. Where reading the permissions or clearing the attribute
+    failed, the file is exactly as it was and there is nothing to put back,
+    so the flag is **absent** rather than `true`. A caller reads its absence
+    as "the attribute was never cleared, and nothing was widened", which is a
+    different statement from `true` and must not be confused with it. A
+    repeated warning is reported once and carries the worst outcome any
+    object saw, rather than the first, so one object left writable is never
+    hidden by another that was restored, and a warning carrying no flag at
+    all never displaces one that reports `false`.
 12. A record document the filesystem refuses to unlink is the additive
     `delete.records_retained`, a `delete` refusal that exits `4` and is never
     retryable. Its `details` carry `retained_count` and nothing else. It
     stops the object pass entirely rather than purging around the record that
-    stayed, because a record that is still there still names its artefacts.
+    stayed, because a record that is still there still names its artefacts,
+    and the record pass is probed first so that the refusal normally comes
+    before any document is unlinked at all; see [`case delete`](#case-delete)
+    for the probe and for the time-of-check-to-time-of-use gap it leaves.
 13. A record that must survive a deletion and names a record the deletion
     would remove is the additive `delete.record_entangled`, a `delete`
     refusal that exits `4` and is never retryable, raised in the scan before
@@ -1243,7 +1290,7 @@ changes the exit code.
 | `platform.no_directory_fsync` | The directory entry a publish created may not be durable, although the file content was flushed. Emitted where the platform has no directory flush, and also where the flush was attempted and failed, with `stage`. |
 | `platform.owner_only_via_acl` | Owner-only access is an access-control list rather than a permission bit, so it depends on the filesystem. Emitted on Windows. |
 | `platform.no_follow_after_open` | The no-follow flag opens the link itself rather than failing, so the refusal comes from the handle openPapir opened, and the reparse tag is not distinguished. Emitted on Windows, once per archive opened. |
-| `platform.replace_while_open` | A purge could not unlink an object now because another process holds it open, so the removal is deferred to the user closing it. Emitted by `case delete` on platforms that defer an unlink, with `stage` and `read_only_restored`. The object is counted as `unremovable` and the command still reports what it did remove. Reported once however many objects deferred, carrying the worst outcome any of them saw. |
+| `platform.replace_while_open` | A purge could not unlink an object now because another process holds it open, so the removal is deferred to the user closing it. Emitted by `case delete` on platforms that defer an unlink, with `stage`, and with `read_only_restored` only where the read-only attribute was actually cleared; its absence says it never was. The object is counted as `unremovable` and the command still reports what it did remove. Reported once however many objects deferred, carrying the worst outcome any of them saw. |
 
 On Windows a no-follow open carries `FILE_FLAG_OPEN_REPARSE_POINT`, so the
 reparse point is opened and never its target, and the handle is then refused
