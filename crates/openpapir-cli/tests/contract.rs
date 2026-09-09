@@ -24,7 +24,9 @@ fn capabilities_are_honest_and_machine_readable() {
                 "project": "openPapir", "stage": "scaffold",
                 "operations": [
                     "archive.init", "import",
-                    "case.create", "case.list", "case.show", "submission.add"
+                    "case.create", "case.list", "case.show", "submission.add",
+                    "receipt.add", "receipt.list",
+                    "association.create", "association.list"
                 ]
             },
             "verified": false
@@ -38,9 +40,10 @@ fn human_status_names_only_what_is_implemented() {
     assert!(output.status.success());
     assert!(output.stderr.is_empty());
     let text = String::from_utf8(output.stdout).unwrap();
-    assert!(
-        text.contains("archive.init, import, case.create, case.list, case.show, submission.add")
-    );
+    assert!(text.contains(concat!(
+        "archive.init, import, case.create, case.list, case.show, submission.add, ",
+        "receipt.add, receipt.list, association.create, association.list"
+    )));
     assert!(text.contains("Nothing is verified"));
 }
 
