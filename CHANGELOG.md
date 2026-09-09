@@ -33,7 +33,7 @@ envelope.
   `include_str!`. The document describes when to reach for openPapir, every
   implemented command with its exact invocation and the `data` fields to read,
   the envelope, the exit codes by bucket, the privacy rule, the input caps,
-  and the separation of imported, matched, and authenticity-verified.
+  and the separation of imported, matched, and authenticity-verified (#22).
 - `capabilities` now lists `skill` as the fifteenth operation. It is the one
   operation that touches no archive, and it is reported there so that a
   machine caller learns of it from the same list as every other operation.
@@ -49,7 +49,6 @@ envelope.
 - README.md gains "Agents and automation" and "People", which show the same
   command in its two modes with captured output and link the agent skill and
   the golden output contract.
-
 - `openpapir case export --archive <root> --case <case-id> --to <dir>` copies
   one case out of the archive as plain files. Every object the case's
   submissions and receipts reference is copied byte for byte to

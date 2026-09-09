@@ -1,7 +1,7 @@
 # Contributing
 
 openPapir is at the scaffold stage: the local archive exists as far as the
-fourteen operations `capabilities` reports, and everything else is a plan.
+operations `capabilities` reports, and everything else is a plan.
 Start with the [specification index](docs/specification.md) for what is
 implemented and the [roadmap](docs/roadmap.md) for what comes next, and agree
 a bounded issue before implementing a new workflow. Describe the problem,

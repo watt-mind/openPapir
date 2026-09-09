@@ -1,7 +1,7 @@
 # Roadmap
 
 The project is at the scaffold stage. The local archive is implemented as far
-as the fourteen operations the tool reports, and every milestone below still
+as the operations the tool reports, and every milestone below still
 has work left in it. The [specification index](specification.md) records what
 is implemented, what is decided but not built, and what is blocked, and
 [architecture and CLI contract](architecture.md) is authoritative for

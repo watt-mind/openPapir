@@ -52,7 +52,7 @@ agent skill document it carries. These invocations exist and nothing else:
 | --- | --- |
 | `openpapir --help` | Usage text from the argument parser. |
 | `openpapir --version` | The crate version. |
-| `openpapir capabilities [--json]` | The project, its stage, and the fourteen implemented operations. |
+| `openpapir capabilities [--json]` | The project, its stage, and the fifteen implemented operations. |
 | `openpapir archive init <root> [--json]` | Creates an archive in an existing, empty directory: the marker first, then the owner-only layout. |
 | `openpapir import --archive <root> <file>... [--json]` | Stores each file's original bytes in the content-addressed artefact store and records one import event per input. |
 | `openpapir case create --archive <root> --title <t> [--notes <n>] [--json]` | Records one case, the user's own folder of related correspondence. |
@@ -117,7 +117,8 @@ it. Nothing that is still only decided changes the capabilities output.
 | [local archive layout and storage design](archive-layout.md) | The storage technology, the on-disk layout, the record shapes, and the deletion, permission, and atomic-write semantics of the local archive. | Derived-metadata and verification records, the rebuildable `cache/` index, import from an export, schema migration, and encrypted backup at rest. |
 | [import and association error, JSON, and exit-code contract](error-contract.md) | How a command extends the JSON envelope with an error object and warnings, the stable error-code catalogue, and the exit-code mapping. | The reserved codes `lock.stale`, `path.traversal`, and `write.incomplete`, and every automatic or derived evidence shape. |
 
-The fourteen operations listed above are the parts of the last two documents
+The archive, record, error, integrity, export, permission-repair, and
+deletion operations listed above are the parts of the last two documents
 that are now implemented. A record shape or a code named there and not in
 [architecture and CLI contract](architecture.md) is a proposal, not a promised
 schema. It becomes a contract only when an implementing pull request adds it

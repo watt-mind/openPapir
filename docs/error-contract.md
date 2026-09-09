@@ -3,11 +3,13 @@
 ## Status and scope
 
 This document is a **specification for review**, and much of it now has code
-behind it: all fourteen implemented operations, which are archive creation,
-artefact import, the case, submission, receipt, and user-asserted association
-records, the read-only whole-archive integrity check, the export of one case,
-the permission repair, and the deletion of a case with its explicit purge,
-emit the envelope below and the codes [architecture](architecture.md) lists.
+behind it: every implemented operation that touches an archive, which is
+archive creation, artefact import, the case, submission, receipt, and
+user-asserted association records, the read-only whole-archive integrity
+check, the export of one case, the permission repair, and the deletion of a
+case with its explicit purge, emits the envelope below and the codes
+[architecture](architecture.md) lists. The one operation that does not is
+`skill`, which writes a document rather than an envelope.
 Architecture is the canonical description of implemented behaviour, and where
 the two disagree it is authoritative and this page is a defect. Every other
 command name, flag, field name, error code, and exit code below is
