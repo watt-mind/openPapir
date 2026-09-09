@@ -112,14 +112,8 @@ impl Archive {
     /// `archive.schema_newer`, `archive.schema_older`,
     /// `archive.permissions_wide`, or `archive.multiple_filesystems`.
     pub fn open(root: &Path) -> std::result::Result<Self, Diagnostic> {
-        check_root_shape(root)?;
         let mut warnings = Vec::new();
-        if !cfg!(unix) {
-            warnings.push(paths::owner_only_via_acl_warning());
-        }
-        let marker = read_marker(root)?;
-        check_permissions(root)?;
-        check_schema_version(marker.archive_schema_version)?;
+        let marker = Self::inspect(root, &mut warnings)?;
         ensure_layout(root, &mut warnings)?;
         check_single_filesystem(root)?;
         Ok(Self {
@@ -127,6 +121,52 @@ impl Archive {
             marker,
             warnings,
         })
+    }
+
+    /// Open an existing archive without changing anything inside it.
+    ///
+    /// The difference from [`Archive::open`] is deliberate and load-bearing
+    /// for a read-only command: no layout directory is created, and no
+    /// directory entry is flushed, so opening an archive to read it never
+    /// writes to it and never fails because the root is not writable. The
+    /// symbolic-link refusal on every layout directory is kept, because a
+    /// reader that walked a linked `records/<kind>` would read outside the
+    /// archive.
+    ///
+    /// A layout directory that is absent is left absent. Every reader here
+    /// treats a missing directory as an empty one, so a read-only command
+    /// reports what the archive holds rather than repairing its shape.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same refusals as [`Archive::open`], except those of
+    /// creating a directory, which it never does.
+    pub fn open_read_only(root: &Path) -> std::result::Result<Self, Diagnostic> {
+        let mut warnings = Vec::new();
+        let marker = Self::inspect(root, &mut warnings)?;
+        check_layout_links(root)?;
+        check_single_filesystem(root)?;
+        Ok(Self {
+            root: root.to_path_buf(),
+            marker,
+            warnings,
+        })
+    }
+
+    /// The checks both open paths run before they differ: the root's shape,
+    /// the marker, the permissions, and the schema version.
+    fn inspect(
+        root: &Path,
+        warnings: &mut Vec<Warning>,
+    ) -> std::result::Result<Marker, Diagnostic> {
+        check_root_shape(root)?;
+        if !cfg!(unix) {
+            warnings.push(paths::owner_only_via_acl_warning());
+        }
+        let marker = read_marker(root)?;
+        check_permissions(root)?;
+        check_schema_version(marker.archive_schema_version)?;
+        Ok(marker)
     }
 }
 
@@ -329,17 +369,29 @@ fn check_schema_version(version: u32) -> std::result::Result<(), Diagnostic> {
     Ok(())
 }
 
-/// Create every layout directory owner-only, refusing a symbolic link.
-fn ensure_layout(root: &Path, warnings: &mut Vec<Warning>) -> std::result::Result<(), Diagnostic> {
+/// Refuse a layout directory that is a symbolic link, creating nothing.
+///
+/// A reader joins a record directory and lists it, so a linked one would take
+/// the reader outside the archive root. The link is refused rather than
+/// followed, exactly as every other path inside the archive is.
+fn check_layout_links(root: &Path) -> std::result::Result<(), Diagnostic> {
     for relative in LAYOUT_DIRS {
-        let path = root.join(relative);
-        if paths::is_symlink(&path) {
+        if paths::is_symlink(&root.join(relative)) {
             return Err(paths::symlink_refusal(
                 Details::new()
                     .text("scope", "archive")
                     .text("archive_path", relative),
             ));
         }
+    }
+    Ok(())
+}
+
+/// Create every layout directory owner-only, refusing a symbolic link.
+fn ensure_layout(root: &Path, warnings: &mut Vec<Warning>) -> std::result::Result<(), Diagnostic> {
+    check_layout_links(root)?;
+    for relative in LAYOUT_DIRS {
+        let path = root.join(relative);
         paths::create_dir_owner_only(&path)
             .map_err(|error| paths::publish_refusal(&error, relative, "record_write"))?;
     }
@@ -394,6 +446,40 @@ mod tests {
         let opened = Archive::open(root.path()).unwrap();
         assert_eq!(opened.marker().archive_id, outcome.data.archive_id);
         assert_eq!(opened.root(), root.path());
+    }
+
+    #[test]
+    fn a_read_only_open_creates_nothing_and_still_refuses_a_link() {
+        let root = tempfile::tempdir().unwrap();
+        init(root.path()).unwrap();
+        fs::remove_dir(root.path().join(CACHE_DIR)).unwrap();
+        let opened = Archive::open_read_only(root.path()).unwrap();
+        assert_eq!(opened.root(), root.path());
+        assert!(
+            !root.path().join(CACHE_DIR).exists(),
+            "a read-only open never creates a layout directory"
+        );
+        assert!(Archive::open(root.path()).is_ok());
+        assert!(
+            root.path().join(CACHE_DIR).is_dir(),
+            "a writing open still creates it"
+        );
+
+        #[cfg(unix)]
+        {
+            let linked = root.path().join(CASES_DIR);
+            fs::remove_dir(&linked).unwrap();
+            std::os::unix::fs::symlink(root.path().join(CACHE_DIR), &linked).unwrap();
+            assert_eq!(
+                check_layout_links(root.path()).unwrap_err().code,
+                codes::PATH_SYMLINK,
+                "a reader never follows a linked record directory"
+            );
+            assert!(
+                Archive::open_read_only(root.path()).is_err(),
+                "the link is refused, whichever check reaches it first"
+            );
+        }
     }
 
     #[test]

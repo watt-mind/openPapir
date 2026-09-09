@@ -206,6 +206,11 @@ impl Report {
 /// claims, and every reference is resolved last, once both the identifiers
 /// and the stored objects are known.
 ///
+///
+/// The archive is opened read-only: no missing layout directory is created,
+/// nothing is flushed, and a root the user cannot write to is checked exactly
+/// like any other. A layout directory that is absent is read as empty.
+///
 /// # Errors
 ///
 /// Returns the refusals of opening an archive: `usage.archive_root_missing`,
@@ -215,7 +220,7 @@ impl Report {
 /// `archive.multiple_filesystems`. A held writer lock is not one of them: the
 /// check reads and never waits for a writer.
 pub fn check(root: &Path) -> Result<Report> {
-    let mut archive = Archive::open(root).map_err(Failure::new)?;
+    let mut archive = Archive::open_read_only(root).map_err(Failure::new)?;
     let warnings = archive.take_warnings();
     Ok(Outcome {
         data: run(archive.root()),
@@ -228,7 +233,7 @@ fn run(root: &Path) -> Report {
     let found = references::collect(root);
     let mut counts = Counts::default();
     let store = store::walk(root, &found, &mut counts);
-    let (dangling, first_dangling) = references::dangling(root, &found, &store.present);
+    let (dangling, first_dangling) = references::dangling(root, &found, &store);
     counts.dangling = dangling;
     counts.malformed = found.malformed.iter().sum();
     let malformed_kind = references::KINDS
