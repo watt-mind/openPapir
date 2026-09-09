@@ -1,0 +1,26 @@
+# Portable settings only; private routing and verification stay host-owned.
+{
+  "schemaVersion": "factory.repo/v1",
+  "base": "develop",
+  "deploy_branch": "master",
+  "toolchain": {
+    "rustc": ">=1.88",
+    "cargo": ">=1.88",
+    "git": ">=2.40",
+    "python3": ">=3.10",
+    "node": ">=20"
+  },
+  "merge_ci": {
+    "workflow": "CI",
+    "required_checks": [
+      "Format and lint",
+      "Documentation",
+      "Test (ubuntu-latest)",
+      "Test (macos-latest)",
+      "Test (windows-latest)",
+      "Minimum supported Rust (1.88)",
+      "Dependencies",
+      "Coverage"
+    ]
+  }
+}
