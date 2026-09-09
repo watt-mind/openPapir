@@ -13,6 +13,15 @@ use std::path::Path;
 
 use crate::error::{Details, Diagnostic, Warning, codes};
 
+/// Every no-follow rule below is a Unix or a Windows one. A target with
+/// neither has no way to open a path without following a link, and this
+/// archive has no weaker mode to fall back to, so it refuses to build rather
+/// than build something that only looks safe.
+#[cfg(not(any(unix, windows)))]
+compile_error!(
+    "openPapir supports Unix and Windows targets only: no other target has a no-follow open."
+);
+
 /// Open the reparse point itself instead of whatever it points at.
 #[cfg(windows)]
 const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
@@ -26,6 +35,25 @@ const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
 /// The attribute a directory carries.
 #[cfg(windows)]
 const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x0000_0010;
+
+/// The error a Windows no-follow open raises for the link it opened.
+///
+/// It is a type rather than a message, so [`is_no_follow_refusal`] recognises
+/// exactly the refusal this module raised and never another caller's
+/// `InvalidInput`.
+#[cfg(windows)]
+#[derive(Debug)]
+struct ReparsePointRefusal;
+
+#[cfg(windows)]
+impl std::fmt::Display for ReparsePointRefusal {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("path is a reparse point")
+    }
+}
+
+#[cfg(windows)]
+impl std::error::Error for ReparsePointRefusal {}
 
 /// Open a file for reading without following a symbolic link.
 ///
@@ -58,6 +86,13 @@ pub fn open_no_follow(path: &Path) -> io::Result<File> {
 /// # Errors
 ///
 /// Returns the underlying I/O error, exactly as [`open_no_follow`] does.
+///
+/// The handle it returns still carries the non-blocking flag, which the open
+/// does not clear, so a read from it can return `WouldBlock` where the path
+/// was not a regular file after all. The caller's obligation is therefore to
+/// check the handle's kind and read only a regular file, which is what every
+/// caller in this crate does: it is the same check that refuses a named pipe
+/// or a device planted in a record directory.
 pub fn open_no_follow_nonblocking(path: &Path) -> io::Result<File> {
     open_no_follow_inner(path, true)
 }
@@ -89,7 +124,7 @@ fn open_no_follow_inner(path: &Path, nonblocking: bool) -> io::Result<File> {
         if attributes & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
-                "path is a reparse point",
+                ReparsePointRefusal,
             ));
         }
         if attributes & FILE_ATTRIBUTE_DIRECTORY != 0 {
@@ -100,31 +135,32 @@ fn open_no_follow_inner(path: &Path, nonblocking: bool) -> io::Result<File> {
         }
         Ok(file)
     }
-    #[cfg(not(any(unix, windows)))]
-    {
-        let _ = nonblocking;
-        if is_symlink(path) {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "path is a symbolic link",
-            ));
-        }
-        OpenOptions::new().read(true).open(path)
-    }
 }
 
 /// Whether an open refused the path because it is a link rather than for any
 /// other reason, so that the caller reports `path.symlink` without a second
 /// look at the path.
+///
+/// Linux and macOS fail an `O_NOFOLLOW` open of a symbolic link with `ELOOP`.
+/// FreeBSD and DragonFly report the same refusal as `EMLINK`, which is
+/// accepted there as well; neither is a target this project builds for today.
+/// On Windows the open itself succeeds and the handle is refused, so the
+/// refusal is the sentinel this module raised and never another caller's
+/// `InvalidInput`.
 #[must_use]
 pub fn is_no_follow_refusal(error: &io::Error) -> bool {
     #[cfg(unix)]
     {
-        error.raw_os_error() == Some(libc::ELOOP)
+        let reported = error.raw_os_error();
+        reported == Some(libc::ELOOP)
+            || (cfg!(any(target_os = "freebsd", target_os = "dragonfly"))
+                && reported == Some(libc::EMLINK))
     }
     #[cfg(not(unix))]
     {
-        error.kind() == io::ErrorKind::InvalidInput
+        error
+            .get_ref()
+            .is_some_and(|inner| inner.is::<ReparsePointRefusal>())
     }
 }
 
@@ -398,11 +434,15 @@ pub fn publish_refusal(error: &io::Error, archive_path: &str, stage: &'static st
 
 /// Map an I/O error raised by the hard-link publish step into the contract.
 ///
-/// A filesystem that cannot create a hard link at all, FAT32 and exFAT among
-/// them, cannot host an archive whose publish step is a hard link. That is
-/// reported as `platform.filesystem_unsupported`, because retrying never
-/// succeeds and `write.interrupted` invites the caller to retry. Every other
-/// failure of the same call keeps the mapping of [`publish_refusal`].
+/// A filesystem that says it cannot create a hard link at all cannot host an
+/// archive whose publish step is a hard link. That is reported as
+/// `platform.filesystem_unsupported`, because retrying never succeeds and
+/// `write.interrupted` invites the caller to retry.
+///
+/// A link the system merely refused is reported as `write.interrupted`
+/// instead, naming the condition it observed rather than a cause it cannot
+/// prove; see [`is_link_refused`]. Every other failure of the same call keeps
+/// the mapping of [`publish_refusal`].
 #[must_use]
 pub fn link_refusal(error: &io::Error, archive_path: &str, stage: &'static str) -> Diagnostic {
     if is_link_unsupported(error) {
@@ -414,19 +454,29 @@ pub fn link_refusal(error: &io::Error, archive_path: &str, stage: &'static str) 
                 .text("stage", stage),
         );
     }
+    if is_link_refused(error) {
+        return Diagnostic::new(
+            codes::WRITE_INTERRUPTED,
+            "The filesystem refused to create the hard link the archive's write procedure needs.",
+            Details::new()
+                .text("capability", "hard_link")
+                .text("condition", "link_refused")
+                .text("stage", stage),
+        )
+        .retryable();
+    }
     publish_refusal(error, archive_path, stage)
 }
 
 /// Whether an I/O error says the filesystem has no hard links.
 ///
 /// The mapped codes are: any error the standard library classifies as
-/// `Unsupported`; on Unix `EPERM`, which `link(2)` documents as "the
-/// filesystem containing oldpath and newpath does not support the creation of
-/// hard links", and `EOPNOTSUPP`; on Windows `ERROR_INVALID_FUNCTION` (1) and
-/// `ERROR_NOT_SUPPORTED` (50), which a FAT32 or exFAT volume reports for
-/// `CreateHardLinkW`. `EPERM` also covers a hardened kernel refusing a link to
-/// a file the caller does not own, which cannot arise here: the source is the
-/// staging file openPapir just created and owns.
+/// `Unsupported`; on Unix `EOPNOTSUPP`; on Windows `ERROR_INVALID_FUNCTION`
+/// (1) and `ERROR_NOT_SUPPORTED` (50), which a FAT32 or exFAT volume reports
+/// for `CreateHardLinkW`. Each of them states that the operation is not
+/// supported, so no retry can succeed.
+///
+/// Unix `EPERM` is deliberately not one of them: see [`is_link_refused`].
 #[must_use]
 pub fn is_link_unsupported(error: &io::Error) -> bool {
     if error.kind() == io::ErrorKind::Unsupported {
@@ -434,11 +484,36 @@ pub fn is_link_unsupported(error: &io::Error) -> bool {
     }
     #[cfg(unix)]
     {
-        matches!(error.raw_os_error(), Some(libc::EPERM | libc::EOPNOTSUPP))
+        matches!(error.raw_os_error(), Some(libc::EOPNOTSUPP))
     }
     #[cfg(not(unix))]
     {
         matches!(error.raw_os_error(), Some(1 | 50))
+    }
+}
+
+/// Whether an I/O error is a refusal of the link whose cause is ambiguous.
+///
+/// `link(2)` returns `EPERM` for a filesystem that does not support hard
+/// links, which a FAT32 or exFAT volume mounted on Linux does, and equally
+/// for a source or destination carrying the immutable or append-only
+/// attribute, and for a kernel hardened against linking a file the caller
+/// does not own. Telling them apart needs a `statfs` or an attribute `ioctl`,
+/// neither of which is reachable without `unsafe`, which this workspace
+/// forbids. openPapir therefore reports what it observed, that the filesystem
+/// refused the link, and names the condition in `details.condition` so the
+/// operator knows to check the filesystem type and the file attributes rather
+/// than reading a cause openPapir cannot prove.
+#[must_use]
+pub fn is_link_refused(error: &io::Error) -> bool {
+    #[cfg(unix)]
+    {
+        error.raw_os_error() == Some(libc::EPERM)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = error;
+        false
     }
 }
 
@@ -509,7 +584,7 @@ mod tests {
     #[test]
     fn a_filesystem_without_hard_links_is_a_platform_refusal_not_a_retry() {
         #[cfg(unix)]
-        let unsupported = io::Error::from_raw_os_error(libc::EPERM);
+        let unsupported = io::Error::from_raw_os_error(libc::EOPNOTSUPP);
         #[cfg(not(unix))]
         let unsupported = io::Error::from_raw_os_error(50);
         assert!(is_link_unsupported(&unsupported));
@@ -542,15 +617,58 @@ mod tests {
         );
     }
 
+    /// `EPERM` is the ambiguous one: a filesystem without hard links reports
+    /// it, and so does an immutable or append-only file. The refusal states
+    /// the condition it observed rather than claiming the filesystem is
+    /// unsupported.
+    #[test]
+    #[cfg(unix)]
+    fn a_link_the_system_refused_states_the_condition_rather_than_a_cause() {
+        let refused = io::Error::from_raw_os_error(libc::EPERM);
+        assert!(
+            !is_link_unsupported(&refused),
+            "EPERM does not prove the filesystem has no hard links"
+        );
+        assert!(is_link_refused(&refused));
+        let refusal = link_refusal(&refused, "objects/sha256/ab/cd/digest", "object");
+        assert_eq!(refusal.code, codes::WRITE_INTERRUPTED);
+        assert_eq!(refusal.exit_code(), 4);
+        assert!(
+            refusal.is_retryable(),
+            "the code carries its own retry hint"
+        );
+        let json = serde_json::to_value(&refusal).unwrap();
+        assert_eq!(json["details"]["capability"], "hard_link");
+        assert_eq!(json["details"]["condition"], "link_refused");
+        assert_eq!(json["details"]["stage"], "object");
+        assert_eq!(json["details"]["bucket"], "write");
+
+        // Nothing else reaches the ambiguous branch, so an unsupported
+        // filesystem and an overwrite keep the codes they had.
+        for other in [
+            io::Error::from_raw_os_error(libc::EOPNOTSUPP),
+            io::Error::new(io::ErrorKind::AlreadyExists, "exists"),
+            io::Error::new(io::ErrorKind::PermissionDenied, "denied"),
+        ] {
+            assert!(!is_link_refused(&other));
+        }
+    }
+
     #[test]
     fn a_link_refused_by_the_open_is_told_apart_from_any_other_failure() {
         #[cfg(unix)]
         let link = io::Error::from_raw_os_error(libc::ELOOP);
         #[cfg(not(unix))]
-        let link = io::Error::new(io::ErrorKind::InvalidInput, "path is a reparse point");
+        let link = io::Error::new(io::ErrorKind::InvalidInput, ReparsePointRefusal);
         assert!(is_no_follow_refusal(&link));
         assert!(!is_no_follow_refusal(&io::Error::from(
             io::ErrorKind::NotFound
+        )));
+        // Only this module's own refusal counts, never another caller's
+        // error of the same kind.
+        assert!(!is_no_follow_refusal(&io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "some other caller's malformed input"
         )));
         let directory = tempfile::tempdir().unwrap();
         let file = directory.path().join("note.txt");
@@ -605,6 +723,9 @@ mod tests {
                     !opened.metadata().unwrap().is_file(),
                     "the handle is refused on its kind rather than read"
                 );
+            } else {
+                // Saying so keeps a missing `mkfifo` from reading as a pass.
+                eprintln!("skipped the named-pipe case: this system has no usable mkfifo command");
             }
         }
     }

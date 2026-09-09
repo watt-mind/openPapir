@@ -122,6 +122,53 @@ fn an_argument_parse_failure_is_an_envelope_under_json() {
     }
 }
 
+/// A flag's value is consumed with the flag, and the names a refusal may echo
+/// are the recognised command's own, so neither a value that spells a
+/// subcommand nor a flag another subcommand defines reaches the envelope.
+#[test]
+fn no_token_the_recognised_command_does_not_define_reaches_the_envelope() {
+    for (args, command, argument) in [
+        // The value of `--title` is a value, not the `case list` subcommand.
+        (
+            &["case", "create", "--title", "list", "--json"][..],
+            "case.create",
+            Some("archive"),
+        ),
+        (
+            &["case", "create", "--title=show", "--json"][..],
+            "case.create",
+            Some("archive"),
+        ),
+        // `--archive` is `import`'s flag, so `capabilities` never echoes it.
+        (
+            &["capabilities", "--archive", "import", "--json"][..],
+            "capabilities",
+            None,
+        ),
+        // `skill` defines neither, and a positional after `--` is a value.
+        (&["skill", "--json"][..], "skill", None),
+        (
+            &["--json", "--", "import", "--archive"][..],
+            "openpapir",
+            None,
+        ),
+    ] {
+        let output = run(args);
+        assert_eq!(output.status.code(), Some(2), "usage exits 2 for {command}");
+        let text = String::from_utf8(output.stdout).unwrap();
+        let envelope: serde_json::Value = serde_json::from_str(text.trim()).unwrap();
+        assert_eq!(envelope["command"], command, "the command the user named");
+        assert_eq!(envelope["error"]["code"], "usage.arguments");
+        match argument {
+            Some(name) => assert_eq!(envelope["error"]["details"]["argument"], name),
+            None => assert!(
+                envelope["error"]["details"].get("argument").is_none(),
+                "a name this command does not define is never echoed"
+            ),
+        }
+    }
+}
+
 /// The same failures without `--json` keep the parser's own usage text, and
 /// help and version stay successes rather than becoming refusals.
 #[test]

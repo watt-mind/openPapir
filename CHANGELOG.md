@@ -475,6 +475,33 @@ envelope.
   the capture and the case passed in silence. The file-by-file comparison now
   lives in `crates/openpapir-cli/tests/golden_support/compare.rs`, with its own
   tests over a temporary copy of one case that never touch `tests/golden/`.
+- A hard link the publish step could not create no longer claims the
+  filesystem is unsupported when the system did not say so. Unix `EPERM`,
+  which `link(2)` returns both for a filesystem without hard links and for an
+  immutable or append-only file, is now `write.interrupted` (exit `4`)
+  carrying the additive details `capability` `hard_link` and `condition`
+  `link_refused`, and a message that states the observed condition.
+  `platform.filesystem_unsupported` (exit `5`) is kept for the codes that
+  state the operation is unsupported: `Unsupported`, Unix `EOPNOTSUPP`, and
+  Windows `ERROR_INVALID_FUNCTION` and `ERROR_NOT_SUPPORTED`. Distinguishing
+  the two `EPERM` causes needs a `statfs` or an attribute `ioctl`, and the
+  workspace forbids `unsafe`, so openPapir reports what it observed rather
+  than a cause it cannot prove.
+- A no-follow open on Windows now refuses the reparse point it opened through
+  a sentinel error type of its own, so only that refusal is reported as
+  `path.symlink`. Any other `InvalidInput` from the same open keeps its own
+  meaning, where previously every one of them read as a link refusal.
+- A target that is neither Unix nor Windows now fails to compile with a stated
+  reason instead of falling back to checking the path before opening it. The
+  fallback was the time-of-check-to-time-of-use gap the no-follow rule exists
+  to remove, and the platform warning did not describe it.
+- An argument-parser refusal now names the command the user actually invoked
+  and echoes only names that command defines. The recognition walks the raw
+  arguments as the parser would and consumes each flag's value with the flag,
+  so `case create --title list` reports `case.create` rather than `case.list`,
+  and the `details.argument` allowlist is the recognised command and its
+  parents rather than every name in the build, so a flag only another
+  subcommand defines is no longer echoed back.
 - A record document is now opened once and judged on that opened handle. The
   reader opens it with the platform's no-follow flag and takes both the file
   kind and the length from the handle it will read from, instead of checking

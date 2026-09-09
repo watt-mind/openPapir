@@ -538,6 +538,10 @@ mod tests {
         if fs::read_dir(&directory).is_ok() {
             // The process reads the directory anyway, which happens when the
             // tests run with privileges that ignore the permission bits.
+            eprintln!(
+                "skipped the unreadable-directory case: this process reads a 0o000 directory, \
+                 so the tests run with privileges that ignore the permission bits"
+            );
             fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
             return;
         }
@@ -654,6 +658,10 @@ mod tests {
             // Skipped: the process reads the file anyway, which is what
             // happens when the tests run with privileges that ignore the
             // permission bits, so there is no unreadable document to refuse.
+            eprintln!(
+                "skipped the unreadable-document case: this process opens a 0o000 file, \
+                 so the tests run with privileges that ignore the permission bits"
+            );
             fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
             return;
         }
@@ -685,6 +693,7 @@ mod tests {
             .is_ok_and(|status| status.success());
         if !made {
             // The platform has no mkfifo, so there is nothing to refuse.
+            eprintln!("skipped the named-pipe case: this system has no usable mkfifo command");
             return;
         }
         // A pipe with no writer would hold a blocking open forever. The
