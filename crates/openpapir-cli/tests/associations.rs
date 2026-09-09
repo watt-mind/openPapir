@@ -516,6 +516,40 @@ fn supersedes_may_not_name_another_receipts_association() {
 }
 
 #[test]
+fn an_empty_supersedes_is_refused_rather_than_read_as_no_supersession() {
+    let f = fixture();
+    let receipt = add_receipt(f.root.path());
+    let output = run(&[
+        "association",
+        "create",
+        "--archive",
+        path(f.root.path()),
+        "--receipt",
+        &receipt,
+        "--outcome",
+        "unassociated",
+        "--supersedes",
+        "",
+        "--json",
+    ]);
+    assert_refusal(&output, "association.create", "record.not_found", 4);
+    let details = &stdout_json(&output)["error"]["details"];
+    assert_eq!(details["record_kind"], "association");
+    assert_eq!(details["reference_kind"], "association_id");
+
+    let listed = stdout_json(&run(&[
+        "association",
+        "list",
+        "--archive",
+        path(f.root.path()),
+        "--receipt",
+        &receipt,
+        "--json",
+    ]));
+    assert_eq!(listed["data"]["count"], 0, "the refusal wrote nothing");
+}
+
+#[test]
 fn a_missing_receipt_or_submission_is_refused_without_echoing_it() {
     let f = fixture();
     let receipt = add_receipt(f.root.path());

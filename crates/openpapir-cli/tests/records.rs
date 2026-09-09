@@ -578,6 +578,32 @@ fn a_malformed_record_document_is_refused_without_naming_a_path() {
 }
 
 #[test]
+fn a_leftover_staging_file_is_neither_a_record_nor_a_malformed_one() {
+    let root = archive();
+    let case_id = create_case(root.path(), "Readable");
+    // What an interrupted write leaves behind. It can never be adopted as a
+    // record, because its name is not an identifier, and a reader deletes
+    // nothing: removing it is a write, and only the writer lock permits one.
+    let staging = root
+        .path()
+        .join("records/cases")
+        .join(".papir-staging-000000000000");
+    fs::write(&staging, b"{ partial").unwrap();
+    let output = run(&["case", "list", "--archive", path(root.path()), "--json"]);
+    let envelope = stdout_json(&output);
+    assert_envelope(&envelope, "case.list", true);
+    assert_eq!(envelope["data"]["count"], 1, "the one real case is listed");
+    assert_eq!(envelope["data"]["cases"][0]["id"], case_id);
+    assert!(staging.exists(), "a listing deletes nothing");
+    assert!(
+        !String::from_utf8(output.stdout.clone())
+            .unwrap()
+            .contains("papir-staging"),
+        "a transient artefact is never named in the output"
+    );
+}
+
+#[test]
 fn a_record_document_larger_than_the_record_cap_is_refused_promptly() {
     let root = archive();
     create_case(root.path(), "Readable");
@@ -640,9 +666,11 @@ fn a_record_document_that_is_a_symbolic_link_is_never_followed() {
 #[cfg(not(unix))]
 fn a_record_document_that_is_a_symbolic_link_is_never_followed() {
     // Skipped with a reason: creating a symbolic link on this platform needs a
-    // privilege the test environment does not grant. The refusal is asserted
-    // directly in the `openpapir-core` unit tests, which check the same
-    // no-follow rule through the library.
+    // privilege the test environment does not grant, so neither this test nor
+    // the `openpapir-core` unit test of the same rule can build the case. The
+    // reader opens every record document without following a link on every
+    // platform, with the weaker guarantee `docs/architecture.md` names where
+    // the operating system offers no no-follow flag.
 }
 
 fn make_writable(path: &Path) {

@@ -31,6 +31,7 @@ use crate::error::{Bucket, Details, Diagnostic, Failure, Outcome, Result, codes}
 
 /// How many of each problem the check found.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Counts {
     /// Paths inside `objects/` that are a link or another non-regular file.
     pub symlink: u64,
@@ -63,6 +64,7 @@ impl Counts {
 
 /// One entry of the report's `problems` array.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[non_exhaustive]
 pub struct Problem {
     /// The stable code the count belongs to.
     pub code: &'static str,
@@ -71,7 +73,12 @@ pub struct Problem {
 }
 
 /// The whole-archive integrity report: counts and stable codes only.
+///
+/// The struct is `#[non_exhaustive]`: the check gains figures as it learns to
+/// look at more of an archive, so a caller outside this crate matches on the
+/// fields it knows and never builds one by literal.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[non_exhaustive]
 pub struct Report {
     /// How many bytes were streamed through the digest.
     pub bytes_digested: u64,

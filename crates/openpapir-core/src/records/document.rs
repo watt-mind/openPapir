@@ -12,8 +12,8 @@
 //! the record it claims to be is `record.malformed`; it is never repaired,
 //! skipped, or guessed at.
 
-use std::fs;
-use std::io;
+use std::fs::{self, File};
+use std::io::{self, Read as _};
 use std::path::Path;
 
 use serde::Serialize;
@@ -25,8 +25,12 @@ use crate::error::{Details, Diagnostic, Warning, codes};
 /// The prefix the atomic write procedure gives a staging file.
 ///
 /// A staging file is openPapir's own transient artefact rather than a record,
-/// so a reader passes over one instead of reporting a malformed record. It is
-/// never adopted, read, or counted.
+/// so a reader passes over one instead of reporting a malformed record. It
+/// can never become a record, because a record file is named by an identifier
+/// and a staging name is not one. It is not silently dropped either: a reader
+/// counts it, so that a leftover from an interrupted write is visible
+/// (`docs/archive-layout.md`). Removing one is a write, which only the holder
+/// of the writer lock may do, so no reader ever deletes one.
 const STAGING_PREFIX: &str = ".papir-staging-";
 
 /// The length of a record identifier in hexadecimal characters.
@@ -146,10 +150,12 @@ pub fn write_record<R: Record>(root: &Path, record: &R) -> Result<Vec<Warning>, 
 /// is not a valid record of this kind, and `input.cap.record_size` when the
 /// stored document is larger than the record cap.
 ///
-/// A stored document is untrusted input like any other: its length is checked
-/// against the record cap, from the size the filesystem reports, before a byte
-/// is read into memory, and a path that is not a regular file is refused
-/// rather than followed.
+/// A stored document is untrusted input like any other. It is opened without
+/// following a symbolic link, and its kind and its length are both taken from
+/// the opened handle rather than from a separate look at the path, so the file
+/// that is checked is the file that is read and no local writer can swap one
+/// for the other in between. A path that is not a regular file is refused, and
+/// one over the record cap is refused before a byte is read into memory.
 pub fn read_record<R: Record>(
     root: &Path,
     id: &str,
@@ -159,15 +165,12 @@ pub fn read_record<R: Record>(
         return Err(not_found(R::KIND, reference_kind));
     }
     let path = root.join(R::DIRECTORY).join(format!("{id}.json"));
-    let Ok(metadata) = fs::symlink_metadata(&path) else {
-        return Err(not_found(R::KIND, reference_kind));
-    };
-    if !metadata.is_file() {
-        return Err(malformed(R::KIND, 1));
+    match read_document(&path) {
+        Ok(text) => parse::<R>(&text, id).ok_or_else(|| malformed(R::KIND, 1)),
+        Err(Unreadable::Missing) => Err(not_found(R::KIND, reference_kind)),
+        Err(Unreadable::Malformed) => Err(malformed(R::KIND, 1)),
+        Err(Unreadable::TooLarge(refusal)) => Err(refusal),
     }
-    limits::check_record_size(metadata.len())?;
-    let text = fs::read_to_string(&path).map_err(|_| malformed(R::KIND, 1))?;
-    parse::<R>(&text, id).ok_or_else(|| malformed(R::KIND, 1))
 }
 
 /// Read every record of one kind, in the order their identifiers sort.
@@ -175,13 +178,15 @@ pub fn read_record<R: Record>(
 /// Nothing is ignored silently. A directory entry that is not a well-formed
 /// record of this kind makes the whole listing `record.malformed`, with the
 /// number of unreadable documents. The only exception is a staging file, which
-/// is openPapir's own transient artefact and never a record.
+/// is openPapir's own transient artefact and never a record: it is counted
+/// rather than reported, and [`visit_records_checked`] returns the count.
 ///
 /// An entry that is not a regular file, and one larger than the record cap,
-/// counts as unreadable and is never opened: the link is not followed and the
-/// bytes are never allocated. Both therefore report `record.malformed`, the
-/// condition of the directory being read, rather than a cap refusal about an
-/// input the caller did not supply.
+/// counts as unreadable and is refused on the opened no-follow handle before a
+/// byte is read: the link is never followed and the bytes are never allocated.
+/// Both therefore report `record.malformed`, the condition of the directory
+/// being read, rather than a cap refusal about an input the caller did not
+/// supply.
 ///
 /// # Errors
 ///
@@ -198,15 +203,23 @@ pub fn list_records<R: Record>(root: &Path) -> Result<Vec<R>, Diagnostic> {
 
 /// What reading one record directory yielded.
 ///
-/// The two answers are kept apart on purpose. `unreadable` counts documents
+/// The three answers are kept apart on purpose. `unreadable` counts documents
 /// that were found and could not be read as a record of this kind, which is
-/// `record.malformed`. `unchecked` says the directory itself could not be
-/// listed, which asserts nothing about any record: the reader looked and was
-/// refused, rather than looking and finding nothing.
+/// `record.malformed`. `staging` counts openPapir's own leftover staging
+/// files, which are not records and are not damage. `unchecked` says the
+/// directory itself could not be listed, which asserts nothing about any
+/// record: the reader looked and was refused, rather than looking and finding
+/// nothing.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Visited {
     /// How many documents could not be read as a record of this kind.
     pub unreadable: u64,
+    /// How many leftover staging files the directory holds. A staging file is
+    /// openPapir's own transient artefact from an interrupted write, so it is
+    /// neither a record nor a malformed one. It is counted and left exactly
+    /// where it is: removing it is a write, and a reader holds no lock.
+    pub staging: u64,
     /// Whether the directory could not be listed at all. A directory that is
     /// not there reads as empty and leaves this `false`; any other failure to
     /// list it sets it, because the records it may hold were not read.
@@ -220,7 +233,8 @@ pub struct Visited {
 /// that only needs a fixed-size key from each record never accumulates the
 /// documents themselves. The return value is the number of documents that
 /// could not be read as a record of this kind; a staging file is openPapir's
-/// own transient artefact and is passed over rather than counted.
+/// own transient artefact, so it is counted separately by
+/// [`visit_records_checked`] rather than reported as a malformed record.
 ///
 /// A directory that could not be listed reads as empty here, which is what a
 /// listing wants: a record command asks for the records that are there. A
@@ -238,53 +252,101 @@ pub fn visit_records<R: Record, F: FnMut(R)>(root: &Path, visit: F) -> u64 {
 /// missing when it is asked whether it exists. Only `NotFound` means the
 /// archive holds no records of this kind; every other failure means the
 /// records were not read, and nothing may be concluded from their absence.
+///
+/// A leftover staging file is counted in [`Visited::staging`] and left where
+/// it is, so an interrupted write is visible rather than silently passed over.
 pub fn visit_records_checked<R: Record, F: FnMut(R)>(root: &Path, mut visit: F) -> Visited {
     let directory = root.join(R::DIRECTORY);
     let entries = match fs::read_dir(&directory) {
         Ok(entries) => entries,
         Err(error) => {
             return Visited {
-                unreadable: 0,
                 unchecked: error.kind() != io::ErrorKind::NotFound,
+                ..Visited::default()
             };
         }
     };
-    let mut unreadable = 0_u64;
+    let mut visited = Visited::default();
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
         if name.starts_with(STAGING_PREFIX) {
+            visited.staging += 1;
             continue;
         }
         let Some(id) = name.strip_suffix(".json").filter(|id| is_identifier(id)) else {
-            unreadable += 1;
+            visited.unreadable += 1;
             continue;
         };
-        let path = entry.path();
-        if !readable_document(&path) {
-            unreadable += 1;
-            continue;
-        }
-        match fs::read_to_string(&path)
+        match read_document(&entry.path())
             .ok()
             .and_then(|text| parse::<R>(&text, id))
         {
             Some(record) => visit(record),
-            None => unreadable += 1,
+            None => visited.unreadable += 1,
         }
     }
-    Visited {
-        unreadable,
-        unchecked: false,
-    }
+    visited
 }
 
-/// Whether a directory entry may be read at all: a regular file, not a
-/// symbolic link, and no larger than the record cap. The check is made from
-/// the size the filesystem reports, before any byte is allocated.
-fn readable_document(path: &Path) -> bool {
-    fs::symlink_metadata(path).is_ok_and(|metadata| {
-        metadata.is_file() && limits::check_record_size(metadata.len()).is_ok()
-    })
+/// Why a stored document could not be read as one.
+enum Unreadable {
+    /// Nothing is stored at that path.
+    Missing,
+    /// Something is stored there that is not a readable record document: a
+    /// link, a directory, a device, or a file the process cannot read.
+    Malformed,
+    /// The document is larger than the record cap, which is the cap refusal.
+    TooLarge(Diagnostic),
+}
+
+/// Read one stored document through a single opened handle.
+///
+/// The handle is opened without following a symbolic link, and both the file
+/// kind and the length are taken from that handle, so the file that passes
+/// the checks is the file whose bytes are read. Checking the path first and
+/// opening it afterwards would leave a window in which a local writer could
+/// put a link or a device in its place. The read is capped as well as
+/// checked, so a file that grows between the two still reads no more than the
+/// record cap allows.
+fn read_document(path: &Path) -> Result<String, Unreadable> {
+    let file = open_document(path).map_err(|error| match error.kind() {
+        io::ErrorKind::NotFound => Unreadable::Missing,
+        _ => Unreadable::Malformed,
+    })?;
+    let metadata = file.metadata().map_err(|_| Unreadable::Malformed)?;
+    if !metadata.is_file() {
+        return Err(Unreadable::Malformed);
+    }
+    if let Err(refusal) = limits::check_record_size(metadata.len()) {
+        return Err(Unreadable::TooLarge(refusal));
+    }
+    let mut text = String::new();
+    file.take(limits::MAX_RECORD_BYTES)
+        .read_to_string(&mut text)
+        .map_err(|_| Unreadable::Malformed)?;
+    Ok(text)
+}
+
+/// Open a stored document without following a link and without waiting.
+///
+/// The no-follow rule is the archive's (`docs/archive-layout.md`). The
+/// non-blocking flag is what keeps the open itself bounded: a named pipe with
+/// no writer would otherwise hold the open call open forever, and a record
+/// directory is untrusted input. It changes nothing for a regular file, which
+/// is the only thing that gets past the check on the handle.
+fn open_document(path: &Path) -> io::Result<File> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+            .open(path)
+    }
+    #[cfg(not(unix))]
+    {
+        crate::archive::paths::open_no_follow(path)
+    }
 }
 
 /// Parse one document, checking that it is this kind and names this file.
@@ -438,12 +500,26 @@ mod tests {
     }
 
     #[test]
-    fn a_stray_file_is_reported_and_a_staging_file_is_passed_over() {
+    fn a_stray_file_is_reported_and_a_staging_file_is_counted() {
         let root = tempfile::tempdir().unwrap();
         let directory = root.path().join(Sample::DIRECTORY);
         fs::create_dir_all(&directory).unwrap();
-        fs::write(directory.join(format!("{STAGING_PREFIX}abc")), b"partial").unwrap();
+        let staging = directory.join(format!("{STAGING_PREFIX}abc"));
+        fs::write(&staging, b"partial").unwrap();
         assert!(list_records::<Sample>(root.path()).unwrap().is_empty());
+        let visited = visit_records_checked::<Sample, _>(root.path(), |_| unreachable!());
+        assert_eq!(
+            visited,
+            Visited {
+                staging: 1,
+                ..Visited::default()
+            },
+            "a leftover staging file is counted rather than passed over"
+        );
+        assert!(
+            staging.exists(),
+            "a reader holds no lock and deletes nothing"
+        );
         fs::write(directory.join("notes.txt"), b"stray").unwrap();
         let refusal = list_records::<Sample>(root.path()).unwrap_err();
         assert_eq!(refusal.code, codes::RECORD_MALFORMED);
@@ -487,8 +563,8 @@ mod tests {
         assert_eq!(
             visited,
             Visited {
-                unreadable: 0,
-                unchecked: true
+                unchecked: true,
+                ..Visited::default()
             }
         );
         assert!(
@@ -576,6 +652,36 @@ mod tests {
             list_records::<Sample>(root.path()).unwrap_err().code,
             codes::RECORD_MALFORMED,
             "a directory in a record directory is not a record"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_named_pipe_is_refused_rather_than_waited_on() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join(Sample::DIRECTORY);
+        fs::create_dir_all(&directory).unwrap();
+        let path = directory.join(format!("{ID}.json"));
+        let made = std::process::Command::new("mkfifo")
+            .arg(&path)
+            .status()
+            .is_ok_and(|status| status.success());
+        if !made {
+            // The platform has no mkfifo, so there is nothing to refuse.
+            return;
+        }
+        // A pipe with no writer would hold a blocking open forever. The
+        // reader opens it without waiting and then refuses it on its kind.
+        assert_eq!(
+            read_record::<Sample>(root.path(), ID, "sample_id")
+                .err()
+                .unwrap()
+                .code,
+            codes::RECORD_MALFORMED
+        );
+        assert_eq!(
+            list_records::<Sample>(root.path()).unwrap_err().code,
+            codes::RECORD_MALFORMED
         );
     }
 }
