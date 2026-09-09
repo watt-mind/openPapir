@@ -305,6 +305,77 @@ fn a_reference_that_names_nothing_is_reported_as_dangling() {
 }
 
 #[test]
+fn every_kind_of_reference_a_record_holds_is_resolved() {
+    let (_home, root) = archive();
+    let submission = "3333333333333333333333333333333f";
+    write_record(
+        &root,
+        "records/submissions",
+        submission,
+        &serde_json::json!({
+            "archive_schema_version": 1,
+            "artefacts": [],
+            "case_id": ABSENT_ID,
+            "created_at": "2026-01-14T09:12:33Z",
+            "description": "A synthetic submission.",
+            "id": submission,
+            "record_kind": "submission"
+        }),
+    );
+    let receipt = "4444444444444444444444444444444f";
+    write_record(
+        &root,
+        "records/receipts",
+        receipt,
+        &serde_json::json!({
+            "archive_schema_version": 1,
+            "artefact_digest": format!("sha256:{PAYLOAD_DIGEST}"),
+            "created_at": "2026-01-14T09:12:33Z",
+            "id": receipt,
+            "import_event_id": ABSENT_ID,
+            "record_kind": "receipt"
+        }),
+    );
+    let association = "5555555555555555555555555555555f";
+    write_record(
+        &root,
+        "records/associations",
+        association,
+        &serde_json::json!({
+            "archive_schema_version": 1,
+            "candidates": [{
+                "confidence": "moderate",
+                "evidence": [{
+                    "kind": "user_assertion",
+                    "source": "user",
+                    "statement": "A synthetic assertion."
+                }],
+                "submission_id": ABSENT_ID
+            }],
+            "created_at": "2026-01-14T09:12:33Z",
+            "created_by": "user",
+            "id": association,
+            "outcome": "associated",
+            "receipt_id": receipt,
+            "record_kind": "association",
+            "submission_id": ABSENT_ID,
+            "supersedes": ABSENT_ID
+        }),
+    );
+    let output = check(&root);
+    let envelope = assert_report(&output, false, Some("integrity.dangling_reference"), 4);
+    assert_eq!(
+        problems(&envelope["data"])["integrity.dangling_reference"],
+        5,
+        "the case, the import event, the confirmed submission, the candidate, and the superseded record"
+    );
+    assert_eq!(envelope["error"]["details"]["record_kind"], "submission");
+    assert_eq!(envelope["error"]["details"]["reference_kind"], "case_id");
+    assert_eq!(envelope["data"]["records_checked"], 4);
+    assert_private(&output, &[ABSENT_ID]);
+}
+
+#[test]
 fn a_document_that_is_not_a_record_is_reported_as_malformed() {
     let (_home, root) = archive();
     fs::write(
