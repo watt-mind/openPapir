@@ -236,27 +236,27 @@ fn check_empty_for_init(root: &Path) -> std::result::Result<(), Diagnostic> {
 }
 
 /// Refuse an archive whose permissions are wider than owner-only.
+///
+/// The root, the marker, the lock file when one is present, and every layout
+/// directory are checked. Stored objects and their fan-out directories are
+/// checked as the operation reaches them, before anything is published.
 fn check_permissions(root: &Path) -> std::result::Result<(), Diagnostic> {
     let mut wide = Vec::new();
     if paths::is_wider_than_owner_only(root) {
         wide.push(".".to_owned());
     }
-    for relative in ["objects", "records", MARKER_FILE] {
+    let mut checked: Vec<&str> = vec![MARKER_FILE, lock::LOCK_FILE];
+    checked.extend(LAYOUT_DIRS);
+    for relative in checked {
         let path = root.join(relative);
         if path.exists() && paths::is_wider_than_owner_only(&path) {
             wide.push(relative.to_owned());
         }
     }
-    if let Some(first) = wide.first() {
-        return Err(Diagnostic::new(
-            codes::ARCHIVE_PERMISSIONS_WIDE,
-            "The archive's permissions are wider than owner-only.",
-            Details::new()
-                .text("archive_path", first.clone())
-                .int("path_count", wide.len() as u64),
-        ));
+    if wide.is_empty() {
+        return Ok(());
     }
-    Ok(())
+    Err(paths::wide_permissions_refusal(wide))
 }
 
 /// Read and parse the marker, refusing a missing or unreadable one.
@@ -365,7 +365,13 @@ mod tests {
         let outcome = init(root.path()).unwrap();
         assert_eq!(outcome.data.archive_schema_version, 1);
         assert_eq!(outcome.data.archive_id.len(), 32);
-        assert!(cfg!(unix) == outcome.warnings.is_empty());
+        assert!(
+            outcome
+                .warnings
+                .iter()
+                .all(|warning| warning.bucket() == crate::error::Bucket::Platform),
+            "only platform degradations are reported"
+        );
         for relative in LAYOUT_DIRS {
             assert!(root.path().join(relative).is_dir(), "{relative} exists");
         }

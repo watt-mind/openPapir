@@ -122,7 +122,9 @@ fn place(
                 .text("archive_path", relative),
         ));
     }
+    check_object_permissions(root, digest)?;
     if let Ok(metadata) = fs::symlink_metadata(&destination) {
+        paths::refuse_if_wide(&destination, &relative)?;
         if !metadata.is_file() {
             return Err(Diagnostic::new(
                 codes::PATH_OVERWRITE,
@@ -159,6 +161,23 @@ fn place(
         created_object: true,
         warnings,
     })
+}
+
+/// Refuse a fan-out directory of this digest that is wider than owner-only.
+///
+/// The check runs before anything is published, so a wide directory stops the
+/// operation rather than receiving an object.
+fn check_object_permissions(root: &Path, digest: &str) -> Result<(), Diagnostic> {
+    let mut relative = format!("{OBJECTS_DIR}/{ALGORITHM}");
+    let mut path = root.join(OBJECTS_DIR).join(ALGORITHM);
+    for segment in [&digest[0..2], &digest[2..4]] {
+        relative = format!("{relative}/{segment}");
+        path = path.join(segment);
+        if path.exists() {
+            paths::refuse_if_wide(&path, &relative)?;
+        }
+    }
+    Ok(())
 }
 
 /// Create the two fan-out directories for a digest, owner-only.

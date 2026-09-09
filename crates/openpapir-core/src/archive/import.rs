@@ -142,11 +142,7 @@ fn plan(inputs: &[PathBuf], names: Vec<String>) -> std::result::Result<Vec<Plann
     for ((index, path), original_filename) in inputs.iter().enumerate().zip(names) {
         let index = index as u64;
         if paths::is_symlink(path) {
-            return Err(paths::symlink_refusal(
-                Details::new()
-                    .text("scope", "input")
-                    .int("input_index", index),
-            ));
+            return Err(input_symlink_refusal());
         }
         let metadata = fs::symlink_metadata(path).map_err(|_| unusable_input(index))?;
         if !metadata.is_file() {
@@ -171,6 +167,17 @@ fn original_filename(path: &Path, index: u64) -> std::result::Result<String, Dia
         .ok_or_else(|| unusable_input(index))
 }
 
+/// The refusal for an input that is a symbolic link.
+///
+/// The error contract fixes `scope` as `archive` or `export_destination` and
+/// names no value for an input outside the archive, so this refusal carries
+/// its bucket alone rather than inventing one. Which input it was is
+/// deliberately not reported, because no key the contract lists for this code
+/// covers it.
+fn input_symlink_refusal() -> Diagnostic {
+    paths::symlink_refusal(Details::new())
+}
+
 /// The refusal for an input that is not a readable regular file.
 fn unusable_input(index: u64) -> Diagnostic {
     Diagnostic::new(
@@ -192,11 +199,7 @@ fn store_one(
 ) -> std::result::Result<Artefact, Diagnostic> {
     let mut source = paths::open_no_follow(&input.path).map_err(|_| {
         if paths::is_symlink(&input.path) {
-            paths::symlink_refusal(
-                Details::new()
-                    .text("scope", "input")
-                    .int("input_index", index),
-            )
+            input_symlink_refusal()
         } else {
             unusable_input(index)
         }

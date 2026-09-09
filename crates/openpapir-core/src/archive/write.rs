@@ -150,7 +150,12 @@ mod tests {
             fs::read_to_string(directory.path().join("marker.json")).unwrap(),
             "{}\n"
         );
-        assert!(cfg!(unix) == warnings.is_empty());
+        assert!(
+            warnings
+                .iter()
+                .all(|warning| warning.bucket() == crate::error::Bucket::Platform),
+            "only platform degradations are reported"
+        );
         let refusal = write_document(
             directory.path(),
             "marker.json",

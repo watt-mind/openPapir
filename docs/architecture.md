@@ -166,7 +166,7 @@ artefact entry and still exits `0`.
 | Never overwrite | The publish step is a hard link, which fails rather than replacing an existing file, so a destination openPapir did not create is refused as `path.overwrite`. |
 | Interrupted write | A leftover staging file is never adopted, so the archive holds the complete file or nothing. |
 | One filesystem | The root and its layout directories must share one device. A cross-device publish is refused as `path.cross_device`. |
-| Owner-only | Directories are created `0o700`, files `0o600`, and stored objects become `0o400`. An archive whose permissions are wider is refused as `archive.permissions_wide`, with no override flag. |
+| Owner-only | Directories are created `0o700`, files `0o600`, and stored objects become `0o400`. The root, the marker, the lock file, every layout directory, and each stored object and fan-out directory the operation touches are checked before anything is published; a wider one is refused as `archive.permissions_wide`, naming the archive-relative path. There is no override flag, and nothing is ever narrowed implicitly: an existing path is refused, not repaired. |
 | Path safety | Input files are opened with the platform's no-follow flag, symbolic links inside the archive are refused, and a user-supplied filename is never joined into a path. |
 | Single writer | A `lock` file recording the holder's process identifier, host, and start time admits one writer. A second writer refuses with `lock.held` rather than waiting. |
 
@@ -219,6 +219,15 @@ are decided as follows, and no other reserved code became reachable:
 3. A lock whose holder is gone is still `lock.held`. No takeover exists, silent
    or explicit, so `lock.stale` stays reserved.
 
+Permissions are never repaired as a side effect. `archive init` narrows the
+supplied root once, deliberately, as part of creating the archive; after that
+every wider path is refused. The explicit repair action the design describes,
+which only narrows and reports every path it changed, is not implemented.
+
+An input that is a symbolic link is refused with `path.symlink` carrying its
+bucket alone. The contract fixes `scope` as `archive` or `export_destination`
+and names no value for an input outside the archive, so none is invented.
+
 An import-event record that cannot be parsed is skipped when counting a
 duplicate's history rather than reported, because `record.malformed` is
 reserved. The reported `previous_import_count` is therefore a count of the
@@ -232,7 +241,7 @@ changes the exit code.
 
 | Code | Condition |
 | --- | --- |
-| `platform.no_directory_fsync` | The directory entry a publish created may not be durable, although the file content was flushed. Emitted on platforms with no directory flush, with `stage`. |
+| `platform.no_directory_fsync` | The directory entry a publish created may not be durable, although the file content was flushed. Emitted where the platform has no directory flush, and also where the flush was attempted and failed, with `stage`. |
 | `platform.owner_only_via_acl` | Owner-only access is an access-control list rather than a permission bit, so it depends on the filesystem. Emitted on Windows. |
 
 On Windows the no-follow flag has no portable equivalent, so a symbolic link is

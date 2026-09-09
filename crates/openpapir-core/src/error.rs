@@ -189,8 +189,11 @@ impl Details {
     }
 
     /// Insert a value, silently ignoring anything past [`MAX_DETAIL_KEYS`].
+    ///
+    /// One slot is reserved for `bucket`, which every diagnostic carries, so
+    /// the finished object never exceeds the contract's bound.
     fn insert(mut self, key: &'static str, value: DetailValue) -> Self {
-        if self.0.len() < MAX_DETAIL_KEYS || self.0.contains_key(key) {
+        if self.0.len() < MAX_DETAIL_KEYS - 1 || self.0.contains_key(key) {
             self.0.insert(key, value);
         }
         self
@@ -395,12 +398,22 @@ mod tests {
         ] {
             details = details.text(key, "value");
         }
-        assert_eq!(details.len(), MAX_DETAIL_KEYS);
+        assert_eq!(
+            details.len(),
+            MAX_DETAIL_KEYS - 1,
+            "a slot is left for bucket"
+        );
         let diagnostic =
             Diagnostic::new(codes::LOCK_HELD, "Another writer holds the lock.", details)
                 .retryable();
+        assert_eq!(diagnostic.details.len(), MAX_DETAIL_KEYS);
         let json = serde_json::to_value(&diagnostic).unwrap();
         assert_eq!(json["details"]["bucket"], "lock");
+        assert_eq!(
+            json["details"].as_object().unwrap().len(),
+            MAX_DETAIL_KEYS,
+            "details never exceed the contract's bound"
+        );
         assert!(diagnostic.is_retryable());
         assert_eq!(diagnostic.exit_code(), 4);
         assert_eq!(diagnostic.bucket(), Bucket::Lock);

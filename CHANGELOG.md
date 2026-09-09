@@ -88,6 +88,14 @@ matches the observable difference. See the Documentation section of
   deferred to this change and how each was decided.
 - The workspace gains `sha2`, `getrandom`, `libc` (Unix only), and `tempfile`
   as a development dependency.
+- The owner-only check covers the archive root, the marker, the lock file,
+  every layout directory, and each stored object and fan-out directory an
+  operation touches, and it refuses before anything is published. openPapir
+  never narrows an existing path as a side effect: a wider one is reported,
+  not repaired, because the design allows narrowing only through an explicit
+  repair action that does not exist yet.
+- A directory flush that fails is now reported as the
+  `platform.no_directory_fsync` warning instead of being ignored.
 
 - Tracked Markdown no longer uses em-dashes in prose, per the Documentation
   style rules in `CONTRIBUTING.md`. The three design documents are rewritten

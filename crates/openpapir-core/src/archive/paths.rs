@@ -49,12 +49,18 @@ pub fn is_symlink(path: &Path) -> bool {
 
 /// Create a directory owner-only, ignoring the case where it already exists.
 ///
+/// An existing directory is left exactly as it is. Narrowing a directory that
+/// is already there would be an implicit permission repair, and
+/// `docs/archive-layout.md` allows narrowing only through an explicit repair
+/// action, which is not implemented. A directory that is already wider than
+/// owner-only is refused by the permission check instead.
+///
 /// # Errors
 ///
 /// Returns the underlying I/O error.
 pub fn create_dir_owner_only(path: &Path) -> io::Result<()> {
     if path.is_dir() && !is_symlink(path) {
-        return narrow_to_owner_only(path);
+        return Ok(());
     }
     #[cfg(unix)]
     {
@@ -167,9 +173,12 @@ pub fn device_of(path: &Path) -> Option<u64> {
 pub fn sync_directory(path: &Path, stage: &'static str) -> Option<Warning> {
     #[cfg(unix)]
     {
-        let _ = File::open(path).map(|directory| directory.sync_all());
-        let _ = stage;
-        None
+        match File::open(path).and_then(|directory| directory.sync_all()) {
+            Ok(()) => None,
+            // The flush the design requires did not happen, so the weakening
+            // is reported rather than swallowed.
+            Err(_) => Some(no_directory_fsync_warning(stage)),
+        }
     }
     #[cfg(not(unix))]
     {
@@ -195,6 +204,33 @@ pub fn owner_only_via_acl_warning() -> Warning {
         codes::PLATFORM_OWNER_ONLY_VIA_ACL,
         "Owner-only access is expressed as an access-control list on this platform.",
         Details::new(),
+    )
+}
+
+/// Refuse a path inside the archive whose permissions are wider than
+/// owner-only. There is no override flag; the only remedy the design allows
+/// is an explicit repair action, which only narrows and is not implemented.
+///
+/// # Errors
+///
+/// Returns `archive.permissions_wide`, naming the archive-relative path.
+pub fn refuse_if_wide(path: &Path, archive_path: &str) -> Result<(), Diagnostic> {
+    if is_wider_than_owner_only(path) {
+        return Err(wide_permissions_refusal(vec![archive_path.to_owned()]));
+    }
+    Ok(())
+}
+
+/// The refusal reported for archive permissions wider than owner-only.
+#[must_use]
+pub fn wide_permissions_refusal(wide: Vec<String>) -> Diagnostic {
+    let first = wide.first().cloned().unwrap_or_else(|| ".".to_owned());
+    Diagnostic::new(
+        codes::ARCHIVE_PERMISSIONS_WIDE,
+        "The archive's permissions are wider than owner-only.",
+        Details::new()
+            .text("archive_path", first)
+            .int("path_count", wide.len() as u64),
     )
 }
 
@@ -284,6 +320,45 @@ mod tests {
         assert!(refusal.is_retryable());
         assert_eq!(refusal.exit_code(), 4);
         assert!(!is_cross_device(&error));
+    }
+
+    #[test]
+    fn a_wide_path_is_refused_and_names_itself_relative_to_the_archive() {
+        let refusal = wide_permissions_refusal(vec![
+            "objects/sha256/ab/cd".to_owned(),
+            "records/imports".to_owned(),
+        ]);
+        assert_eq!(refusal.code, codes::ARCHIVE_PERMISSIONS_WIDE);
+        assert_eq!(refusal.exit_code(), 4);
+        let json = serde_json::to_value(&refusal).unwrap();
+        assert_eq!(json["details"]["archive_path"], "objects/sha256/ab/cd");
+        assert_eq!(json["details"]["path_count"], 2);
+        assert_eq!(
+            serde_json::to_value(wide_permissions_refusal(Vec::new())).unwrap()["details"]["archive_path"],
+            "."
+        );
+    }
+
+    #[test]
+    fn an_existing_directory_is_never_narrowed_on_the_way_past() {
+        let directory = tempfile::tempdir().unwrap();
+        let existing = directory.path().join("records");
+        fs::create_dir(&existing).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            fs::set_permissions(&existing, fs::Permissions::from_mode(0o755)).unwrap();
+            create_dir_owner_only(&existing).unwrap();
+            assert_eq!(
+                fs::metadata(&existing).unwrap().permissions().mode() & 0o777,
+                0o755,
+                "openPapir never repairs permissions implicitly"
+            );
+            assert!(refuse_if_wide(&existing, "records").is_err());
+        }
+        let fresh = directory.path().join("objects");
+        create_dir_owner_only(&fresh).unwrap();
+        assert!(refuse_if_wide(&fresh, "objects").is_ok());
     }
 
     #[test]
