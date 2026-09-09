@@ -42,7 +42,9 @@ is implemented. `verified` is false because no cryptographic check took place.
 
 openPapir will own persistent cases, submission relationships, receipt
 associations, original-byte preservation, and the user workflow around them.
-Storage technology and the case schema remain undecided.
+The storage technology and the on-disk layout are decided for review in
+[local archive layout and storage design](archive-layout.md); that design is
+not implemented, and the record shapes it fixes are not a promised schema.
 
 openKRX will own KRX container reading, creation, structural validation, and
 safe extraction. openSzigno owns `.es3` dossier operations and their signature

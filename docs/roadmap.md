@@ -26,7 +26,11 @@ requirements in view. Define import and association errors and their JSON/exit
 contracts. Review privacy and failure recovery before implementing persistence.
 The proposed model and its open questions are drafted in
 [receipt evidence and local case model decisions](receipt-discovery.md); they
-are proposals, not decisions.
+are proposals, not decisions. Its follow-up 3 is answered by
+[local archive layout and storage design](archive-layout.md), which decides the
+storage technology, the on-disk layout, and the record shapes for review, and
+records which of that note's questions stay open. Import and association error
+contracts remain unspecified, and no part of either document is implemented.
 
 ## 3. Implement one offline workflow
 
