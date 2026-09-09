@@ -7,11 +7,14 @@
 //! `objects/sha256/` is touched (`docs/archive-layout.md`).
 //!
 //! Records go first, so that an object is only ever unlinked once nothing in
-//! the archive names it. An object that cannot be unlinked leaves the store
-//! exactly as it was and is counted; the deletion completes what it can and
-//! reports the count.
+//! the archive names it. The record pass stops at the first unlink the
+//! filesystem refuses and takes the object pass with it, because a record
+//! that is still there still names its artefacts. An object that cannot be
+//! unlinked leaves the store exactly as it was and is counted; the deletion
+//! completes what it safely can and reports what it did not remove.
 
 use std::fs;
+use std::io;
 use std::path::Path;
 
 use crate::archive::import::ImportEvent;
@@ -39,6 +42,9 @@ pub struct Removed {
     pub submissions: u64,
     /// How many objects were unlinked.
     pub objects: u64,
+    /// How many record documents the filesystem refused to unlink. Any at all
+    /// stops the object pass before it begins.
+    pub records_retained: u64,
     /// How many objects the purge planned to unlink and could not.
     pub unremovable: u64,
 }
@@ -60,38 +66,85 @@ impl Removed {
 /// object has actually gone. An object that could not be unlinked therefore
 /// keeps its import event and stays a referenced object rather than becoming
 /// an orphan.
+///
+/// The record pass stops at the first refusal and takes the object pass with
+/// it. The order it runs in is the order of the references between the kinds:
+/// an association names a receipt and a submission, a submission names the
+/// case, so each kind goes only once everything that could name it has gone.
+/// Carrying on past a refusal would remove a record something still there
+/// names, and purging afterwards would remove bytes a surviving record still
+/// names. Both are the dangling references the integrity check reports, so
+/// neither is attempted: the deletion keeps what it had already removed,
+/// touches no object at all, and reports how much it did not remove.
 pub fn run(root: &Path, plan: &Plan, warnings: &mut Vec<Warning>) -> Removed {
-    let mut removed = Removed {
-        associations: unlink_records::<Association>(root, &plan.associations),
-        receipts: unlink_records::<Receipt>(root, &plan.receipts),
-        submissions: unlink_records::<Submission>(root, &plan.submissions),
-        cases: unlink_records::<Case>(root, std::slice::from_ref(&plan.case)),
-        ..Removed::default()
-    };
-    for digest in &plan.objects {
-        if unlink_object(root, digest, warnings) {
-            removed.objects += 1;
-            if let Some(events) = plan.import_events.get(digest) {
-                removed.import_events += unlink_records::<ImportEvent>(root, events);
+    let mut removed = Removed::default();
+    let planned =
+        (plan.associations.len() + plan.receipts.len() + plan.submissions.len()) as u64 + 1;
+
+    let associations = unlink_records::<Association>(root, &plan.associations);
+    removed.associations = associations.removed;
+    let mut refused = associations.retained > 0;
+    if !refused {
+        let receipts = unlink_records::<Receipt>(root, &plan.receipts);
+        removed.receipts = receipts.removed;
+        refused = receipts.retained > 0;
+    }
+    if !refused {
+        let submissions = unlink_records::<Submission>(root, &plan.submissions);
+        removed.submissions = submissions.removed;
+        refused = submissions.retained > 0;
+    }
+    if !refused {
+        let cases = unlink_records::<Case>(root, std::slice::from_ref(&plan.case));
+        removed.cases = cases.removed;
+        refused = cases.retained > 0;
+    }
+
+    if refused {
+        removed.records_retained = planned - removed.records();
+    } else {
+        for digest in &plan.objects {
+            if unlink_object(root, digest, warnings) {
+                removed.objects += 1;
+                if let Some(events) = plan.import_events.get(digest) {
+                    removed.import_events += unlink_records::<ImportEvent>(root, events).removed;
+                }
+            } else {
+                removed.unremovable += 1;
             }
-        } else {
-            removed.unremovable += 1;
         }
     }
     flush_record_directories(root, plan, removed.import_events > 0, warnings);
     removed
 }
 
-/// Unlink one kind's documents, counting the files that actually went.
+/// How one kind's unlink pass went: what went, and what would not go.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct Unlinked {
+    /// How many documents this pass unlinked.
+    removed: u64,
+    /// How many the filesystem refused to unlink.
+    retained: u64,
+}
+
+/// Unlink one kind's documents, counting what went and what would not.
 ///
 /// The file name is an identifier openPapir minted and the reader validated,
-/// so nothing user-supplied is joined into the path. A document that is no
-/// longer there is not counted: this pass reports what it removed.
-fn unlink_records<R: Record>(root: &Path, ids: &[String]) -> u64 {
+/// so nothing user-supplied is joined into the path. A document that is
+/// already absent is neither removed nor retained: there is nothing left to
+/// remove, so it is not a refusal. Every other failure is a refusal and is
+/// counted, because a record that is still there still names its artefacts.
+fn unlink_records<R: Record>(root: &Path, ids: &[String]) -> Unlinked {
     let directory = root.join(R::DIRECTORY);
-    ids.iter()
-        .filter(|id| fs::remove_file(directory.join(format!("{id}.json"))).is_ok())
-        .count() as u64
+    let mut unlinked = Unlinked::default();
+    for id in ids {
+        match fs::remove_file(directory.join(format!("{id}.json"))) {
+            Ok(()) => unlinked.removed += 1,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(_) => unlinked.retained += 1,
+        }
+    }
+    unlinked
 }
 
 /// Report a degradation once, however many paths saw it.
@@ -134,7 +187,8 @@ fn flush_record_directories(root: &Path, plan: &Plan, events: bool, warnings: &m
 /// The object's own mode is not changed on Unix: unlinking needs the
 /// permission of the directory holding it, which is owner-only and enough.
 /// Where the platform makes a read-only file undeletable instead, the
-/// attribute is cleared for the unlink and nothing is widened.
+/// attribute is cleared for the unlink and put back if the unlink still
+/// fails, so an object that survives survives read-only as it was.
 fn unlink_object(root: &Path, digest: &str, warnings: &mut Vec<Warning>) -> bool {
     let path = objects::absolute_path(root, digest);
     if !fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.is_file()) {
@@ -163,32 +217,64 @@ fn retry_unlink(_path: &Path, _warnings: &mut Vec<Warning>) -> bool {
 ///
 /// On a platform where a read-only file cannot be unlinked at all, clearing
 /// the attribute is a precondition of the removal rather than a widening of
-/// access: the file is gone a moment later. A file another process still
-/// holds open cannot go now, and the deferred removal is reported as the
-/// named degradation rather than counted as a removal.
+/// access: the file is gone a moment later. When the retried unlink still
+/// fails, the attribute is put back, so an object that survives is left
+/// exactly as read-only as it was and nothing is widened. A file another
+/// process still holds open cannot go now, and the deferred removal is
+/// reported as the named degradation rather than counted as a removal; the
+/// warning says whether the attribute was restored, because a failure to
+/// restore it is a weakening the caller must be told about.
 #[cfg(not(unix))]
 fn retry_unlink(path: &Path, warnings: &mut Vec<Warning>) -> bool {
-    let cleared = fs::metadata(path).ok().is_some_and(|metadata| {
-        let mut permissions = metadata.permissions();
-        permissions.set_readonly(false);
-        fs::set_permissions(path, permissions).is_ok()
-    });
-    if cleared && fs::remove_file(path).is_ok() {
-        return true;
+    let Some(original) = fs::metadata(path)
+        .ok()
+        .map(|metadata| metadata.permissions())
+    else {
+        note(warnings, replace_while_open(true));
+        return false;
+    };
+    let mut writable = original.clone();
+    writable.set_readonly(false);
+    if fs::set_permissions(path, writable).is_ok() {
+        if fs::remove_file(path).is_ok() {
+            return true;
+        }
+        let restored = fs::set_permissions(path, original).is_ok();
+        note(warnings, replace_while_open(restored));
+        return false;
     }
-    note(warnings, replace_while_open());
+    note(warnings, replace_while_open(true));
     false
 }
 
 /// The degradation reported where an unlink is deferred by the platform.
 #[cfg(not(unix))]
-fn replace_while_open() -> Warning {
+fn replace_while_open(restored: bool) -> Warning {
     Diagnostic::new(
         codes::PLATFORM_REPLACE_WHILE_OPEN,
         "A file could not be removed now because another process holds it open.",
-        Details::new().text("stage", "purge"),
+        Details::new()
+            .text("stage", "purge")
+            .flag("read_only_restored", restored),
     )
     .retryable()
+}
+
+/// The refusal reported when a record document could not be unlinked.
+///
+/// It is a refusal rather than a degradation because it changes what the
+/// deletion did: a record that is still there still names its artefacts, so
+/// no object was touched at all and the case is only partly gone. The count
+/// is every document the deletion planned to remove and did not, including
+/// the ones it never reached after it stopped; the record's kind, identifier,
+/// and path are omitted.
+#[must_use]
+pub fn records_retained(retained_count: u64) -> Diagnostic {
+    Diagnostic::new(
+        codes::DELETE_RECORDS_RETAINED,
+        "A record document could not be removed, so no object was purged.",
+        Details::new().int("retained_count", retained_count),
+    )
 }
 
 /// The refusal reported when a purge left objects in the store.
@@ -252,8 +338,11 @@ mod tests {
         fs::write(directory.join("keep.json"), "{}\n").unwrap();
         assert_eq!(
             unlink_records::<Case>(root.path(), &[present.clone(), absent]),
-            1,
-            "a document that was not there is not counted as removed"
+            Unlinked {
+                removed: 1,
+                retained: 0
+            },
+            "a document that was not there is neither removed nor retained"
         );
         assert!(!directory.join(format!("{present}.json")).exists());
         assert!(directory.join("keep.json").exists(), "nothing else goes");
@@ -268,6 +357,7 @@ mod tests {
             receipts: 1,
             submissions: 3,
             objects: 4,
+            records_retained: 0,
             unremovable: 0,
         };
         assert_eq!(removed.records(), 8);

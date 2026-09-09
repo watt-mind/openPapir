@@ -217,7 +217,7 @@ fn retained(data: &Value) -> Vec<(String, u64)> {
     let entries = data["objects_retained"]
         .as_array()
         .expect("objects_retained is an array");
-    assert_eq!(entries.len(), 3, "every reason is listed");
+    assert_eq!(entries.len(), 4, "every reason is listed");
     entries
         .iter()
         .map(|entry| {
@@ -269,6 +269,7 @@ fn a_deletion_without_purge_removes_records_and_keeps_every_object() {
         retained(data),
         vec![
             ("purge_not_requested".to_owned(), 2),
+            ("records_retained".to_owned(), 0),
             ("referenced_elsewhere".to_owned(), 0),
             ("unremovable".to_owned(), 0),
         ]
@@ -308,6 +309,7 @@ fn a_purge_removes_what_nothing_else_references_and_keeps_what_it_shares() {
         retained(data),
         vec![
             ("purge_not_requested".to_owned(), 0),
+            ("records_retained".to_owned(), 0),
             ("referenced_elsewhere".to_owned(), 1),
             ("unremovable".to_owned(), 0),
         ]
@@ -431,11 +433,150 @@ fn an_object_that_cannot_be_unlinked_is_reported_as_a_count() {
         retained(data),
         vec![
             ("purge_not_requested".to_owned(), 0),
+            ("records_retained".to_owned(), 0),
             ("referenced_elsewhere".to_owned(), 0),
             ("unremovable".to_owned(), 1),
         ]
     );
     assert!(fixture.object(&digest).is_file(), "the object stayed");
+}
+
+#[test]
+fn an_association_spanning_two_cases_refuses_the_deletion_and_touches_nothing() {
+    let fixture = Fixture::new();
+    let first = fixture.import("first.bin", FIRST);
+    let second = fixture.import("second.bin", SECOND);
+    let going = fixture.case("A local matter");
+    let staying = fixture.case("Another local matter");
+    let departing = fixture.submission(&going, &first);
+    let remaining = fixture.submission(&staying, &second);
+    let receipt = fixture.receipt(&second);
+    data(&[
+        "association",
+        "create",
+        "--archive",
+        &fixture.root_text(),
+        "--receipt",
+        &receipt,
+        "--outcome",
+        "contradictory",
+        "--candidate",
+        &format!("{departing}:weak:The user stated one link."),
+        "--candidate",
+        &format!("{remaining}:weak:The user stated another link."),
+        "--json",
+    ]);
+    let before = snapshot(&fixture.root);
+
+    for purge in [false, true] {
+        let output = fixture.delete(&going, purge);
+        assert_eq!(output.status.code(), Some(4));
+        let envelope = stdout_json(&output);
+        assert_eq!(envelope["ok"], false);
+        assert_eq!(envelope["error"]["code"], "delete.record_entangled");
+        assert_eq!(envelope["error"]["details"]["bucket"], "delete");
+        assert_eq!(envelope["error"]["details"]["record_kind"], "association");
+        assert_eq!(envelope["error"]["details"]["retained_count"], 1);
+        assert_eq!(envelope["data"], serde_json::json!({}));
+        assert_private(&envelope);
+        assert_eq!(
+            snapshot(&fixture.root),
+            before,
+            "the refusal comes before anything is unlinked"
+        );
+    }
+
+    assert!(
+        fixture.check().status.success(),
+        "the archive is left clean rather than holding a dangling reference"
+    );
+    // The entanglement is symmetric: the association names one submission
+    // from each case, so deleting either case would leave it naming a
+    // submission the archive no longer holds, and both are refused until the
+    // user resolves the association themselves.
+    let other = fixture.delete(&staying, true);
+    assert_eq!(other.status.code(), Some(4));
+    assert_eq!(
+        stdout_json(&other)["error"]["code"],
+        "delete.record_entangled"
+    );
+    assert_eq!(snapshot(&fixture.root), before, "still nothing was removed");
+}
+
+/// A record directory the process cannot write to is the one way to refuse a
+/// record unlink from outside. Windows expresses the same refusal through an
+/// access-control list, which this test cannot set portably, so the case is
+/// exercised on Unix alone and the skip is recorded here.
+#[cfg(unix)]
+#[test]
+fn a_refused_record_unlink_stops_the_purge_before_it_touches_an_object() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let fixture = Fixture::new();
+    let own = fixture.import("own.bin", FIRST);
+    let shared = fixture.import("shared.bin", SHARED);
+    let case_id = fixture.case("A local matter");
+    fixture.submission(&case_id, &own);
+    fixture.submission(&case_id, &shared);
+    let other = fixture.case("Another local matter");
+    fixture.submission(&other, &shared);
+
+    let submissions = fixture.root.join("records/submissions");
+    let objects = fixture.root.join("objects");
+    let before = snapshot(&objects);
+    fs::set_permissions(&submissions, fs::Permissions::from_mode(0o500))
+        .expect("make the submission directory read-only");
+    let output = fixture.delete(&case_id, true);
+    fs::set_permissions(&submissions, fs::Permissions::from_mode(0o700)).expect("restore the mode");
+
+    assert_eq!(output.status.code(), Some(4));
+    let envelope = stdout_json(&output);
+    assert_eq!(envelope["ok"], false);
+    assert_eq!(envelope["error"]["code"], "delete.records_retained");
+    assert_eq!(envelope["error"]["details"]["bucket"], "delete");
+    assert_eq!(
+        envelope["error"]["details"]["retained_count"], 3,
+        "two submissions and the case it holds are all still there"
+    );
+    assert_private(&envelope);
+
+    let data = &envelope["data"];
+    assert_eq!(data["objects_removed"], 0, "no object may be touched");
+    assert_eq!(data["records_retained"], 3);
+    assert_eq!(data["records_removed_total"], 0);
+    assert_eq!(
+        retained(data),
+        vec![
+            ("purge_not_requested".to_owned(), 0),
+            ("records_retained".to_owned(), 1),
+            ("referenced_elsewhere".to_owned(), 1),
+            ("unremovable".to_owned(), 0),
+        ],
+        "the objects the purge had planned are all still in the store"
+    );
+    assert_eq!(
+        removed(data)
+            .into_iter()
+            .find(|(kind, _)| kind == "import_event"),
+        Some(("import_event".to_owned(), 0)),
+        "no import event goes when no object went"
+    );
+
+    assert_eq!(
+        snapshot(&objects),
+        before,
+        "every stored object is exactly where it was"
+    );
+    let checked = fixture.check();
+    assert!(
+        checked.status.success(),
+        "the archive stays clean: {}",
+        String::from_utf8_lossy(&checked.stdout)
+    );
+    assert_eq!(stdout_json(&checked)["data"]["orphan_objects"], 0);
+
+    let text = String::from_utf8(fixture.delete(&case_id, true).stdout).expect("stdout is UTF-8");
+    assert!(text.contains("delete.records_retained") || text.contains("records_retained"));
 }
 
 /// On Windows an unlink another process defers is reported as a warning

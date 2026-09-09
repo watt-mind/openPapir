@@ -77,15 +77,25 @@ pub struct Deleted {
     pub records_removed: Vec<RemovedRecords>,
     /// How many record documents were unlinked in total.
     pub records_removed_total: u64,
+    /// How many record documents the filesystem refused to unlink. Any at all
+    /// means no object was touched, whatever `purge` says.
+    pub records_retained: u64,
 }
 
 impl Deleted {
-    /// The refusal a deletion that could not finish its purge reports.
+    /// The refusal a deletion that could not remove everything reports.
     ///
-    /// The deletion completed everything else, so its counts stay in `data`
-    /// and the error names the objects the purge left behind, by count only.
+    /// The deletion did the rest of its stated work, so its counts stay in
+    /// `data` and the error names, by count alone, what is still there. A
+    /// record that would not go comes first: it is the condition that stopped
+    /// the purge from running at all, and it is the reason any object is
+    /// still in the store, so reporting the objects instead would name the
+    /// symptom rather than the cause.
     #[must_use]
-    pub fn objects_retained(&self) -> Option<Diagnostic> {
+    pub fn problem(&self) -> Option<Diagnostic> {
+        if self.records_retained > 0 {
+            return Some(apply::records_retained(self.records_retained));
+        }
         let unremovable = self
             .objects_retained
             .iter()
@@ -132,8 +142,17 @@ fn run(
 
 /// Turn a plan and what it removed into the report the caller receives.
 fn report(plan: &plan::Plan, removed: &apply::Removed, purge: bool) -> Deleted {
+    // A record that would not go stops the object pass before it begins, so
+    // every object the purge had planned is still in the store for that one
+    // reason, and none of them was even attempted.
+    let stopped = removed.records_retained > 0;
     let retained = [
         plan.purge_not_requested,
+        if stopped {
+            plan.objects.len() as u64
+        } else {
+            0
+        },
         plan.referenced_elsewhere,
         removed.unremovable,
     ];
@@ -159,6 +178,7 @@ fn report(plan: &plan::Plan, removed: &apply::Removed, purge: bool) -> Deleted {
             .map(|(kind, count)| RemovedRecords { count, kind })
             .collect(),
         records_removed_total: removed.records(),
+        records_retained: removed.records_retained,
     }
 }
 
@@ -187,7 +207,8 @@ mod tests {
         assert_eq!(data.objects_removed, 0);
         assert_eq!(data.objects_retained_total, 0);
         assert!(!data.purge);
-        assert_eq!(data.objects_retained(), None);
+        assert_eq!(data.problem(), None);
+        assert_eq!(data.records_retained, 0);
         let kinds: Vec<&str> = data.records_removed.iter().map(|kind| kind.kind).collect();
         assert_eq!(kinds, plan::KINDS, "every kind is listed, in order");
         let removed: Vec<u64> = data.records_removed.iter().map(|kind| kind.count).collect();

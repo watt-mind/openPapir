@@ -14,7 +14,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use crate::archive::import::ImportEvent;
-use crate::error::Diagnostic;
+use crate::error::{Details, Diagnostic, codes};
 use crate::records::association::Association;
 use crate::records::case::Case;
 use crate::records::document;
@@ -35,7 +35,12 @@ pub const KINDS: [&str; 5] = [
 pub const UNREMOVABLE: &str = "unremovable";
 
 /// Why an object the purge considered is still in the store, ordered by name.
-pub const REASONS: [&str; 3] = ["purge_not_requested", "referenced_elsewhere", UNREMOVABLE];
+pub const REASONS: [&str; 4] = [
+    "purge_not_requested",
+    "records_retained",
+    "referenced_elsewhere",
+    UNREMOVABLE,
+];
 
 /// What a deletion will remove, and what it will leave behind.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -92,6 +97,7 @@ pub fn build(root: &Path, case_id: &str, purge: bool) -> Result<Plan, Diagnostic
         .map(|submission| submission.id.as_str())
         .collect();
     let going_associations = doomed_associations(&associations, &going);
+    refuse_entangled(&associations, &going, &going_associations)?;
     let going_receipts = doomed_receipts(&receipts, &associations, &going_associations);
 
     let mut plan = Plan {
@@ -122,6 +128,47 @@ pub fn build(root: &Path, case_id: &str, purge: bool) -> Result<Plan, Diagnostic
         }
     }
     Ok(plan)
+}
+
+/// Refuse a deletion that would leave a surviving record naming a removed one.
+///
+/// An association may name submissions in more than one case. If one of them
+/// is going and another remains, the association itself has to stay, because
+/// it still references a submission this deletion leaves behind, and it would
+/// then name a submission the archive no longer holds: exactly the dangling
+/// reference the integrity check reports.
+///
+/// openPapir cannot edit a stored record, so it cannot drop the departing
+/// candidate and keep the rest. Removing the association instead would delete
+/// the user's own assertion about a case they did not ask to delete. The
+/// deletion is therefore refused, before anything is touched, and the user is
+/// told how many records stand in the way and of what kind. Nothing is lost,
+/// and the refusal is the only one of the three outcomes that can be undone.
+///
+/// # Errors
+///
+/// Returns `delete.record_entangled`, carrying the kind and the count and
+/// never an identifier.
+fn refuse_entangled(
+    associations: &[Association],
+    going: &BTreeSet<&str>,
+    going_associations: &BTreeSet<&str>,
+) -> Result<(), Diagnostic> {
+    let entangled = associations
+        .iter()
+        .filter(|association| !going_associations.contains(association.id.as_str()))
+        .filter(|association| named(association).any(|id| going.contains(id)))
+        .count() as u64;
+    if entangled == 0 {
+        return Ok(());
+    }
+    Err(Diagnostic::new(
+        codes::DELETE_RECORD_ENTANGLED,
+        "A record this deletion must keep names a submission it would remove.",
+        Details::new()
+            .text("record_kind", "association")
+            .int("retained_count", entangled),
+    ))
 }
 
 /// Every submission an association names, confirmed or as a candidate.
@@ -313,7 +360,7 @@ mod tests {
         assert_eq!(hex("sha256:../../etc/passwd"), None);
         assert_eq!(hex("sha256:"), None);
         assert_eq!(KINDS.len(), 5);
-        assert_eq!(REASONS.len(), 3);
+        assert_eq!(REASONS.len(), 4);
     }
 
     #[test]

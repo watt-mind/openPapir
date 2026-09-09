@@ -252,7 +252,9 @@ pub fn case_deleted(deleted: &Deleted) -> Vec<String> {
             deleted.objects_retained_total,
             reasons.join(", ")
         ),
-        if deleted.purge {
+        if deleted.records_retained > 0 {
+            "A record could not be removed, so no object was touched: a record that is still here still references its artefacts.".to_owned()
+        } else if deleted.purge {
             "A purge was requested: an object is unlinked only when no remaining import event, receipt, or submission references it.".to_owned()
         } else {
             "No purge was requested, so no object was removed.".to_owned()
@@ -646,6 +648,10 @@ mod tests {
                     reason: "purge_not_requested",
                 },
                 RetainedObjects {
+                    count: 0,
+                    reason: "records_retained",
+                },
+                RetainedObjects {
                     count: 1,
                     reason: "referenced_elsewhere",
                 },
@@ -667,6 +673,7 @@ mod tests {
                 },
             ],
             records_removed_total: 4,
+            records_retained: 0,
         };
         let text = case_deleted(&deleted).join("\n");
         assert!(text.contains("Removed 4 record(s): case 1, submission 3."));
@@ -680,11 +687,23 @@ mod tests {
 
         let without_purge = case_deleted(&Deleted {
             purge: false,
-            ..deleted
+            ..deleted.clone()
         })
         .join("\n");
         assert!(without_purge.contains("No purge was requested, so no object was removed."));
         assert_no_claim(&without_purge);
+
+        let stopped = case_deleted(&Deleted {
+            records_retained: 1,
+            ..deleted
+        })
+        .join("\n");
+        assert!(
+            stopped.contains("A record could not be removed, so no object was touched"),
+            "a refused record unlink is stated before anything about a purge"
+        );
+        assert!(!stopped.contains("A purge was requested"));
+        assert_no_claim(&stopped);
     }
 
     #[test]

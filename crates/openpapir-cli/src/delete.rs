@@ -43,13 +43,13 @@ impl Delete {
     }
 }
 
-/// The objects a purge could not remove, and the exit code they map to.
+/// What a deletion could not remove, and the exit code it maps to.
 ///
 /// The deletion did the rest of its stated work, so its counts stay in `data`
-/// and the error names only how many objects are still in the store.
+/// and the error names only how much is still there.
 #[must_use]
 pub fn retained(deleted: &Deleted) -> Option<(Diagnostic, i32)> {
-    deleted.objects_retained().map(|error| {
+    deleted.problem().map(|error| {
         let code = error.exit_code();
         (error, code)
     })

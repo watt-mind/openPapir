@@ -692,7 +692,7 @@ What goes, and why:
 | --- | --- |
 | The case | The named case, always. |
 | Submissions | Every submission recorded against that case. |
-| Associations | An association goes when every submission it names is going and it names at least one. One naming a submission of another case references something that remains and stays, and so does one naming no submission at all. An association a remaining association supersedes is kept, because removing it would leave the newer record naming a record the archive no longer holds. |
+| Associations | An association goes when every submission it names is going and it names at least one. One naming no submission at all stays. An association a remaining association supersedes is kept, because removing it would leave the newer record naming a record the archive no longer holds. An association naming submissions in this case **and** in another is refused rather than resolved; see below. |
 | Receipts | A receipt is its own record. It goes when an association tied it to a submission that is going and no remaining association still names it. A receipt no association names is not tied to this case and stays. |
 | Import events | History, and kept. The one exception is an import event naming an object `--purge` removed: it goes with that object, because an event describing content that is gone describes nothing. An object the purge could not unlink keeps its import event, so it stays a referenced object rather than becoming an orphan. |
 | Objects | Only with `--purge`, and only an object no remaining import event, receipt, or submission references. |
@@ -704,6 +704,29 @@ read as a record of its kind therefore aborts the deletion with
 case identifier is `record.not_found`, and one that is not 32 lowercase
 hexadecimal characters is refused with the same code and never joined into a
 path.
+
+An association may name submissions in more than one case. When one of them is
+going and another remains, the association has to stay, because it still
+references a submission this deletion leaves behind, and it would then name a
+submission the archive no longer holds. openPapir edits no stored record, so
+it can neither drop the departing candidate nor invent a shorter record, and
+removing the association would delete the user's own assertion about a case
+they did not ask to delete. The deletion is refused instead, with
+`delete.record_entangled`, before anything is touched. The refusal is
+symmetric: until the user resolves the association themselves, neither case
+can be deleted. It is the only one of the three possible outcomes that loses
+nothing and can be undone.
+
+The record pass stops at the first unlink the filesystem refuses, and takes
+the object pass with it. The kinds go in the order of the references between
+them, associations, receipts, submissions, and then the case, so each kind
+goes only once everything that could name it has gone; carrying on past a
+refusal would remove a record something still there names, and purging
+afterwards would remove bytes a surviving record still names. Both are
+dangling references, so neither is attempted. The deletion keeps what it had
+already removed, touches no object at all, and reports
+`delete.records_retained` with the number of documents it planned to remove
+and did not, the ones it never reached included.
 
 Every removal is the unlink of one file openPapir created: a record document
 under `records/`, or an object at its own fan-out path under
@@ -728,6 +751,7 @@ record is written and no audit log is kept
     "objects_removed": 1,
     "objects_retained": [
       { "reason": "purge_not_requested", "count": 0 },
+      { "reason": "records_retained", "count": 0 },
       { "reason": "referenced_elsewhere", "count": 1 },
       { "reason": "unremovable", "count": 0 }
     ],
@@ -740,7 +764,8 @@ record is written and no audit log is kept
       { "kind": "receipt", "count": 0 },
       { "kind": "submission", "count": 2 }
     ],
-    "records_removed_total": 4
+    "records_removed_total": 4,
+    "records_retained": 0
   },
   "verified": false
 }
@@ -754,26 +779,32 @@ a count rather than testing for a key. The three reasons are fixed:
 | --- | --- |
 | `purge_not_requested` | The object would have become unreferenced, and `--purge` was not given. |
 | `referenced_elsewhere` | A submission or receipt that remains still references the object. |
+| `records_retained` | A record document would not go, so the object pass never ran and none of these objects was attempted. |
 | `unremovable` | `--purge` was given and the unlink did not succeed. |
 
-An `unremovable` count above zero makes `case.delete` the second command whose
-`data` survives a failure: the deletion completed everything else, so the
-counts stay in `data`, `ok` is `false`, `error` is `delete.objects_retained`
-with the count alone, and the exit code is `4`. Every other refusal empties
-`data` as usual.
+A `records_retained` or `unremovable` count above zero makes `case.delete` the
+second command whose `data` survives a failure: the deletion did the rest of
+its stated work, so the counts stay in `data`, `ok` is `false`, and the exit
+code is `4`. `error` is `delete.records_retained` when a record document would
+not go, which is reported first because it is the reason nothing was purged,
+and `delete.objects_retained` when only the purge fell short. Every other
+refusal, `delete.record_entangled` included, empties `data` as usual.
 
 Human output prints the same counts and no path.
 
 ```text
 Removed 4 record(s): association 0, case 1, import_event 1, receipt 0, submission 2.
-Removed 1 object(s); 1 retained: purge_not_requested 0, referenced_elsewhere 1, unremovable 0.
+Removed 1 object(s); 1 retained: purge_not_requested 0, records_retained 0, referenced_elsewhere 1, unremovable 0.
 A purge was requested: an object is unlinked only when no remaining import event, receipt, or submission references it.
 Deletion unlinked files in this archive. It does not erase data from the storage medium, and any backup already taken is outside openPapir's reach.
 ```
 
 An archive `archive check` found clean stays clean after a deletion, with or
-without a purge: nothing that remains names a record or object that went, and
-a purge leaves no orphan behind.
+without a purge, and in every refusal above. Nothing that remains names a
+record or object that went: the entangled association is refused rather than
+orphaned, a refused record unlink stops the purge before it starts, and an
+object that could not be unlinked keeps its import event. A purge leaves no
+orphan behind.
 
 ## `submission add`
 
@@ -996,7 +1027,7 @@ emitted.
 | `0` | Success, including a duplicate import and a warning | |
 | `2` | `usage` | `usage.arguments`, `usage.archive_root_missing` |
 | `3` | `input`, `path` | the six cap codes above, `path.symlink`, `path.overwrite`, `path.cross_device` |
-| `4` | `archive`, `lock`, `write`, `record`, `integrity`, `export`, `delete` | `record.not_found`, `record.malformed`, `record.inconsistent`, `archive.marker_missing`, `archive.marker_malformed`, `archive.adopt_refused`, `archive.schema_newer`, `archive.schema_older`, `archive.permissions_wide`, `archive.multiple_filesystems`, `lock.held`, `write.interrupted`, `integrity.digest_mismatch`, `integrity.length_mismatch`, `integrity.dangling_reference`, `integrity.orphan_object`, `export.destination_conflict`, `export.copy_mismatch`, `delete.objects_retained` |
+| `4` | `archive`, `lock`, `write`, `record`, `integrity`, `export`, `delete` | `record.not_found`, `record.malformed`, `record.inconsistent`, `archive.marker_missing`, `archive.marker_malformed`, `archive.adopt_refused`, `archive.schema_newer`, `archive.schema_older`, `archive.permissions_wide`, `archive.multiple_filesystems`, `lock.held`, `write.interrupted`, `integrity.digest_mismatch`, `integrity.length_mismatch`, `integrity.dangling_reference`, `integrity.orphan_object`, `export.destination_conflict`, `export.copy_mismatch`, `delete.objects_retained`, `delete.records_retained`, `delete.record_entangled` |
 | `5` | `platform` | `platform.filesystem_unsupported`, for a filesystem that cannot create the hard link the publish step needs. The named degradations are warnings, and the owner-only condition of the same code is not detected yet. |
 | `6` | `internal` | `internal.unexpected` |
 
@@ -1102,7 +1133,21 @@ follows, and no other reserved code became reachable:
     `platform.replace_while_open`, which the contract describes as an error,
     is emitted by `case delete` as a warning, because a deferred unlink stops
     that one object rather than the operation, which completes and reports
-    what it could not remove.
+    what it could not remove. Its `details` also carry
+    `read_only_restored`: where the platform needs the read-only attribute
+    cleared before an unlink, it is put back when the unlink still fails, and
+    the flag says whether putting it back succeeded.
+12. A record document the filesystem refuses to unlink is the additive
+    `delete.records_retained`, a `delete` refusal that exits `4` and is never
+    retryable. Its `details` carry `retained_count` and nothing else. It
+    stops the object pass entirely rather than purging around the record that
+    stayed, because a record that is still there still names its artefacts.
+13. A record that must survive a deletion and names a record the deletion
+    would remove is the additive `delete.record_entangled`, a `delete`
+    refusal that exits `4` and is never retryable, raised in the scan before
+    anything is unlinked. Its `details` carry `record_kind` and
+    `retained_count` and never an identifier. Only an association can reach
+    it today, by naming submissions in two cases.
 
 Permissions are never repaired as a side effect. `archive init` narrows the
 supplied root once, deliberately, as part of creating the archive; after that

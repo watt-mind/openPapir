@@ -86,6 +86,10 @@ pub mod codes {
 
     /// A purge could not remove every object it planned to remove.
     pub const DELETE_OBJECTS_RETAINED: &str = "delete.objects_retained";
+    /// A record document could not be removed, so no object was purged.
+    pub const DELETE_RECORDS_RETAINED: &str = "delete.records_retained";
+    /// A record that must be kept names a record this deletion would remove.
+    pub const DELETE_RECORD_ENTANGLED: &str = "delete.record_entangled";
 
     /// The filesystem cannot provide a guarantee the archive requires.
     pub const PLATFORM_FILESYSTEM_UNSUPPORTED: &str = "platform.filesystem_unsupported";
@@ -410,6 +414,8 @@ mod tests {
             (codes::EXPORT_DESTINATION_CONFLICT, Bucket::Export, 4),
             (codes::EXPORT_COPY_MISMATCH, Bucket::Export, 4),
             (codes::DELETE_OBJECTS_RETAINED, Bucket::Delete, 4),
+            (codes::DELETE_RECORDS_RETAINED, Bucket::Delete, 4),
+            (codes::DELETE_RECORD_ENTANGLED, Bucket::Delete, 4),
             (codes::PLATFORM_FILESYSTEM_UNSUPPORTED, Bucket::Platform, 5),
             (codes::PLATFORM_REPLACE_WHILE_OPEN, Bucket::Platform, 5),
             (codes::PLATFORM_NO_DIRECTORY_FSYNC, Bucket::Platform, 5),

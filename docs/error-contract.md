@@ -468,6 +468,26 @@ would name belongs to an archive the refusal is not about.
   deletion completed everything else, so the counts stay in `data` and the
   error names only how many objects are still in the store
   ([architecture](architecture.md)).
+- **`delete.records_retained`**: archive, not retryable. **Added additively by
+  `case delete`.** A record document the filesystem refused to unlink. It
+  stops the object pass entirely rather than purging around the record that
+  stayed: a record that is still there still names its artefacts, so removing
+  them would leave it naming bytes the archive no longer holds. Details:
+  `bucket` and `retained_count`, the number of documents the deletion planned
+  to remove and did not, the ones it never reached included. Nothing else: no
+  record kind that would narrow it to one document, no identifier, no path.
+  Like `delete.objects_retained` it keeps the deletion's counts in `data`, and
+  it is reported ahead of it, because it is the reason nothing was purged.
+- **`delete.record_entangled`**: archive, not retryable. **Added additively by
+  `case delete`.** A record that has to survive the deletion names a record
+  the deletion would remove. Only an association reaches it today, by naming
+  submissions in two cases: it references a submission that remains, so it
+  cannot go, and one that is going, so keeping it whole would leave a dangling
+  reference. openPapir edits no stored record, so the deletion is refused in
+  the scan, before anything is unlinked, rather than corrupting the
+  association or deleting the user's assertion about a case they did not name.
+  Details: `bucket`, `record_kind`, `retained_count`; never an identifier.
+  `data` is `{}` like any other refusal.
 
 Deletion itself is real and its summary is **not persisted**: counts and
 record kinds only, never filenames, digests, or titles
@@ -501,7 +521,12 @@ storage medium and no message may claim that it does.
   deferred unlink stops that one object rather than the purge: the command
   completes, counts the object as `unremovable`, and reports
   `delete.objects_retained` ([architecture](architecture.md)). Details:
-  `bucket`, `stage`.
+  `bucket`, `stage`, and, from `case delete`, the additive
+  `read_only_restored`. Where a platform needs a read-only attribute cleared
+  before a file can be unlinked, it is put back when the unlink still fails,
+  so a surviving object keeps the access it had; the flag says whether the
+  restore succeeded, because a failure to restore it is a weakening the
+  caller must be told about.
 - **`platform.owner_only_via_acl`**: platform. Used as a **warning**, never
   as an error; see below.
 
@@ -794,8 +819,11 @@ than proposal, and `archive.permissions_wide` now has a documented remedy
 rather than only a refusal.
 
 Deleting a case is implemented, so `delete.objects_retained`, its `reason`
-detail, and the rule that a deletion reports counts and record kinds and
-persists nothing are contract rather than proposal.
+detail, the additive `delete.records_retained` and `delete.record_entangled`,
+and the rule that a deletion reports counts and record kinds and persists
+nothing are contract rather than proposal. A deletion never leaves a record or
+an object naming something the archive no longer holds: it refuses instead,
+and every refusal above leaves the archive as `archive check` found it.
 
 Everything else here is still a proposal, including `lock.stale`,
 `path.traversal`, and `write.incomplete`. Agreeing a code here creates no
