@@ -282,6 +282,17 @@ envelope.
 
 ### Changed
 
+- The documentation states the stage the binary reports. `README.md` says
+  `alpha` in its status line and in its sample `capabilities --json` output,
+  which is regenerated from the binary and lists the same fifteen operations,
+  and the remaining prose in `CONTRIBUTING.md`, `docs/roadmap.md`,
+  `docs/index.md`, `docs/releasing.md`, `docs/references.md`,
+  `docs/receipt-discovery.md`, `docs/testing.md`, and `docs/factory.md` names
+  the alpha stage or the repository instead of calling the project a scaffold.
+  `scaffold` survives only as the first value of the documented `stage`
+  vocabulary in [architecture](docs/architecture.md). The receipt discovery
+  note no longer claims the tool exposes help, version, and `capabilities`
+  alone. No behaviour, contract, or output changes.
 - `AGENTS.md` and `SECURITY.md` describe the scope the binary actually has.
   The agent boundaries name the fifteen implemented operations, point at
   architecture as the implemented contract and the specification index as the
