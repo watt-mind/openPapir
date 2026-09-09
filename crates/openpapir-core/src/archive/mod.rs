@@ -30,11 +30,15 @@ pub const IMPORTS_DIR: &str = "records/imports";
 pub const CASES_DIR: &str = crate::records::CASES_DIR;
 /// The directory holding submission records, relative to the root.
 pub const SUBMISSIONS_DIR: &str = crate::records::SUBMISSIONS_DIR;
+/// The directory holding receipt records, relative to the root.
+pub const RECEIPTS_DIR: &str = crate::records::RECEIPTS_DIR;
+/// The directory holding association records, relative to the root.
+pub const ASSOCIATIONS_DIR: &str = crate::records::ASSOCIATIONS_DIR;
 /// The disposable, rebuildable index directory, relative to the root.
 pub const CACHE_DIR: &str = "cache";
 
 /// The directories an archive holds, relative to its root.
-const LAYOUT_DIRS: [&str; 8] = [
+const LAYOUT_DIRS: [&str; 10] = [
     "objects",
     "objects/sha256",
     "objects/incoming",
@@ -42,6 +46,8 @@ const LAYOUT_DIRS: [&str; 8] = [
     IMPORTS_DIR,
     CASES_DIR,
     SUBMISSIONS_DIR,
+    RECEIPTS_DIR,
+    ASSOCIATIONS_DIR,
     CACHE_DIR,
 ];
 

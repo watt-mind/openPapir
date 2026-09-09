@@ -5,20 +5,22 @@
 //! This crate owns the local case archive. Today that means the archive root
 //! and its marker, the content-addressed artefact store, the atomic write
 //! procedure, the single-writer lock, the input caps, the import-event
-//! records that import writes, and the case and submission records. Receipts,
-//! associations, derived metadata, and verification results are designed in
-//! `docs/archive-layout.md` and are not implemented.
+//! records that import writes, and the case, submission, receipt, and
+//! user-asserted association records. Derived metadata and verification
+//! results are designed in `docs/archive-layout.md` and are not implemented.
 //!
 //! # Status
 //!
-//! Six operations are implemented, `archive.init`, `import`, `case.create`,
-//! `case.list`, `case.show`, and `submission.add`, and they are the six
+//! Ten operations are implemented, `archive.init`, `import`, `case.create`,
+//! `case.list`, `case.show`, `submission.add`, `receipt.add`, `receipt.list`,
+//! `association.create`, and `association.list`, and they are the ten
 //! [`capabilities`] reports. Everything else in the design stays a plan: no
-//! export, no deletion, no editing, no integrity check, no matching, no
-//! receipt parsing, and no verification of any kind. A case and a submission
-//! are the user's own local organisation: openPapir sends nothing, so a
-//! submission is always user-asserted and asserts no delivery, receipt by an
-//! authority, authenticity, or legal effect.
+//! export, no deletion, no editing, no integrity check, no automatic
+//! matching, no derived metadata, no receipt parsing, and no verification of
+//! any kind. Every record here is the user's own local organisation:
+//! openPapir sends nothing and reads no artefact bytes, so a submission, a
+//! receipt, and an association are all user-asserted and assert no delivery,
+//! receipt by an authority, authenticity, or legal effect.
 //!
 //! # Capabilities contract
 //!
@@ -48,7 +50,11 @@ pub mod records;
 pub use archive::import::{Artefact, Imported, import};
 pub use archive::{Created, init};
 pub use error::{Diagnostic, Failure, Outcome, Warning};
+pub use records::association::{
+    Association, AssociationCreated, AssociationHistory, Candidate, Evidence,
+};
 pub use records::case::{Case, CaseCreated, CaseList, CaseView};
+pub use records::receipt::{Receipt, ReceiptAdded, ReceiptList};
 pub use records::submission::{ArtefactRef, Submission, SubmissionAdded};
 
 use serde::Serialize;
@@ -61,6 +67,10 @@ const OPERATIONS: &[&str] = &[
     "case.list",
     "case.show",
     "submission.add",
+    "receipt.add",
+    "receipt.list",
+    "association.create",
+    "association.list",
 ];
 
 /// Machine-readable implementation status; never a verification verdict.
@@ -99,7 +109,11 @@ mod tests {
                 "case.create",
                 "case.list",
                 "case.show",
-                "submission.add"
+                "submission.add",
+                "receipt.add",
+                "receipt.list",
+                "association.create",
+                "association.list"
             ]
         );
         assert_eq!(reported.project, "openPapir");

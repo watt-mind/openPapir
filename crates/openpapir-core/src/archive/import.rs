@@ -17,12 +17,11 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::archive::lock::WriterLock;
-use crate::archive::{
-    Archive, IMPORTS_DIR, SUPPORTED_SCHEMA_VERSION, limits, objects, paths, write,
-};
+use crate::archive::{Archive, IMPORTS_DIR, SUPPORTED_SCHEMA_VERSION, limits, objects, paths};
 use crate::clock;
 use crate::error::{Details, Diagnostic, Failure, Outcome, Result, Warning, codes};
 use crate::ident;
+use crate::records::document::{self, Record};
 
 /// One stored artefact, as reported to the caller.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -54,17 +53,45 @@ pub struct Imported {
     pub artefacts: Vec<Artefact>,
 }
 
+/// The value an import-event record carries in `record_kind`.
+pub const EVENT_KIND: &str = "import_event";
+
 /// One import event record, stored as `records/imports/<id>.json`.
+///
+/// The record is public so that another record kind can name the import event
+/// that introduced an artefact. The original filename stays an attribute: it
+/// is never joined into a path and never reported (`docs/archive-layout.md`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct ImportEvent {
-    archive_schema_version: u32,
-    byte_length: u64,
-    created_object: bool,
-    digest: String,
-    id: String,
-    imported_at: String,
-    original_filename: String,
-    record_kind: String,
+pub struct ImportEvent {
+    /// The archive schema version the record was written under.
+    pub archive_schema_version: u64,
+    /// The number of bytes the import stored or found already present.
+    pub byte_length: u64,
+    /// Whether this import created the object or found it already present.
+    pub created_object: bool,
+    /// The algorithm-qualified digest of the artefact.
+    pub digest: String,
+    /// The import event's own identifier, minted by openPapir.
+    pub id: String,
+    /// When openPapir recorded the import.
+    pub imported_at: String,
+    /// The original filename, an attribute only, never joined into a path.
+    pub original_filename: String,
+    /// The record kind, always `import_event`.
+    pub record_kind: String,
+}
+
+impl Record for ImportEvent {
+    const KIND: &'static str = EVENT_KIND;
+    const DIRECTORY: &'static str = IMPORTS_DIR;
+
+    fn id(&self) -> &str {
+        &self.id
+    }
+
+    fn record_kind(&self) -> &str {
+        &self.record_kind
+    }
 }
 
 /// An input accepted by the pre-allocation checks, ready to be streamed.
@@ -210,16 +237,16 @@ fn store_one(
     let digest = format!("{}:{}", objects::ALGORITHM, stored.digest);
     let history = history_of(root, &digest);
     let event = ImportEvent {
-        archive_schema_version: SUPPORTED_SCHEMA_VERSION,
+        archive_schema_version: u64::from(SUPPORTED_SCHEMA_VERSION),
         byte_length: stored.byte_length,
         created_object: stored.created_object,
         digest: digest.clone(),
         id: ident::new_id()?,
         imported_at: clock::now_rfc3339(),
         original_filename: input.original_filename.clone(),
-        record_kind: "import_event".to_owned(),
+        record_kind: EVENT_KIND.to_owned(),
     };
-    warnings.extend(write_event(root, &event)?);
+    warnings.extend(document::write_record(root, &event)?);
     Ok(Artefact {
         digest,
         byte_length: stored.byte_length,
@@ -232,28 +259,6 @@ fn store_one(
             history.first_imported_at
         },
     })
-}
-
-/// Write one import-event record through the atomic write procedure.
-fn write_event(root: &Path, event: &ImportEvent) -> std::result::Result<Vec<Warning>, Diagnostic> {
-    let document = serde_json::to_string(event).map_err(|_| {
-        Diagnostic::new(
-            codes::INTERNAL_UNEXPECTED,
-            "An import event could not be serialised.",
-            Details::new(),
-        )
-    })?;
-    let document = format!("{document}\n");
-    limits::check_record_size(document.len() as u64)?;
-    let file_name = format!("{}.json", event.id);
-    let archive_path = format!("{IMPORTS_DIR}/{file_name}");
-    write::write_document(
-        &root.join(IMPORTS_DIR),
-        &file_name,
-        &archive_path,
-        document.as_bytes(),
-        "record_write",
-    )
 }
 
 /// How many import events already reference a digest, and the earliest.

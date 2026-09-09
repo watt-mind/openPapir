@@ -18,6 +18,48 @@ matches the observable difference. See the Documentation section of
 
 ### Added
 
+- `openpapir receipt add --archive <root> --artefact <digest> [--import-event
+  <id>] [--label <l>]` and `openpapir receipt list --archive <root>` record
+  and list receipts under `records/receipts/`. A receipt is an artefact the
+  user believes to be a receipt: it names a stored object and the import event
+  that introduced it, never rewrites the artefact, and asserts nothing about
+  the file's type or authenticity. With no `--import-event` the earliest event
+  for the digest is recorded; a named event must record that same artefact.
+- `openpapir association create --archive <root> --receipt <receipt-id>
+  --outcome <outcome> [--candidate <submission-id>:<confidence>:<statement>]...
+  [--supersedes <association-id>]` and `openpapir association list --archive
+  <root> --receipt <receipt-id>` record and list user-asserted associations
+  under `records/associations/`. All four outcomes, `unassociated`,
+  `candidate`, `associated`, and `contradictory`, are results rather than
+  errors and exit `0`. Confidence is the closed ordinal set `weak`,
+  `moderate`, `strong` and never a number. Every evidence entry carries `kind`
+  `user_assertion` and `source` `user`, and every record carries `created_by`
+  `user`, because openPapir reads no artefact bytes and matches nothing on its
+  own.
+- Associations are append-only. `--supersedes` names an earlier association
+  for the same receipt and never modifies it, and `association list` returns
+  the whole history newest first, superseded records included, each showing
+  what it supersedes. Nothing is collapsed, filtered, or presented as a single
+  best guess.
+- New error code `record.inconsistent`, a `record` refusal that exits `4` and
+  is never retryable, for fields that are readable but cannot be true
+  together. Its details carry `record_kind` and a short, stable `rule` name
+  and nothing else. The rules are `unassociated_has_candidates`,
+  `candidate_requires_candidates`, `associated_requires_one_candidate`,
+  `contradictory_requires_two_candidates`, `duplicate_candidate_submission`,
+  `supersedes_other_receipt`, and `import_event_digest_mismatch`.
+- Field caps refused before any write: a receipt `label` of 200 bytes and an
+  evidence `statement` of 512 bytes, both single lines, both reported through
+  `input.cap.field_length`. `capabilities` now reports ten operations, adding
+  `receipt.add`, `receipt.list`, `association.create`, and
+  `association.list`.
+- Opening an archive created by an earlier build adds `records/receipts/` and
+  `records/associations/` if they are absent; nothing else changes.
+
+Automatic association, derived metadata, extractors, receipt parsing, and
+verification results stay unimplemented, and no output or field claims
+delivery, receipt by an authority, authenticity, or legal effect.
+
 - `openpapir case create --archive <root> --title <t> [--notes <n>]`,
   `openpapir case list --archive <root>`, and
   `openpapir case show --archive <root> <case-id>` record, list, and show
