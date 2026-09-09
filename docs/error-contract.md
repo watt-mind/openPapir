@@ -3,8 +3,8 @@
 ## Status and scope
 
 This document is a **specification for review**, and parts of it now have code
-behind them: archive creation, artefact import, and the case and submission
-records emit the envelope below and the codes
+behind them: archive creation, artefact import, and the case, submission,
+receipt, and association records emit the envelope below and the codes
 [architecture](architecture.md) lists. Architecture is the canonical
 description of implemented behaviour. Every other command name, flag, field
 name, error code, and exit code below is **proposed**.
@@ -341,6 +341,32 @@ followed ([archive-layout](archive-layout.md)).
   document that is not a regular file, and one larger than the record cap,
   report the same code and are never opened: the link is not followed and the
   bytes are never allocated.
+- **`record.inconsistent`**: record, not retryable. **Added additively by the
+  receipt and association records.** A record's fields exist and are each
+  readable, but they cannot be true together under a rule
+  [archive-layout](archive-layout.md) already states: an outcome whose
+  candidate count the design forbids, one submission named as a candidate
+  twice, a superseded record belonging to another receipt, or a named import
+  event recording another artefact. The refusal happens before anything is
+  written. Details: `bucket`, `record_kind` (the kind whose creation was
+  refused, such as `association` or `receipt`) and `rule`, a short, stable
+  snake_case name for the broken invariant. Nothing else: no identifier, no
+  statement, no label, and no path. The implemented rules are
+
+  | `rule` | The invariant it names |
+  | --- | --- |
+  | `unassociated_has_candidates` | `unassociated` has zero candidates. |
+  | `candidate_requires_candidates` | `candidate` has one or more candidates. |
+  | `associated_requires_one_candidate` | `associated` has exactly one candidate. |
+  | `contradictory_requires_two_candidates` | `contradictory` has two or more candidates. |
+  | `duplicate_candidate_submission` | No submission is a candidate twice in one record. |
+  | `supersedes_other_receipt` | A superseded record belongs to the same receipt. |
+  | `import_event_digest_mismatch` | A named import event records the named artefact. |
+
+  A rule name is stable once published, and a new rule is an additive change
+  like a new code. This is a separate code from `record.not_found`, which
+  answers a different question: a reference that names nothing at all, rather
+  than a set of fields that cannot be true together.
 - **`record.not_found`**: record, not retryable. A reference names no record
   or object in this archive: a case identifier with no case record, or an
   artefact digest with no stored object. An identifier that cannot name a
@@ -559,8 +585,11 @@ shape follows the association record:
 the privacy rule allows, as distinct from any receipt identifier issued by an
 authority, which is never emitted.
 
-`submission_id` is `null` for `unassociated` and `candidate`; `candidates`
-holds one entry for `associated`, several for `candidate` and
+`submission_id` is `null` for `unassociated`, `candidate`, and
+`contradictory`, and non-null only for `associated`, where it equals the one
+candidate the user confirmed. Naming a submission for `contradictory` would
+resolve the contradiction the record exists to retain. `candidates` holds one
+entry for `associated`, one or more for `candidate`, two or more for
 `contradictory`, and none for `unassociated`. `confidence` is the closed
 ordinal set `weak`, `moderate`, `strong` and is never a number, because no
 calibration data exists. A candidate set is never collapsed to a single best
@@ -616,10 +645,17 @@ lists exactly which codes are emitted; where the two disagree, architecture is
 authoritative and this page is a defect. `capabilities --json` reports the
 implemented operations, and `verified` stays `false` in every envelope.
 
+The receipt and user-asserted association records are implemented, so the four
+association outcomes and the association shape above are contract rather than
+proposal, and `record.inconsistent` is emitted. Automatic association,
+derived metadata, and any extractor stay unimplemented: every evidence entry
+this build writes carries `kind` `user_assertion` and `source` `user`, and
+every association carries `created_by` `user`.
+
 Everything else here is still a proposal, including every `export` and
 `delete` code, `lock.stale`, `path.traversal`, `write.incomplete`,
-`integrity.digest_mismatch`, `integrity.orphan_object`, the association
-outcomes, and the whole-archive integrity report. Agreeing a code here creates
+`integrity.digest_mismatch`, `integrity.orphan_object`, and the whole-archive
+integrity report. Agreeing a code here creates
 no capability and no obligation on a user's archive.
 
 ## Origin and unblocked work
@@ -631,8 +667,10 @@ written and reviewed:
 
 - **Artefact import with byte preservation**: may now print JSON, using the
   `input`, `path`, `archive`, `lock`, `write`, and `platform` codes.
-- **Association records with candidate and contradictory outcomes**: has the
-  outcome shape and the rule that no outcome is an error.
+- **Association records with candidate and contradictory outcomes**: had the
+  outcome shape and the rule that no outcome is an error, and is now
+  implemented for user-asserted associations
+  ([architecture](architecture.md)).
 - **Whole-archive integrity check**: has the counts-and-buckets report shape.
 - **Derived-metadata staleness and recompute-on-request**: has the record
   and cap codes it needs.

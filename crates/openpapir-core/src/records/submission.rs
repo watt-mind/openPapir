@@ -11,27 +11,24 @@
 //! The digest is a storage-layer identity only: it says the bytes are present
 //! in this archive, and nothing about authenticity, origin, or legal effect.
 
-use std::fs;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
 use crate::archive::lock::WriterLock;
-use crate::archive::{Archive, SUPPORTED_SCHEMA_VERSION, objects, paths};
+use crate::archive::{Archive, SUPPORTED_SCHEMA_VERSION};
 use crate::clock;
 use crate::error::{Details, Diagnostic, Failure, Outcome, Result, Warning, codes};
 use crate::ident;
 use crate::records::case::Case;
 use crate::records::document::{self, Record};
-use crate::records::{SUBMISSIONS_DIR, checked_description, checked_role};
+use crate::records::{
+    DIGEST_PREFIX, SUBMISSIONS_DIR, checked_description, checked_role, is_digest,
+    refuse_absent_object,
+};
 
 /// The value a submission record carries in `record_kind`.
 pub const KIND: &str = "submission";
-
-/// The digest form a submission may reference.
-const DIGEST_PREFIX: &str = "sha256:";
-/// The number of hexadecimal characters a SHA-256 digest renders as.
-const DIGEST_LENGTH: usize = 64;
 
 /// One artefact reference: the stored bytes and the label the user gave them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -176,14 +173,6 @@ fn parse_references(artefacts: &[String]) -> std::result::Result<Vec<ArtefactRef
     Ok(references)
 }
 
-/// Whether a value is 64 lowercase hexadecimal characters.
-fn is_digest(value: &str) -> bool {
-    value.len() == DIGEST_LENGTH
-        && value
-            .chars()
-            .all(|character| character.is_ascii_digit() || ('a'..='f').contains(&character))
-}
-
 /// The refusal for a reference openPapir cannot read as a digest.
 ///
 /// The supplied value is not echoed: it is user text, and the argument name
@@ -194,29 +183,6 @@ fn unusable_reference() -> Diagnostic {
         "An artefact reference is not a sha256 digest with an optional role.",
         Details::new().text("argument", "artefact"),
     )
-}
-
-/// Refuse a digest that names no object stored in this archive.
-///
-/// The object's bytes are never opened here: only its presence, its link
-/// state, and the permissions of its fan-out directories are checked, exactly
-/// as import checks them before it publishes.
-fn refuse_absent_object(root: &Path, digest: &str) -> std::result::Result<(), Diagnostic> {
-    let hex = digest.strip_prefix(DIGEST_PREFIX).unwrap_or(digest);
-    let path = objects::absolute_path(root, hex);
-    let relative = objects::archive_path(hex);
-    if paths::is_symlink(&path) {
-        return Err(paths::symlink_refusal(
-            Details::new()
-                .text("scope", "archive")
-                .text("archive_path", relative),
-        ));
-    }
-    objects::check_object_permissions(root, hex)?;
-    if !fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.is_file()) {
-        return Err(document::not_found("artefact", "artefact_digest"));
-    }
-    paths::refuse_if_wide(&path, &relative)
 }
 
 /// Check a user-supplied date: `YYYY-MM-DD`, stored verbatim.
@@ -280,6 +246,7 @@ mod tests {
     use super::*;
     use crate::archive;
     use crate::records::case;
+    use std::fs;
     use std::path::PathBuf;
 
     const PAYLOAD: &[u8] = b"synthetic bytes\n";

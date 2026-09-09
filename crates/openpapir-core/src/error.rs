@@ -67,6 +67,8 @@ pub mod codes {
     pub const RECORD_NOT_FOUND: &str = "record.not_found";
     /// A stored record document cannot be read as a valid record.
     pub const RECORD_MALFORMED: &str = "record.malformed";
+    /// A record's fields break a consistency rule of the archive design.
+    pub const RECORD_INCONSISTENT: &str = "record.inconsistent";
 
     /// A duplicate import found a stored object of a different length.
     pub const INTEGRITY_LENGTH_MISMATCH: &str = "integrity.length_mismatch";
@@ -382,6 +384,7 @@ mod tests {
             (codes::WRITE_INTERRUPTED, Bucket::Write, 4),
             (codes::RECORD_NOT_FOUND, Bucket::Record, 4),
             (codes::RECORD_MALFORMED, Bucket::Record, 4),
+            (codes::RECORD_INCONSISTENT, Bucket::Record, 4),
             (codes::INTEGRITY_LENGTH_MISMATCH, Bucket::Integrity, 4),
             (codes::PLATFORM_FILESYSTEM_UNSUPPORTED, Bucket::Platform, 5),
             (codes::PLATFORM_NO_DIRECTORY_FSYNC, Bucket::Platform, 5),

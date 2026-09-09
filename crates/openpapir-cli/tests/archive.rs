@@ -942,7 +942,11 @@ fn capabilities_report_exactly_the_implemented_operations() {
             "case.create",
             "case.list",
             "case.show",
-            "submission.add"
+            "submission.add",
+            "receipt.add",
+            "receipt.list",
+            "association.create",
+            "association.list"
         ])
     );
     assert_eq!(output.status.code(), Some(0));
