@@ -110,6 +110,12 @@ matches the observable difference. See the Documentation section of
 
 ### Changed
 
+- `docs/receipt-discovery.md` presents its evidence matrix as one subsection
+  per source (E1 to E6) with a definition-style list of the same fields,
+  instead of a nine-column table whose rows were unreadable in the raw
+  Markdown. Every source keeps its facts, links, retrieval dates, and
+  normative, descriptive, or unknown label. The F4 finding drops one of its
+  two adjacent no-design-decision disclaimers.
 - The Association records section of `docs/archive-layout.md` states the same
   field list and nesting as `docs/error-contract.md`: `evidence` and
   `confidence` sit inside each candidate, not at record level, and the
