@@ -49,3 +49,13 @@ coverage, dependency policy, and security scans. Changes to behaviour require
 meaningful tests; document observable contracts and limitations. Keep files
 small enough for the repository's file-length check and use Conventional
 Commits. Read [testing](docs/testing.md) before adding fixtures or tests.
+
+## Factory orchestration
+
+For an explicitly requested orchestration run, read
+[the master orchestrator instructions](docs/orchestrator.md) and
+[runner setup](docs/factory.md). Claim and re-read the private ticket before
+editing, use one isolated worktree per ticket, and obtain independent review
+before serial merges to `develop`. Only green post-merge CI permits `Done`.
+The repository privacy rules override generic Factory examples that expose
+private tracker identifiers in public branches, commits or PRs.

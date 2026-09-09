@@ -1,0 +1,4 @@
+# Machine-local command links are outside the public documentation set.
+ignores:
+  - ".claude/commands/factory-*.md"
+  - ".cursor/commands/factory-*.md"

@@ -10,3 +10,6 @@
 
 The implementation is a scaffold. Documents identify future work explicitly;
 none of the planned correspondence workflows are available yet.
+
+- [Master orchestrator instructions](orchestrator.md)
+- [Factory and runner setup](factory.md)
