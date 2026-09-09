@@ -18,9 +18,14 @@
 //!
 //! A record this deletion keeps whose artefact reference is not a digest at
 //! all references something the archive cannot resolve. It is read as a
-//! reference to an unknown object rather than to none, so every object the
-//! purge had considered is retained as `referenced_elsewhere` and the count
-//! of such references is reported as a `record.malformed` warning.
+//! reference to an unknown object rather than to none, so a purge unlinks
+//! none of the objects it had considered: each is retained as
+//! `referenced_elsewhere` instead. The count of such references is reported
+//! as a `record.malformed` warning, and only when it held an object of this
+//! deletion back, because the scan reads the whole archive and a reference
+//! that changed nothing here describes the archive rather than the command.
+//! Without `--purge` nothing was going to be unlinked anyway, so a candidate
+//! keeps `purge_not_requested` and no warning is raised.
 //!
 //! # What is removed, and what is never removed
 //!
@@ -142,7 +147,7 @@ fn run(
     warnings.extend(archive.take_warnings());
     let _lock = WriterLock::acquire(archive.root())?;
     let plan = plan::build(archive.root(), case_id, purge)?;
-    if plan.malformed_references > 0 {
+    if plan.malformed_withheld > 0 {
         warnings.push(plan::malformed_references(plan.malformed_references));
     }
     let removed = apply::run(archive.root(), &plan, warnings);
