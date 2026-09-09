@@ -29,40 +29,40 @@ repository; no third-party schema or document content is redistributed here.
 
 | # | Issuing organisation | Source title | Version / date | URL and section | Retrieved | Redistribution terms | Claim supported | Kind |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| E1 | Operator of the e-Papír service (imprint names IdomSoft Zrt. as the service provider) | e-Papír — Súgó, "Általános tájékoztató" section | Page footer shows `verzió: 1.1.6 (2025-11-04)` | <https://epapir.gov.hu/sugo> (accordion section "Általános tájékoztató"; "Impresszum" for the operator statement) | 2026-09-09, retrieved | Not established | A submitter receives a *Feladási igazolás* in their personal delivery storage after a successful submission; the storage retains incoming documents, *igazolások* and *nyugták* for 30 days, with an option to move items to permanent storage; a letter may carry attachments up to 25 MB; the accepted attachment format list includes `.pdf` | Descriptive |
+| E1 | Operator of the e-Papír service (imprint names IdomSoft Zrt. as the service provider) | e-Papír Súgó, "Általános tájékoztató" section | Page footer shows `verzió: 1.1.6 (2025-11-04)` | <https://epapir.gov.hu/sugo> (accordion section "Általános tájékoztató"; "Impresszum" for the operator statement) | 2026-09-09, retrieved | Not established | A submitter receives a *Feladási igazolás* in their personal delivery storage after a successful submission; the storage retains incoming documents, *igazolások* and *nyugták* for 30 days, with an option to move items to permanent storage; a letter may carry attachments up to 25 MB; the accepted attachment format list includes `.pdf` | Descriptive |
 | E2 | Nemzeti Jogszabálytár (national consolidated law database) | 451/2016. (XII. 19.) Korm. rendelet az elektronikus ügyintézés részletszabályairól | Consolidated text dated 2024-07-01 | <https://njt.jog.gov.hu/jogszabaly/2016-451-20-22> (§ 6(10); § 30(3)) | 2026-09-09, partially retrieved | Not established | § 6(10) states that the secure delivery service provider sends the sender authentic confirmations (`hiteles igazolásokat`) about delivery; § 30(3) requires certain confirmations to be transmitted via the secure delivery service | Normative |
-| E3 | Operator of the magyarorszag.hu SZÜF portal | "Tárhely szolgáltatások — Személyes tárhely, Cégkapu, Hivatali kapu" service description | No version or date shown on the page | <https://magyarorszag.hu/szuf_ugyleiras?id=2b96c3a5-d636-4a82-8a4e-ee4a13fbdc5b> | 2026-09-09, retrieved | Not established | A single "Hiteles Elektronikus Postafiók" surface provides storage for citizens, Hivatali kapu and Cégkapu holders — i.e. the receipt destination is a storage mailbox, not a per-application inbox | Descriptive |
+| E3 | Operator of the magyarorszag.hu SZÜF portal | "Tárhely szolgáltatások: Személyes tárhely, Cégkapu, Hivatali kapu" service description | No version or date shown on the page | <https://magyarorszag.hu/szuf_ugyleiras?id=2b96c3a5-d636-4a82-8a4e-ee4a13fbdc5b> | 2026-09-09, retrieved | Not established | A single "Hiteles Elektronikus Postafiók" surface provides storage for citizens, Hivatali kapu and Cégkapu holders, i.e. the receipt destination is a storage mailbox, not a per-application inbox | Descriptive |
 | E4 | e-Papír content management group; copy published by Emberi Erőforrás Támogatáskezelő (EMET) | e-Papír Felhasználói Kézikönyv | `v1.0`, `2018.02.21.` (read from the document's own title page text) | <https://emet.gov.hu/app/uploads/sites/2/2020/11/epapir_felhasznaloi_kezikonyv.pdf> | 2026-09-09, retrieved but not usable | Not established | Establishes only that a manual with this title, version and date exists; see the finding in F2 | Unknown |
-| E5 | Police (Országos Rendőr-főkapitányság) e-administration site | NOVA.PACK information page | Not established | <https://ugyintezes.police.hu/novapack> | 2026-09-09, **not retrieved** | Not established | None — see F3 | Unknown |
-| E6 | Országos Bírósági Hivatal / Magyarország Bíróságai | "Az elektronikus beadványok beküldését követő értesítések" | Not established | <https://birosag.hu/ugyfeleknek/elektronikus-ugyintezes/elektronikus-kapcsolattartas-birosagokkal/e-per/e-kapcsolattartas-az-egyes-ugytipusokban/az-elektronikus-beadvanyok-bekuldeset-koveto-ertesitesek> | 2026-09-09, **not retrieved** | Not established | None — see F4 | Unknown |
+| E5 | Police (Országos Rendőr-főkapitányság) e-administration site | NOVA.PACK information page | Not established | <https://ugyintezes.police.hu/novapack> | 2026-09-09, **not retrieved** | Not established | None (see F3) | Unknown |
+| E6 | Országos Bírósági Hivatal / Magyarország Bíróságai | "Az elektronikus beadványok beküldését követő értesítések" | Not established | <https://birosag.hu/ugyfeleknek/elektronikus-ugyintezes/elektronikus-kapcsolattartas-birosagokkal/e-per/e-kapcsolattartas-az-egyes-ugytipusokban/az-elektronikus-beadvanyok-bekuldeset-koveto-ertesitesek> | 2026-09-09, **not retrieved** | Not established | None (see F4) | Unknown |
 
 ### Findings on evidence quality
 
-- **F1 — the decisive detail is absent from the retrieved normative text.**
+- **F1: the decisive detail is absent from the retrieved normative text.**
   E2 was retrieved only up to § 68/A; the text ended mid-document. Within the
   retrieved portion, the decree establishes *that* authentic delivery
   confirmations exist and how they travel, but the retrieved portion carries no
   file format, no field list, no identifier syntax, and no timing rule for a
   *Feladási igazolás*. Treat the receipt's structure as **unknown**.
-- **F2 — E4 could not be read.** The PDF uses subset fonts whose text could not
+- **F2: E4 could not be read.** The PDF uses subset fonts whose text could not
   be extracted reliably with the tooling available during this discovery, so no
   sentence from it can be quoted or relied on. It is also from 2018 and may not
   describe the service as it behaves now. No claim rests on it.
-- **F3 — E5 was unreachable.** The retrieval failed during TLS certificate
+- **F3: E5 was unreachable.** The retrieval failed during TLS certificate
   chain validation, so nothing about NOVA.PACK was observed. This note
   therefore makes no statement about NOVA.PACK, KRX, or police-specific
   packaging, and police documentation must not be read as general e-Papír
   access ([references](references.md) already says so).
-- **F4 — E6 returned HTTP 403.** Search-engine surfaced snippets describing a
+- **F4: E6 returned HTTP 403.** Search-engine surfaced snippets describing a
   *Letöltési igazolás* and an *Átvételi értesítő* were seen, but they could not
   be verified against the page itself. They are recorded here as unverified
   hearsay and support no design decision. Those snippets suggest "receipt" may
   be a family of artefacts rather than one type; that remains unverified, and
   no design decision rests on it.
-- **F5 — redistribution terms are unestablished everywhere.** No consulted
+- **F5: redistribution terms are unestablished everywhere.** No consulted
   source stated licence terms permitting redistribution of its text, schemas,
   or sample documents. Link only; vendor nothing.
-- **F6 — no source consulted described a machine-readable receipt schema, a
+- **F6: no source consulted described a machine-readable receipt schema, a
   stable receipt identifier syntax, or a documented submission-to-receipt
   correlation field.** The relationship between a submission and its receipt is
   therefore **not yet evidence-backed**, only plausible.
@@ -77,7 +77,7 @@ Established (with the labels above):
   delivery service provider, not an e-Papír convenience (E2 § 6(10),
   normative).
 - The mailbox retains such items for 30 days unless moved to permanent storage
-  (E1, descriptive) — so a local archive is the durable copy, not the mailbox.
+  (E1, descriptive), so a local archive is the durable copy, not the mailbox.
 
 Not established, and must not be assumed:
 
@@ -103,13 +103,13 @@ any government field name.
 
 Proposed minimum, three entities plus one artefact table:
 
-- **Case** — a user-created folder of related correspondence. Purely local; it
+- **Case**: a user-created folder of related correspondence. Purely local; it
   corresponds to nothing the government issues.
-- **Submission** — something the user sent, recorded from what the user has
+- **Submission**: something the user sent, recorded from what the user has
   locally. openPapir does not send anything, so a submission is always an
   imported or user-asserted record.
-- **Receipt** — an imported artefact the user believes to be a receipt.
-- **Artefact (blob)** — the preserved original bytes of any imported file.
+- **Receipt**: an imported artefact the user believes to be a receipt.
+- **Artefact (blob)**: the preserved original bytes of any imported file.
 
 Proposed rules:
 
@@ -127,7 +127,7 @@ Proposed rules:
 1. **Identity is local and opaque.** Proposed: openPapir mints its own
    identifiers for cases, submissions, receipts, and associations. Government
    identifiers, if any are ever parsed, are stored as *attributes with a
-   source*, never as primary keys. Rationale: F6 — no identifier is known to be
+   source*, never as primary keys. Rationale: F6. No identifier is known to be
    stable or unique.
 2. **Content addressing for artefacts.** Proposed: address stored originals by
    a cryptographic digest of their bytes, so identical bytes are stored once.
@@ -174,7 +174,7 @@ Proposed rules:
   resolution is undesigned.
 - Should derived metadata be recomputed automatically on extractor upgrade, or
   only on explicit request? Undecided; it affects reproducibility of listings.
-- What is the retention story for import events and association history — is
+- What is the retention story for import events and association history: is
   history itself deletable? Undecided, and privacy-relevant.
 - Are permissions and atomic-rename semantics achievable identically on
   Windows, and what is the documented degradation if not? Unresolved.
@@ -225,17 +225,17 @@ correspondence, even after redaction, and no third-party sample is copied in.
 
 Proposed fixture families, all wholly synthetic:
 
-- **Opaque artefact bytes** — small files of fixed, meaningless content used to
+- **Opaque artefact bytes**: small files of fixed, meaningless content used to
   exercise import, digesting, duplicate detection, and preservation. These make
   no claim to resemble a real receipt and are the only family that can be
   written before F1 is closed.
-- **Import hazards** — an empty file, a file at and just over the configured
+- **Import hazards**: an empty file, a file at and just over the configured
   size cap, a name with path separators and traversal segments, a name with
   non-ASCII and reserved Windows characters, and a symlink. Expected outcome is
   a stable refusal error code, not acceptance.
-- **Interruption** — a fixture harness that aborts between write and rename to
+- **Interruption**: a fixture harness that aborts between write and rename to
   assert that the archive contains either the whole artefact or nothing.
-- **Association scenarios** — hand-written local records (no government format
+- **Association scenarios**: hand-written local records (no government format
   involved) producing each of `unassociated`, `candidate` with one match,
   `candidate` with several, `associated`, and `contradictory`.
 - **Receipt-shaped fixtures are deliberately deferred.** Modelling a plausible
@@ -253,9 +253,9 @@ configured tracker owns live work state; this list records sequencing only.
 1. **Close the receipt-format gap.** Retrieve the full text of 451/2016.
    (XII. 19.) Korm. rendelet beyond § 68/A and the secure delivery service
    provisions, and establish redistribution terms for anything quoted.
-   *Blocker:* F1 — retrieval was truncated.
+   *Blocker:* F1. Retrieval was truncated.
 2. **Re-attempt the unreachable sources.** E5 (TLS chain failure) and E6
-   (HTTP 403). *Blocker:* F3, F4 — network and access failures, not content
+   (HTTP 403). *Blocker:* F3, F4. Network and access failures, not content
    gaps; a different retrieval route is needed.
 3. **Specify the local archive layout and storage technology.** Turn the
    proposals above into a decided layout with a schema version.
@@ -269,7 +269,7 @@ configured tracker owns live work state; this list records sequencing only.
 6. **Implement association records with candidate and contradictory outcomes.**
    Using local evidence only, with no receipt parsing. *Blocker:* follow-up 4.
 7. **Specify receipt parsing for one concrete receipt type.**
-   *Blocker:* follow-up 1 — no format is known.
+   *Blocker:* follow-up 1. No format is known.
 8. **Specify the delegated verification boundary.** *Blocker:* published,
    versioned contracts from openKRX and openSzigno, which do not exist yet.
 

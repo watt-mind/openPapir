@@ -154,37 +154,37 @@ that diffs and backups are stable. Every record carries its own identifier, its
 record kind, the archive schema version it was written under, and a creation
 timestamp. Records reference each other by identifier only.
 
-**Case** — a user-created folder of related correspondence. Purely local; it
+**Case**: a user-created folder of related correspondence. Purely local; it
 corresponds to nothing any government service issues. Fields: identifier,
 user-supplied title, optional notes, creation timestamp.
 
-**Submission** — something the user states they sent, recorded from what the
+**Submission**: something the user states they sent, recorded from what the
 user has locally. openPapir sends nothing, so a submission is always imported
 or user-asserted. Fields: identifier, owning case, user-supplied description,
 optional user-supplied date, and zero or more artefact references with the role
 the user gave them. It never asserts that anything was received anywhere.
 
-**Receipt** — an imported artefact the user believes to be a receipt. Fields:
+**Receipt**: an imported artefact the user believes to be a receipt. Fields:
 identifier, artefact digest, the import event that introduced it, optional
 user-supplied label. It references its artefact and never rewrites it, and
 asserts nothing about the file's type or authenticity; it records what the user
 said when importing.
 
-**Import event** — one record per import attempt that stored or re-encountered
+**Import event**: one record per import attempt that stored or re-encountered
 bytes. Fields: identifier, artefact digest, byte length, timestamp, the
 original filename as supplied by the user's filesystem (an attribute only,
 never used to derive a path), and whether this import created the object or
 found it already present.
 
-**Derived metadata** — anything computed from an artefact: detected type,
+**Derived metadata**: anything computed from an artefact: detected type,
 extracted text, parsed fields. Fields: identifier, artefact digest, extractor
 name and version, computation timestamp, and the derived payload. Derived
 records are disposable by definition: deleting all of them and recomputing must
 never alter an original or a user-entered record.
 
-**Association record** — described in its own section below.
+**Association record**: described in its own section below.
 
-**Verification result** — the outcome of a specified cryptographic check
+**Verification result**: the outcome of a specified cryptographic check
 performed by a named verifier. Fields: identifier, the exact artefact covered,
 the verifier's identity and version, the trust context supplied by the user,
 the precise scope of what was checked, and the outcome. Delegated `.es3` and
@@ -236,7 +236,7 @@ what counts as proof, belongs to the artefact-import issue.
 No path inside the archive root may be a symbolic link: not the root, not a
 directory within it, not an object, not a record. The rule is enforced when the
 path is opened or renamed, using the platform's no-follow flag, rather than by
-a stat call beforehand — a pre-check is a time-of-check-to-time-of-use bug, not
+a stat call beforehand. A pre-check is a time-of-check-to-time-of-use bug, not
 a defence. The single-filesystem check likewise does not follow links. Every
 path openPapir uses is derived from the archive root plus its own fixed
 directory names plus a digest or an identifier; a filename supplied by the user
@@ -307,7 +307,7 @@ the incoming length; a mismatch means the store is damaged and is reported as
 such rather than overwritten. A matching length is not evidence that the bytes
 are identical, only that nothing obvious is wrong; the stored object is not
 re-read on every import, for cost reasons, so the whole-archive integrity check
-below — which re-digests objects — is the real answer to a damaged store.
+below (which re-digests objects) is the real answer to a damaged store.
 
 ## Association records
 
@@ -318,18 +318,18 @@ identifier, outcome, evidence list, confidence, who created it (`user` or
 
 Outcomes are exactly:
 
-- `unassociated` — no evidence links the receipt to any submission.
-- `candidate` — one or more possible submissions, each with its own evidence.
+- `unassociated`: no evidence links the receipt to any submission.
+- `candidate`: one or more possible submissions, each with its own evidence.
   A candidate set is never collapsed to a single best guess automatically.
-- `associated` — the user confirmed a candidate, or the evidence is
+- `associated`: the user confirmed a candidate, or the evidence is
   unambiguous by a rule recorded in the evidence itself.
-- `contradictory` — evidence of associating strength points at more than one
+- `contradictory`: evidence of associating strength points at more than one
   submission. All of it is retained; nothing is discarded to resolve it.
 
 Each evidence entry records its kind, the derived record and extractor version
 it came from or that the user asserted it, and a readable statement of what was
-observed. Confidence is an ordinal label from a closed set — `weak`,
-`moderate`, `strong` — and explicitly not a probability, because no calibration
+observed. Confidence is an ordinal label from a closed set (`weak`,
+`moderate`, `strong`) and explicitly not a probability, because no calibration
 data exists and a number would imply one. Records are append-only: a change
 writes a new record superseding the previous one, so history is inspectable. An
 association never implies delivery, receipt by an authority, authenticity, or
@@ -364,8 +364,8 @@ references them. Each retained object is reported with the record still
 referencing it, and each object with no remaining reference is reported as an
 orphan; a purge never leaves an unreported orphan.
 
-Deletion is real: the record files are removed. The deletion summary — counts
-and record kinds only, no filenames, digests, or titles — is reported to the
+Deletion is real: the record files are removed. The deletion summary (counts
+and record kinds only, no filenames, digests, or titles) is reported to the
 user and **not persisted**, because a digest is a fingerprint of the deleted
 content and storing one would defeat the purge. There is therefore no
 `records/deletions/` directory. openPapir keeps no immutable audit log of a
@@ -398,35 +398,35 @@ value is 1. The rules:
 The discovery note left seven open questions
 ([receipt-discovery](receipt-discovery.md)). Their status here:
 
-1. **Storage technology — resolved.** Plain files as the system of record with
+1. **Storage technology: resolved.** Plain files as the system of record with
    a disposable, rebuildable index, as decided above.
-2. **Whether one submission can yield byte-different receipts — deferred.**
+2. **Whether one submission can yield byte-different receipts: deferred.**
    Blocked on the note's findings F1 and F6; it closes only on a retrieved
    normative or operator statement about whether a receipt is reissued,
    superseded, or re-downloadable and whether reissues are byte-identical. The
    layout already tolerates either answer, because artefact identity is a
    storage fact and receipts are separate records, so several receipts may
    reference one submission.
-3. **One artefact plausibly a receipt for two submissions — partly resolved.**
+3. **One artefact plausibly a receipt for two submissions: partly resolved.**
    The record shape is decided: outcome `contradictory`, all evidence retained,
    no automatic collapse. The user-facing resolution flow is deferred to the
    association implementation issue; it is a workflow question, not a storage
    one.
-4. **Recomputing derived metadata on extractor upgrade — resolved.** Never
+4. **Recomputing derived metadata on extractor upgrade: resolved.** Never
    automatic. Derived records carry the extractor name and version; one from an
    older extractor is reported as stale and recomputed only on explicit
    request. That keeps listings reproducible and avoids background work.
-5. **Retention of import events and association history — resolved.** History
+5. **Retention of import events and association history: resolved.** History
    is deletable: deleting a case deletes its import events and association
    records with it, and openPapir keeps no immutable log of the user's own
    correspondence. Whether a separate "delete history, keep artefacts"
    operation is worth offering is deferred to the association issue.
-6. **Windows parity — resolved as documented degradation.** Owner-only access
+6. **Windows parity: resolved as documented degradation.** Owner-only access
    is required with no override, so filesystems that cannot express it are
    refused rather than silently accepted; the two weakened guarantees above are
    named, reportable conditions whose wire representation belongs to the error
    contract.
-7. **Encrypted backup at rest — deferred.** It needs a threat model and a
+7. **Encrypted backup at rest: deferred.** It needs a threat model and a
    key-handling decision under [SECURITY.md](../SECURITY.md), not a layout
    decision. Nothing above precludes it; whole-tree and per-object encryption
    both remain open. Until it is decided the archive relies on operating-system
