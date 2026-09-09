@@ -983,6 +983,20 @@ case identifier is `record.not_found`, and one that is not 32 lowercase
 hexadecimal characters is refused with the same code and never joined into a
 path.
 
+A record the deletion **keeps** may itself name an artefact by something that
+is not a digest at all. openPapir validates a digest on every write, so no
+command writes such a record, but a document edited outside openPapir can
+hold one, and the plan must read it as a reference to an object it cannot
+identify rather than as a reference to nothing. The deletion therefore cannot
+tell which object that record meant, so it purges none of them: every object
+the purge had considered is retained with the reason `referenced_elsewhere`,
+with or without `--purge`, and the number of such references is reported as a
+`record.malformed` warning carrying `stage` and `malformed_count`. The
+records the deletion planned to remove still go, `ok` stays `true`, and the
+same reference on a record that is **going** changes nothing, because that
+record and its claim both leave. The count is the whole of the warning: the
+record that holds the reference is not named, and neither is the value.
+
 An association may name submissions in more than one case. When one of them is
 going and another remains, the association has to stay, because it still
 references a submission this deletion leaves behind, and it would then name a
@@ -1041,8 +1055,11 @@ remove bytes a surviving record still names. Both are dangling references, so
 neither is attempted. The deletion keeps what it had already removed, touches
 no object at all, and reports `delete.records_retained` with the number of
 documents it planned to remove and did not, the ones it never reached
-included. The count is the same after a probe refusal, where that is every
-document the deletion planned to remove.
+included. The import events that would have gone with the purged objects are
+among them: they are documents the deletion planned to remove, and a pass
+that never reached the object stage removed none of them. The count is the
+same after a probe refusal, where that is every document the deletion planned
+to remove.
 
 Every removal is the unlink of one file openPapir created: a record document
 under `records/`, or an object at its own fan-out path under
@@ -1094,7 +1111,7 @@ a count rather than testing for a key. The four reasons are fixed:
 | Reason | Meaning |
 | --- | --- |
 | `purge_not_requested` | The object would have become unreferenced, and `--purge` was not given. |
-| `referenced_elsewhere` | A submission or receipt that remains still references the object. |
+| `referenced_elsewhere` | A submission or receipt that remains still references the object, or references an artefact by something that is not a digest, which may be any of them. |
 | `records_retained` | A record document would not go, so the object pass never ran and none of these objects was attempted. The record pass is all or nothing, so this normally means nothing at all was unlinked. |
 | `unremovable` | `--purge` was given and the unlink did not succeed. |
 
@@ -1393,6 +1410,7 @@ changes the exit code.
 | `platform.no_directory_fsync` | The directory entry a publish created may not be durable, although the file content was flushed. Emitted where the platform has no directory flush, and also where the flush was attempted and failed, with `stage`. |
 | `platform.owner_only_via_acl` | Owner-only access is an access-control list rather than a permission bit, so it depends on the filesystem. Emitted on Windows. |
 | `platform.no_follow_after_open` | The no-follow flag opens the link itself rather than failing, so the refusal comes from the handle openPapir opened, and the reparse tag is not distinguished. Emitted on Windows, once per archive opened. |
+| `record.malformed` | A record `case delete` keeps names an artefact by something that is not a digest, so the archive cannot say which object it means. Emitted by `case delete`, with `stage` and `malformed_count`. Every object the purge had considered is retained as `referenced_elsewhere`, and the records the deletion planned to remove still go. |
 | `platform.replace_while_open` | A purge could not unlink an object now because another process holds it open, so the removal is deferred to the user closing it. Emitted by `case delete` on platforms that defer an unlink, with `stage`, and with `read_only_restored` only where the read-only attribute was actually cleared; its absence says it never was. The object is counted as `unremovable` and the command still reports what it did remove. Reported once however many objects deferred, carrying the worst outcome any of them saw. |
 
 On Windows a no-follow open carries `FILE_FLAG_OPEN_REPARSE_POINT`, so the

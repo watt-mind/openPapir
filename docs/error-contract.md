@@ -387,7 +387,14 @@ followed ([archive-layout](archive-layout.md)).
   caller never supplied, and the count answers the only useful question. A
   document that is not a regular file, and one larger than the record cap,
   report the same code and are never opened: the link is not followed and the
-  bytes are never allocated.
+  bytes are never allocated. `case delete` also emits the code as a
+  **warning**, never as an error, for a readable record it keeps that names
+  an artefact by something that is not a digest: the archive cannot say which
+  object such a record means, so every object the purge had considered is
+  retained as `referenced_elsewhere` while the records the deletion planned
+  to remove still go. Details there are `bucket`, `stage` (`delete`), and
+  `malformed_count`; the record and the value it holds are never named
+  ([architecture](architecture.md)).
 - **`record.inconsistent`**: record, not retryable. **Added additively by the
   receipt and association records.** A record's fields exist and are each
   readable, but they cannot be true together under a rule
@@ -506,7 +513,8 @@ would name belongs to an archive the refusal is not about.
   stayed: a record that is still there still names its artefacts, so removing
   them would leave it naming bytes the archive no longer holds. Details:
   `bucket` and `retained_count`, the number of documents the deletion planned
-  to remove and did not, the ones it never reached included. Nothing else: no
+  to remove and did not, the ones it never reached included, among them the
+  import events that would have gone with the purged objects. Nothing else: no
   record kind that would narrow it to one document, no identifier, no path.
   Like `delete.objects_retained` it keeps the deletion's counts in `data`, and
   it is reported ahead of it, because it is the reason nothing was purged.
