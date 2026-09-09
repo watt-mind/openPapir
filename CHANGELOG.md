@@ -423,6 +423,20 @@ envelope.
   described as a record write. The write bucket's three stage names are now
   listed with what each one covers in
   [the error contract](docs/error-contract.md).
+- `openpapir skill` no longer reports success when the document could not be
+  written. Only a closed reader is swallowed: `openpapir skill | head -3`
+  still exits `0`, because a reader that stopped reading asked for exactly
+  that. Every other write or flush failure, a full disk during the documented
+  `openpapir skill > SKILL.md` install path above all, exits `4`, the `write`
+  bucket's code, with one line on stderr that names no path and repeats no
+  argument. Previously the result of both the write and the flush was
+  discarded, so a truncated document was installed and reported as success.
+- The golden harness reports a golden file that is not on disk as a difference
+  named `is missing`, instead of reading it as an empty expectation. Most
+  cases pin an empty `human.stderr.txt`, so a deleted golden compared equal to
+  the capture and the case passed in silence. The file-by-file comparison now
+  lives in `crates/openpapir-cli/tests/golden_support/compare.rs`, with its own
+  tests over a temporary copy of one case that never touch `tests/golden/`.
 - A record document is now opened once and judged on that opened handle. The
   reader opens it with the platform's no-follow flag and takes both the file
   kind and the length from the handle it will read from, instead of checking

@@ -7,7 +7,10 @@ envelope, the human renderer's lines, the two streams they are written to, and
 the exit codes.
 
 The harness is `crates/openpapir-cli/tests/golden.rs`, with its synthetic world
-in `crates/openpapir-cli/tests/golden_support/`. It runs as part of
+in `crates/openpapir-cli/tests/golden_support/` and the file-by-file
+comparison in `crates/openpapir-cli/tests/golden_support/compare.rs`, whose
+own tests run against a temporary copy of one case and never touch this
+directory. It runs as part of
 `cargo test --workspace`, builds nothing of its own, and reaches no network.
 
 ## A difference here is a contract change
@@ -55,6 +58,12 @@ tests/golden/<case>/human.exit
 | `human.txt` | Stdout of the same invocation without `--json`. |
 | `human.stderr.txt` | Stderr of that run: the warnings and the error, which the human form writes there so diagnostics never share stdout with a result. |
 | `human.exit` | The exit code of that run. |
+
+All five files are required. A file that is not on disk is reported as a
+difference named `is missing`, never read as an empty expectation: most cases
+pin an empty `human.stderr.txt`, so a deleted golden would otherwise compare
+equal to the capture and pass in silence. Restore the file from git, or
+regenerate the case deliberately.
 
 Stderr of a `--json` run has no file, because the harness asserts it is empty
 for every case. That is the contract: in the JSON form exactly one object
