@@ -78,6 +78,7 @@ pub use records::receipt::{Receipt, ReceiptAdded, ReceiptList};
 pub use records::submission::{ArtefactRef, Submission, SubmissionAdded};
 
 use serde::Serialize;
+use std::fmt;
 
 /// The operations that can process input today.
 const OPERATIONS: &[&str] = &[
@@ -99,18 +100,49 @@ const OPERATIONS: &[&str] = &[
 ];
 
 /// The closed set of implementation stages `capabilities` may report, in
-/// order. The reported `stage` is always one of these values, and the set
-/// grows or shrinks only with a documented release decision. See the
-/// capabilities contract in `docs/architecture.md`.
-pub const STAGES: &[&str] = &["scaffold", "alpha", "beta", "stable"];
+/// order. The reported `stage` is always one of these variants, and the set
+/// grows or shrinks only with a documented release decision. Every variant
+/// serializes and displays as its lowercase name. See the capabilities
+/// contract in `docs/architecture.md`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Stage {
+    /// Nothing processes input yet.
+    Scaffold,
+    /// Operations are implemented against a layout that may still change.
+    Alpha,
+    /// The layout is settled and the implemented operations are hardening.
+    Beta,
+    /// The contract is supported and grows only additively.
+    Stable,
+}
+
+impl Stage {
+    /// The stage's stable lowercase name, as it appears in the envelope.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Scaffold => "scaffold",
+            Self::Alpha => "alpha",
+            Self::Beta => "beta",
+            Self::Stable => "stable",
+        }
+    }
+}
+
+impl fmt::Display for Stage {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
 
 /// Machine-readable implementation status; never a verification verdict.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct Capabilities {
     /// Public project name.
     pub project: &'static str,
-    /// Current implementation stage, always one of [`STAGES`].
-    pub stage: &'static str,
+    /// Current implementation stage, one of the closed [`Stage`] set.
+    pub stage: Stage,
     /// Implemented document or workflow operations.
     pub operations: &'static [&'static str],
 }
@@ -120,7 +152,7 @@ pub struct Capabilities {
 pub const fn capabilities() -> Capabilities {
     Capabilities {
         project: "openPapir",
-        stage: "alpha",
+        stage: Stage::Alpha,
         operations: OPERATIONS,
     }
 }
@@ -153,15 +185,27 @@ mod tests {
             ]
         );
         assert_eq!(reported.project, "openPapir");
-        assert_eq!(reported.stage, "alpha");
+        assert_eq!(reported.stage, Stage::Alpha);
     }
 
+    /// The type closes the vocabulary, so the only thing left to pin is the
+    /// wording of each variant. The match is exhaustive: a new stage does not
+    /// compile until it is given a name here and documented.
     #[test]
-    fn the_reported_stage_is_one_of_the_documented_set() {
-        assert_eq!(STAGES, ["scaffold", "alpha", "beta", "stable"]);
-        assert!(
-            STAGES.contains(&capabilities().stage),
-            "the reported stage must be one of the documented set"
-        );
+    fn every_stage_keeps_its_documented_lowercase_name() {
+        for stage in [Stage::Scaffold, Stage::Alpha, Stage::Beta, Stage::Stable] {
+            let name = match stage {
+                Stage::Scaffold => "scaffold",
+                Stage::Alpha => "alpha",
+                Stage::Beta => "beta",
+                Stage::Stable => "stable",
+            };
+            assert_eq!(stage.as_str(), name);
+            assert_eq!(stage.to_string(), name);
+            assert_eq!(
+                serde_json::to_value(stage).expect("a stage serializes"),
+                serde_json::Value::String(name.to_owned())
+            );
+        }
     }
 }
