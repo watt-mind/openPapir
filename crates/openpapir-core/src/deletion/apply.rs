@@ -277,6 +277,12 @@ fn unlink_records<R: Record>(root: &Path, ids: &[String]) -> Unlinked {
 }
 
 /// The flag saying whether a cleared read-only attribute was put back.
+///
+/// It answers a question that exists only once the attribute has actually
+/// been cleared, so it is emitted on that path alone. A warning without it
+/// says the attribute was never cleared and nothing was widened, which is a
+/// different statement from `true`, and reporting `true` there would claim a
+/// restore that never happened.
 pub const READ_ONLY_RESTORED: &str = "read_only_restored";
 
 /// Report a degradation once, keeping the worst outcome any path saw.
@@ -295,6 +301,8 @@ fn note(warnings: &mut Vec<Warning>, warning: Warning) {
         warnings.push(warning);
         return;
     };
+    // A warning carrying no flag at all never cleared the attribute, so it is
+    // not the weaker outcome and never displaces one that did.
     let worse = warning.details.flag_value(READ_ONLY_RESTORED) == Some(false)
         && seen.details.flag_value(READ_ONLY_RESTORED) != Some(false);
     if worse {
@@ -365,16 +373,20 @@ fn retry_unlink(_path: &Path, _warnings: &mut Vec<Warning>) -> bool {
 /// fails, the attribute is put back, so an object that survives is left
 /// exactly as read-only as it was and nothing is widened. A file another
 /// process still holds open cannot go now, and the deferred removal is
-/// reported as the named degradation rather than counted as a removal; the
-/// warning says whether the attribute was restored, because a failure to
-/// restore it is a weakening the caller must be told about.
+/// reported as the named degradation rather than counted as a removal.
+///
+/// The warning says whether the attribute was restored only where it was
+/// cleared in the first place. Where reading the permissions or clearing the
+/// attribute failed, the file is exactly as it was, there is nothing to put
+/// back, and the flag is left out rather than reported as `true`: a restore
+/// that never had to happen is not a restore that succeeded.
 #[cfg(not(unix))]
 fn retry_unlink(path: &Path, warnings: &mut Vec<Warning>) -> bool {
     let Some(original) = fs::metadata(path)
         .ok()
         .map(|metadata| metadata.permissions())
     else {
-        note(warnings, replace_while_open(true));
+        note(warnings, replace_while_open(None));
         return false;
     };
     let mut writable = original.clone();
@@ -384,22 +396,31 @@ fn retry_unlink(path: &Path, warnings: &mut Vec<Warning>) -> bool {
             return true;
         }
         let restored = fs::set_permissions(path, original).is_ok();
-        note(warnings, replace_while_open(restored));
+        note(warnings, replace_while_open(Some(restored)));
         return false;
     }
-    note(warnings, replace_while_open(true));
+    note(warnings, replace_while_open(None));
     false
 }
 
 /// The degradation reported where an unlink is deferred by the platform.
-#[cfg(not(unix))]
-fn replace_while_open(restored: bool) -> Warning {
+///
+/// `restored` is `None` on every path that never cleared the read-only
+/// attribute, and the flag is then absent from the details rather than
+/// asserting a restore that was never needed. The rule is
+/// platform-independent, so the builder is compiled for the tests everywhere
+/// as well as for the platforms whose unlink can reach it.
+#[cfg(any(not(unix), test))]
+fn replace_while_open(restored: Option<bool>) -> Warning {
+    let details = Details::new().text("stage", "purge");
+    let details = match restored {
+        Some(restored) => details.flag(READ_ONLY_RESTORED, restored),
+        None => details,
+    };
     Diagnostic::new(
         codes::PLATFORM_REPLACE_WHILE_OPEN,
         "A file could not be removed now because another process holds it open.",
-        Details::new()
-            .text("stage", "purge")
-            .flag(READ_ONLY_RESTORED, restored),
+        details,
     )
     .retryable()
 }
@@ -497,15 +518,7 @@ mod tests {
     /// the rule that decides which of two survives has to hold everywhere.
     #[test]
     fn a_repeated_warning_keeps_the_worst_outcome_whatever_the_order() {
-        let deferred = |restored: bool| {
-            Diagnostic::new(
-                codes::PLATFORM_REPLACE_WHILE_OPEN,
-                "A file could not be removed now because another process holds it open.",
-                Details::new()
-                    .text("stage", "purge")
-                    .flag(READ_ONLY_RESTORED, restored),
-            )
-        };
+        let deferred = |restored: bool| replace_while_open(Some(restored));
 
         for order in [[true, false], [false, true]] {
             let mut warnings = Vec::new();
@@ -543,6 +556,43 @@ mod tests {
             warnings[1].details.flag_value(READ_ONLY_RESTORED),
             None,
             "a warning with no such flag reads as none"
+        );
+    }
+
+    /// The flag answers a question that only exists once the attribute has
+    /// been cleared, so the path that never cleared it must not answer it.
+    #[test]
+    fn the_restored_flag_is_absent_where_the_attribute_was_never_cleared() {
+        let never = replace_while_open(None);
+        assert_eq!(never.code, codes::PLATFORM_REPLACE_WHILE_OPEN);
+        assert!(never.is_retryable());
+        let json = serde_json::to_value(&never).unwrap();
+        assert_eq!(json["details"]["stage"], "purge");
+        assert_eq!(
+            json["details"].get(READ_ONLY_RESTORED),
+            None,
+            "no restore is claimed where nothing was cleared"
+        );
+        assert_eq!(json["details"].as_object().unwrap().len(), 2);
+        assert_eq!(never.details.flag_value(READ_ONLY_RESTORED), None);
+
+        let cleared = replace_while_open(Some(true));
+        assert_eq!(
+            serde_json::to_value(&cleared).unwrap()["details"][READ_ONLY_RESTORED],
+            true,
+            "the clearing path still answers it"
+        );
+
+        // A warning that never cleared the attribute widened nothing, so it
+        // is not the weaker outcome and never displaces one that did.
+        let mut warnings = Vec::new();
+        note(&mut warnings, replace_while_open(Some(false)));
+        note(&mut warnings, replace_while_open(None));
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(
+            warnings[0].details.flag_value(READ_ONLY_RESTORED),
+            Some(false),
+            "the object left writable is still the one reported"
         );
     }
 
