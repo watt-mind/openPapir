@@ -140,9 +140,15 @@ pub fn write_record<R: Record>(root: &Path, record: &R) -> Result<Vec<Warning>, 
 ///
 /// # Errors
 ///
-/// Returns `record.not_found` when no such document exists and
-/// `record.malformed` when the document exists but is not a valid record of
-/// this kind.
+/// Returns `record.not_found` when no such document exists,
+/// `record.malformed` when the document exists but is not a regular file or
+/// is not a valid record of this kind, and `input.cap.record_size` when the
+/// stored document is larger than the record cap.
+///
+/// A stored document is untrusted input like any other: its length is checked
+/// against the record cap, from the size the filesystem reports, before a byte
+/// is read into memory, and a path that is not a regular file is refused
+/// rather than followed.
 pub fn read_record<R: Record>(
     root: &Path,
     id: &str,
@@ -158,6 +164,7 @@ pub fn read_record<R: Record>(
     if !metadata.is_file() {
         return Err(malformed(R::KIND, 1));
     }
+    limits::check_record_size(metadata.len())?;
     let text = fs::read_to_string(&path).map_err(|_| malformed(R::KIND, 1))?;
     parse::<R>(&text, id).ok_or_else(|| malformed(R::KIND, 1))
 }
@@ -168,6 +175,12 @@ pub fn read_record<R: Record>(
 /// record of this kind makes the whole listing `record.malformed`, with the
 /// number of unreadable documents. The only exception is a staging file, which
 /// is openPapir's own transient artefact and never a record.
+///
+/// An entry that is not a regular file, and one larger than the record cap,
+/// counts as unreadable and is never opened: the link is not followed and the
+/// bytes are never allocated. Both therefore report `record.malformed`, the
+/// condition of the directory being read, rather than a cap refusal about an
+/// input the caller did not supply.
 ///
 /// # Errors
 ///
@@ -188,7 +201,12 @@ pub fn list_records<R: Record>(root: &Path) -> Result<Vec<R>, Diagnostic> {
             unreadable += 1;
             continue;
         };
-        match fs::read_to_string(entry.path())
+        let path = entry.path();
+        if !readable_document(&path) {
+            unreadable += 1;
+            continue;
+        }
+        match fs::read_to_string(&path)
             .ok()
             .and_then(|text| parse::<R>(&text, id))
         {
@@ -201,6 +219,15 @@ pub fn list_records<R: Record>(root: &Path) -> Result<Vec<R>, Diagnostic> {
     }
     records.sort_by(|left, right| left.id().cmp(right.id()));
     Ok(records)
+}
+
+/// Whether a directory entry may be read at all: a regular file, not a
+/// symbolic link, and no larger than the record cap. The check is made from
+/// the size the filesystem reports, before any byte is allocated.
+fn readable_document(path: &Path) -> bool {
+    fs::symlink_metadata(path).is_ok_and(|metadata| {
+        metadata.is_file() && limits::check_record_size(metadata.len()).is_ok()
+    })
 }
 
 /// Parse one document, checking that it is this kind and names this file.
@@ -389,5 +416,71 @@ mod tests {
         // one megabyte through its own fields.
         assert!(limits::check_record_size(limits::MAX_RECORD_BYTES + 1).is_err());
         assert!(write_record(root.path(), &oversized).is_ok());
+    }
+
+    /// Create a file of `bytes` length without allocating it, to test a cap.
+    fn sparse(path: &Path, bytes: u64) {
+        let handle = fs::File::create(path).expect("create a sparse document");
+        handle.set_len(bytes).expect("set the reported length");
+    }
+
+    #[test]
+    fn a_stored_document_is_bounded_before_it_is_read() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join(Sample::DIRECTORY);
+        fs::create_dir_all(&directory).unwrap();
+        sparse(
+            &directory.join(format!("{ID}.json")),
+            limits::MAX_RECORD_BYTES + 1,
+        );
+        let refusal = read_record::<Sample>(root.path(), ID, "sample_id")
+            .err()
+            .unwrap();
+        assert_eq!(
+            refusal.code,
+            codes::INPUT_CAP_RECORD_SIZE,
+            "the cap is checked from the reported size, before any allocation"
+        );
+        let refusal = list_records::<Sample>(root.path()).unwrap_err();
+        assert_eq!(
+            refusal.code,
+            codes::RECORD_MALFORMED,
+            "a listing reports the directory's condition"
+        );
+        assert_eq!(
+            serde_json::to_value(&refusal).unwrap()["details"]["path_count"],
+            1
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_record_that_is_not_a_regular_file_is_never_followed() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join(Sample::DIRECTORY);
+        fs::create_dir_all(&directory).unwrap();
+        // A symbolic link to an endless device would hang a reader that
+        // followed it, and one to a host file would read bytes the archive
+        // does not own. Neither is opened.
+        std::os::unix::fs::symlink("/dev/zero", directory.join(format!("{ID}.json"))).unwrap();
+        assert_eq!(
+            read_record::<Sample>(root.path(), ID, "sample_id")
+                .err()
+                .unwrap()
+                .code,
+            codes::RECORD_MALFORMED
+        );
+        assert_eq!(
+            list_records::<Sample>(root.path()).unwrap_err().code,
+            codes::RECORD_MALFORMED
+        );
+
+        fs::remove_file(directory.join(format!("{ID}.json"))).unwrap();
+        fs::create_dir(directory.join(format!("{ID}.json"))).unwrap();
+        assert_eq!(
+            list_records::<Sample>(root.path()).unwrap_err().code,
+            codes::RECORD_MALFORMED,
+            "a directory in a record directory is not a record"
+        );
     }
 }

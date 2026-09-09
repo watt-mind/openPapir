@@ -577,6 +577,74 @@ fn a_malformed_record_document_is_refused_without_naming_a_path() {
     );
 }
 
+#[test]
+fn a_record_document_larger_than_the_record_cap_is_refused_promptly() {
+    let root = archive();
+    create_case(root.path(), "Readable");
+    let oversized = root
+        .path()
+        .join("records/cases")
+        .join(format!("{ABSENT_ID}.json"));
+    // Sparse, so the cap is exercised from the size the filesystem reports
+    // without a megabyte of test data being written or read.
+    let handle = fs::File::create(&oversized).expect("create a sparse document");
+    handle.set_len(1024 * 1024 + 1).expect("set the length");
+    drop(handle);
+
+    let started = std::time::Instant::now();
+    let output = run(&["case", "list", "--archive", path(root.path()), "--json"]);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(30),
+        "the document is refused rather than read"
+    );
+    assert_refusal(
+        &output,
+        "case.list",
+        "record.malformed",
+        4,
+        &[ABSENT_ID, path(root.path()), "records/cases"],
+    );
+    assert_eq!(stdout_json(&output)["error"]["details"]["path_count"], 1);
+}
+
+#[test]
+#[cfg(unix)]
+fn a_record_document_that_is_a_symbolic_link_is_never_followed() {
+    let root = archive();
+    create_case(root.path(), "Readable");
+    // A link to an endless device would hang a reader that followed it, and a
+    // link to a host file would read bytes the archive does not own.
+    std::os::unix::fs::symlink(
+        "/dev/zero",
+        root.path()
+            .join("records/cases")
+            .join(format!("{ABSENT_ID}.json")),
+    )
+    .unwrap();
+    let started = std::time::Instant::now();
+    let output = run(&["case", "list", "--archive", path(root.path()), "--json"]);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(30),
+        "the link is refused rather than followed"
+    );
+    assert_refusal(
+        &output,
+        "case.list",
+        "record.malformed",
+        4,
+        &[ABSENT_ID, path(root.path()), "records/cases", "/dev/zero"],
+    );
+}
+
+#[test]
+#[cfg(not(unix))]
+fn a_record_document_that_is_a_symbolic_link_is_never_followed() {
+    // Skipped with a reason: creating a symbolic link on this platform needs a
+    // privilege the test environment does not grant. The refusal is asserted
+    // directly in the `openpapir-core` unit tests, which check the same
+    // no-follow rule through the library.
+}
+
 fn make_writable(path: &Path) {
     #[cfg(unix)]
     {
