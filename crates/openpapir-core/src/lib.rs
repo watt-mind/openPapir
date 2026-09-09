@@ -2,17 +2,19 @@
 //!
 //! # Responsibility
 //!
-//! This crate will own the local case archive: cases, submissions,
-//! attachments, receipts, the preserved original bytes, and the evidence
-//! recorded for every association between them. It is the place where that
-//! model lives, so that the command-line crate stays a thin presentation
-//! layer over it.
+//! This crate owns the local case archive. Today that means the archive root
+//! and its marker, the content-addressed artefact store, the atomic write
+//! procedure, the single-writer lock, the input caps, and the import-event
+//! records that import writes. Cases, submissions, receipts, associations,
+//! derived metadata, and verification results are designed in
+//! `docs/archive-layout.md` and are not implemented.
 //!
 //! # Status
 //!
-//! Scaffold. None of that model exists yet. The crate's entire public surface
-//! is [`Capabilities`] and [`capabilities`], which report the implementation
-//! stage honestly and perform no I/O and no allocation.
+//! Two operations are implemented, `archive.init` and `import`, and they are
+//! the two [`capabilities`] reports. Everything else in the design stays a
+//! plan: no export, no deletion, no integrity check, no matching, no receipt
+//! parsing, and no verification of any kind.
 //!
 //! # Capabilities contract
 //!
@@ -20,24 +22,32 @@
 //! `openpapir capabilities --json` prints, alongside `schema_version`, `ok`,
 //! `command`, and `verified`. Two of its guarantees matter to a consumer:
 //!
-//! - `operations` is an empty slice, because no correspondence operation is
-//!   implemented. It lists operations that can actually process input;
-//!   introspection is not one of them.
+//! - `operations` lists exactly the operations that can process input.
 //! - The envelope's `verified` is always `false`, because this crate performs
-//!   no cryptographic check of any kind.
-//!
-//! The envelope describes capabilities only. It is not a promised response
-//! schema for future commands; see `docs/architecture.md`.
+//!   no cryptographic check of any kind. A SHA-256 digest here is a
+//!   storage-layer identity: it says two files hold the same bytes, and
+//!   nothing about authenticity, origin, delivery, or legal effect.
 //!
 //! # Boundaries
 //!
-//! No correspondence operation, no persistence, no network access, and no
-//! filesystem access. KRX container processing belongs to openKRX and `.es3`
-//! processing to openSzigno; neither is a dependency of this crate, and
-//! neither parser may be copied into it. Nothing here may state or imply
-//! authenticity, delivery, or legal effect.
+//! No network access and no background work. KRX container processing belongs
+//! to openKRX and `.es3` processing to openSzigno; neither is a dependency of
+//! this crate, and neither parser may be copied into it. Nothing here may
+//! state or imply authenticity, delivery, or legal effect.
+
+pub mod archive;
+pub mod clock;
+pub mod error;
+pub mod ident;
+
+pub use archive::import::{Artefact, Imported, import};
+pub use archive::{Created, init};
+pub use error::{Diagnostic, Failure, Outcome, Warning};
 
 use serde::Serialize;
+
+/// The operations that can process input today.
+const OPERATIONS: &[&str] = &["archive.init", "import"];
 
 /// Machine-readable implementation status; never a verification verdict.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -51,10 +61,24 @@ pub struct Capabilities {
 }
 
 /// Return the current implementation status without I/O or side effects.
+#[must_use]
 pub const fn capabilities() -> Capabilities {
     Capabilities {
         project: "openPapir",
         stage: "scaffold",
-        operations: &[],
+        operations: OPERATIONS,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn capabilities_report_exactly_the_implemented_operations() {
+        let reported = capabilities();
+        assert_eq!(reported.operations, ["archive.init", "import"]);
+        assert_eq!(reported.project, "openPapir");
+        assert_eq!(reported.stage, "scaffold");
     }
 }

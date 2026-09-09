@@ -41,20 +41,27 @@ provenance of every association recorded, without uploading anything.
 
 ## Implemented today
 
-The executable is a scaffold. These invocations exist and nothing else:
+The executable creates a local archive and imports files into it. These
+invocations exist and nothing else:
 
 | Invocation | Result |
 | --- | --- |
 | `openpapir --help` | Usage text from the argument parser. |
 | `openpapir --version` | The crate version. |
-| `openpapir capabilities` | Two human-readable lines naming the project, its stage, and that nothing is implemented or verified. |
-| `openpapir capabilities --json` | One JSON object on stdout: the capabilities envelope. |
+| `openpapir capabilities [--json]` | The project, its stage, and the two implemented operations, `archive.init` and `import`. |
+| `openpapir archive init <root> [--json]` | Creates an archive in an existing, empty directory: the marker first, then the owner-only layout. |
+| `openpapir import --archive <root> <file>... [--json]` | Stores each file's original bytes in the content-addressed artefact store and records one import event per input. |
 
-The exact envelope, its fields, and the meaning of the empty `operations`
-list and of `verified: false` are specified in
-[architecture and CLI contract](architecture.md), which is the canonical
-description of implemented behaviour. No case storage, package import, receipt
-matching, signature verification, or government delivery exists.
+The exact envelope, the storage guarantees, the input caps, the implemented
+error codes, the exit-code mapping, and the privacy rule that binds all output
+are specified in [architecture and CLI contract](architecture.md), which is the
+canonical description of implemented behaviour. `verified` is `false` in every
+response, because no cryptographic check is implemented: a digest is a
+storage-layer identity only.
+
+No case storage, submission, receipt, association, derived metadata, export,
+deletion, integrity check, migration, receipt matching, signature
+verification, or government delivery exists.
 
 ## Decided designs, awaiting implementation
 
@@ -65,11 +72,16 @@ and none of them changes the capabilities output.
 | --- | --- |
 | [receipt evidence and local case model decisions](receipt-discovery.md) | What authoritative public sources actually state about one candidate receipt type, the smallest useful local case model, and which questions stay open. |
 | [local archive layout and storage design](archive-layout.md) | The storage technology, the on-disk layout, the record shapes, and the deletion, permission, and atomic-write semantics of the local archive. |
-| [import and association error, JSON, and exit-code contract](error-contract.md) | How a future command extends the JSON envelope with an error object and warnings, the stable error-code catalogue, and the exit-code mapping. |
+| [import and association error, JSON, and exit-code contract](error-contract.md) | How a command extends the JSON envelope with an error object and warnings, the stable error-code catalogue, and the exit-code mapping. |
 
-A record shape or code named in those documents is a proposal, not a promised
-schema. It becomes a contract only when the implementing pull request adds it
-to [architecture and CLI contract](architecture.md).
+Archive creation and artefact import are the parts of those two documents that
+are now implemented, and their contract has moved to
+[architecture and CLI contract](architecture.md). The rest of both documents,
+including every other record kind, association, export, deletion, migration,
+and the integrity check, is still only decided. A record shape or code named
+there is a proposal, not a promised schema. It becomes a contract only when the
+implementing pull request adds it to
+[architecture and CLI contract](architecture.md).
 
 ## Deferred and blocked contracts
 

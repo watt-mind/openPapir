@@ -18,11 +18,32 @@ matches the observable difference. See the Documentation section of
 
 ### Added
 
+- `openpapir archive init <root>` creates a local archive in an existing,
+  empty directory: the `papir-archive.json` marker is written first, then an
+  owner-only layout of `objects/`, `records/`, and `cache/`. openPapir never
+  searches for an archive and never adopts a directory that has no marker.
+- `openpapir import --archive <root> <file>...` stores each file's original
+  bytes, unchanged, in a write-once `objects/sha256/ab/cd/<digest>` store and
+  records one import event per input under `records/imports/`. Re-importing
+  bytes already present is not an error: the object is untouched, a second
+  event is recorded, and the response reports `previous_import_count` and
+  `first_imported_at`.
+- Both commands accept `--json` and emit the response envelope of
+  `docs/error-contract.md`, with `ok`, an `error` object carrying a stable
+  code and bounded details, a `warnings` array for platform degradation, and
+  exit codes `0`, `2`, `3`, `4`, `5`, or `6` by bucket. `1` is never emitted,
+  and `verified` stays `false` everywhere.
+- Storage guarantees behind both commands: atomic writes that leave the
+  complete file or nothing, a publish step that cannot replace a file
+  openPapir did not create, owner-only permissions with no override and
+  read-only stored objects, a single-writer lock that refuses a second writer
+  rather than waiting, input caps checked before allocation and again while
+  streaming, and path safety that opens inputs without following a symbolic
+  link and never joins a supplied filename into a path.
+
 - A Rust edition 2024 workspace with two unpublished crates,
   `openpapir-core` and `openpapir-cli`, and the `--help`, `--version`, and
-  `capabilities [--json]` commands. The JSON envelope reports
-  `schema_version: 1`, an empty `operations` list, and `verified: false`,
-  because no correspondence operation and no cryptographic check exist.
+  `capabilities [--json]` commands.
 - Project boundaries, privacy rules, and a discovery-first roadmap, together
   with the local check script and the continuous integration, dependency
   policy, and security workflows that enforce them.
@@ -56,6 +77,25 @@ matches the observable difference. See the Documentation section of
   contract, and the boundaries the crates must not cross.
 
 ### Changed
+
+- `capabilities` now reports the operations that are implemented,
+  `archive.init` and `import`, instead of an empty list. `verified` stays
+  `false` and the envelope's shape is unchanged.
+- `docs/architecture.md` documents the two commands as the implemented
+  contract: the envelope, the storage guarantees, the caps, the implemented
+  error codes with their exit codes, the platform degradations, and the
+  privacy rule. It also records the three conditions the error contract
+  deferred to this change and how each was decided.
+- The workspace gains `sha2`, `getrandom`, `libc` (Unix only), and `tempfile`
+  as a development dependency.
+- The owner-only check covers the archive root, the marker, the lock file,
+  every layout directory, and each stored object and fan-out directory an
+  operation touches, and it refuses before anything is published. openPapir
+  never narrows an existing path as a side effect: a wider one is reported,
+  not repaired, because the design allows narrowing only through an explicit
+  repair action that does not exist yet.
+- A directory flush that fails is now reported as the
+  `platform.no_directory_fsync` warning instead of being ignored.
 
 - Tracked Markdown no longer uses em-dashes in prose, per the Documentation
   style rules in `CONTRIBUTING.md`. The three design documents are rewritten

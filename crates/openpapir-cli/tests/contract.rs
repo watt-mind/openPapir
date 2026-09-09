@@ -20,19 +20,22 @@ fn capabilities_are_honest_and_machine_readable() {
         actual,
         serde_json::json!({
             "schema_version": 1, "ok": true, "command": "capabilities",
-            "data": {"project": "openPapir", "stage": "scaffold", "operations": []},
+            "data": {
+                "project": "openPapir", "stage": "scaffold",
+                "operations": ["archive.init", "import"]
+            },
             "verified": false
         })
     );
 }
 
 #[test]
-fn human_status_does_not_promise_processing() {
+fn human_status_names_only_what_is_implemented() {
     let output = run(&["capabilities"]);
     assert!(output.status.success());
     assert!(output.stderr.is_empty());
     let text = String::from_utf8(output.stdout).unwrap();
-    assert!(text.contains("none implemented"));
+    assert!(text.contains("archive.init, import"));
     assert!(text.contains("Nothing is verified"));
 }
 
