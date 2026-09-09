@@ -16,6 +16,12 @@ matches the observable difference. See the Documentation section of
 
 ## Unreleased
 
+Automatic matching, derived metadata, extractors, receipt parsing, KRX and
+`.es3` handling, verification results, and government delivery stay
+unimplemented, and no output or field claims delivery, receipt by an
+authority, authenticity, or legal effect. `verified` is `false` in every
+envelope.
+
 ### Added
 
 - `openpapir skill` writes the agent skill document the binary carries to
@@ -27,7 +33,7 @@ matches the observable difference. See the Documentation section of
   `include_str!`. The document describes when to reach for openPapir, every
   implemented command with its exact invocation and the `data` fields to read,
   the envelope, the exit codes by bucket, the privacy rule, the input caps,
-  and the separation of imported, matched, and authenticity-verified.
+  and the separation of imported, matched, and authenticity-verified (#22).
 - `capabilities` now lists `skill` as the fifteenth operation. It is the one
   operation that touches no archive, and it is reported there so that a
   machine caller learns of it from the same list as every other operation.
@@ -43,7 +49,6 @@ matches the observable difference. See the Documentation section of
 - README.md gains "Agents and automation" and "People", which show the same
   command in its two modes with captured output and link the agent skill and
   the golden output contract.
-
 - `openpapir case export --archive <root> --case <case-id> --to <dir>` copies
   one case out of the archive as plain files. Every object the case's
   submissions and receipts reference is copied byte for byte to
@@ -64,7 +69,7 @@ matches the observable difference. See the Documentation section of
   is not refused for a leftover from the attempt before it.
   An exported object is named by its digest alone: no original filename is a
   file name, a directory name, or a manifest field. Human output repeats the
-  destination the user supplied; no JSON field carries it.
+  destination the user supplied; no JSON field carries it (#20).
 - `openpapir archive repair-permissions --archive <root>` narrows the root,
   the marker, every layout directory, every record, and every object back to
   the owner-only modes of the design, and reports the count of paths it
@@ -84,7 +89,6 @@ matches the observable difference. See the Documentation section of
   carries `scope` `export_destination` and no `archive_path`.
 - `capabilities` now lists `case.export` and `archive.repair_permissions` as
   the twelfth and thirteenth operations.
-
 - `openpapir case delete --archive <root> --case <id> [--purge]` deletes one
   case, every submission recorded against it, and the receipts and
   associations tied only to those submissions. A receipt or an association
@@ -102,7 +106,7 @@ matches the observable difference. See the Documentation section of
   and `objects/sha256/` is touched. The report is counts, record kinds, and
   the reason an object stayed, and never a digest, a path, or a filename;
   nothing about the deletion is persisted. `capabilities` now lists
-  `case.delete` as the fourteenth operation.
+  `case.delete` as the fourteenth operation (#19).
 - `delete.objects_retained` is now emitted, with the additive `reason` detail
   key, when a purge could not unlink an object. The deletion completes what it
   can, its counts stay in `data`, and the error carries the count alone.
@@ -142,20 +146,20 @@ matches the observable difference. See the Documentation section of
   the store. `capabilities` now lists `archive.check` as the eleventh
   operation. A passing check is storage integrity only: it asserts nothing
   about authenticity, origin, delivery, or legal effect, and `verified` stays
-  `false`.
+  `false` (#15).
 - `integrity.dangling_reference` is a new error code for a record that names
   a digest, case, submission, receipt, import event, or association the
   archive does not hold. `integrity.digest_mismatch` and
   `integrity.orphan_object`, both previously reserved, are now emitted, and
   an orphan is a counted report entry rather than a refusal of anything.
-
 - `openpapir receipt add --archive <root> --artefact <digest> [--import-event
   <id>] [--label <l>]` and `openpapir receipt list --archive <root>` record
   and list receipts under `records/receipts/`. A receipt is an artefact the
   user believes to be a receipt: it names a stored object and the import event
   that introduced it, never rewrites the artefact, and asserts nothing about
   the file's type or authenticity. With no `--import-event` the earliest event
-  for the digest is recorded; a named event must record that same artefact.
+  for the digest is recorded; a named event must record that same artefact
+  (#12).
 - `openpapir association create --archive <root> --receipt <receipt-id>
   --outcome <outcome> [--candidate <submission-id>:<confidence>:<statement>]...
   [--supersedes <association-id>]` and `openpapir association list --archive
@@ -186,16 +190,12 @@ matches the observable difference. See the Documentation section of
   `association.list`.
 - Opening an archive created by an earlier build adds `records/receipts/` and
   `records/associations/` if they are absent; nothing else changes.
-
-Automatic association, derived metadata, extractors, receipt parsing, and
-verification results stay unimplemented, and no output or field claims
-delivery, receipt by an authority, authenticity, or legal effect.
-
 - `openpapir case create --archive <root> --title <t> [--notes <n>]`,
   `openpapir case list --archive <root>`, and
   `openpapir case show --archive <root> <case-id>` record, list, and show
   cases under `records/cases/`. A case is the user's own folder of related
-  correspondence and corresponds to nothing any government service issues.
+  correspondence and corresponds to nothing any government service issues
+  (#8).
 - `openpapir submission add --archive <root> --case <case-id> --description
   <d> [--date <yyyy-mm-dd>] [--artefact <digest>[:<role>]]...` records a
   submission under `records/submissions/`, referencing its case by identifier
@@ -222,11 +222,11 @@ delivery, receipt by an authority, authenticity, or legal effect.
   `archive_path` key the reserved entry listed is deliberately not emitted,
   because it would name an identifier the caller never supplied and the count
   answers the only useful question.
-
 - `openpapir archive init <root>` creates a local archive in an existing,
   empty directory: the `papir-archive.json` marker is written first, then an
   owner-only layout of `objects/`, `records/`, and `cache/`. openPapir never
-  searches for an archive and never adopts a directory that has no marker.
+  searches for an archive and never adopts a directory that has no marker
+  (#7).
 - `openpapir import --archive <root> <file>...` stores each file's original
   bytes, unchanged, in a write-once `objects/sha256/ab/cd/<digest>` store and
   records one import event per input under `records/imports/`. Re-importing
@@ -245,7 +245,6 @@ delivery, receipt by an authority, authenticity, or legal effect.
   rather than waiting, input caps checked before allocation and again while
   streaming, and path safety that opens inputs without following a symbolic
   link and never joins a supplied filename into a path.
-
 - A Rust edition 2024 workspace with two unpublished crates,
   `openpapir-core` and `openpapir-cli`, and the `--help`, `--version`, and
   `capabilities [--json]` commands.
@@ -266,7 +265,7 @@ delivery, receipt by an authority, authenticity, or legal effect.
   unchanged by it (#5).
 - `docs/specification.md`, the top-level index of purpose, scope, non-goals,
   implemented behaviour, decided designs, deferred contracts, and the three
-  separated receipt states.
+  separated receipt states (#6).
 - `docs/releasing.md`, recording that no release process exists, that
   promotion from `develop` to `master` is a human decision, and the checklist
   a first release would need.
@@ -301,11 +300,13 @@ delivery, receipt by an authority, authenticity, or legal effect.
   `docs/architecture.md` now use one polarity. Both state the violation the
   rule reports, matching the rule names, under the column heading `Violation
   reported`, instead of the contract stating the satisfied invariant and the
-  architecture the violation. No rule name, code, or behaviour changed.
+  architecture the violation. No rule name, code, or behaviour changed
+  (#16).
 - `path.symlink` gained the `scope` value `input`, and an input that is a
   symbolic link now carries it. The refusal previously carried its bucket
   alone, because the value set named nothing for a path outside the archive.
-  The path itself is still never echoed and no `archive_path` is reported.
+  The path itself is still never echoed and no `archive_path` is reported
+  (#18).
 - `platform.filesystem_unsupported` is reachable. A filesystem that cannot
   create the hard link the archive's write procedure publishes with, FAT32 and
   exFAT among them, is now refused with that code and exit `5`, naming
@@ -317,12 +318,12 @@ delivery, receipt by an authority, authenticity, or legal effect.
   instead of a nine-column table whose rows were unreadable in the raw
   Markdown. Every source keeps its facts, links, retrieval dates, and
   normative, descriptive, or unknown label. The F4 finding drops one of its
-  two adjacent no-design-decision disclaimers.
+  two adjacent no-design-decision disclaimers (#11).
 - The Association records section of `docs/archive-layout.md` states the same
   field list and nesting as `docs/error-contract.md`: `evidence` and
   `confidence` sit inside each candidate, not at record level, and the
   document now says the error contract is authoritative for wire shapes. No
-  rule changed.
+  rule changed (#9).
 - `capabilities` now reports the operations that are implemented,
   `archive.init` and `import`, instead of an empty list. `verified` stays
   `false` and the envelope's shape is unchanged.
@@ -341,7 +342,6 @@ delivery, receipt by an authority, authenticity, or legal effect.
   repair action that does not exist yet.
 - A directory flush that fails is now reported as the
   `platform.no_directory_fsync` warning instead of being ignored.
-
 - Tracked Markdown no longer uses em-dashes in prose, per the Documentation
   style rules in `CONTRIBUTING.md`. The three design documents are rewritten
   with periods, commas, colons, or parentheses; no decision, code name, cap
@@ -357,7 +357,7 @@ delivery, receipt by an authority, authenticity, or legal effect.
 - The CI Documentation job now runs `python3 scripts/check-prose.py` and
   passes the same markdownlint exclusions as `scripts/check.sh`, so a local
   run and CI accept exactly the same tree. The `CONTRIBUTING.md` checks table
-  records the prose check as running locally and in CI.
+  records the prose check as running locally and in CI (#13).
 - `scripts/check-prose.py` and `scripts/check-doc-links.py` share one
   skip-prefix list, spelled identically in both files with a comment pointing
   at the other. The list is the union of the two previous lists, which selects
@@ -370,7 +370,8 @@ delivery, receipt by an authority, authenticity, or legal effect.
   candidate count per outcome exactly as `docs/error-contract.md` does: one or
   more candidates for `candidate`, two or more for `contradictory`, exactly
   one for `associated`, and none for `unassociated`. The design previously
-  said "several" for both `candidate` and `contradictory`. No rule changed.
+  said "several" for both `candidate` and `contradictory`. No rule changed
+  (#14).
 
 ### Fixed
 
@@ -410,7 +411,7 @@ delivery, receipt by an authority, authenticity, or legal effect.
   that is not there, `record.malformed` for one that is not a regular file, is
   not a valid record, or could not be opened for a reason other than absence
   (previously such a document read as `record.not_found`), and
-  `input.cap.record_size` for one over the record cap.
+  `input.cap.record_size` for one over the record cap (#21).
 - A leftover staging file in a record directory is counted rather than
   silently passed over. `Visited`, the result of reading one record
   directory, gained a `staging` count beside its `unreadable` count, so an
@@ -423,7 +424,6 @@ delivery, receipt by an authority, authenticity, or legal effect.
   instead of being read as no supersession. An empty value is not an
   identifier, so it names no association, exactly like any other value that
   does. Only omitting the flag records no supersession.
-
 - `archive check` no longer reads a record directory it cannot list as an
   empty one. A `records/<kind>` directory whose listing fails for any reason
   other than being absent now increments the report's new `records_unchecked`
@@ -435,7 +435,7 @@ delivery, receipt by an authority, authenticity, or legal effect.
   reads as empty. Previously `chmod 000 records/imports` reported every
   stored object as an orphan and exited `4` over a permission error. The
   record listings the record commands use are unchanged: they still report
-  the records that are there.
+  the records that are there (#17).
 - An argument-parser failure under `--json` is now the response envelope, with
   `usage.arguments` and exit `2`, instead of usage text on stderr and no
   envelope at all. A machine caller therefore reads one shape for every
@@ -472,4 +472,4 @@ delivery, receipt by an authority, authenticity, or legal effect.
   stable and overrides `rustup default`, so the job sets `RUSTUP_TOOLCHAIN`
   on its steps, prints the resolved `cargo` and `rustc` versions, and fails
   if the banner is not 1.88 or if `Cargo.toml` stops declaring
-  `rust-version = "1.88"`.
+  `rust-version = "1.88"` (#10).

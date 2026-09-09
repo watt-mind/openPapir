@@ -1,10 +1,12 @@
 # Roadmap
 
-Only the scaffold is implemented: Rust workspace, help/version/capabilities,
-and quality and documentation foundations. The following milestones are plans.
-The [specification index](specification.md) records what is implemented, what
-is decided but not built, and what is blocked; this page records the order in
-which the remaining work is meant to happen.
+The project is at the scaffold stage. The local archive is implemented as far
+as the operations the tool reports, and every milestone below still
+has work left in it. The [specification index](specification.md) records what
+is implemented, what is decided but not built, and what is blocked, and
+[architecture and CLI contract](architecture.md) is authoritative for
+implemented behaviour; this page records the order in which the remaining work
+is meant to happen.
 
 ## 1. Discover supported inputs
 
@@ -36,22 +38,33 @@ records which of that note's questions stay open. Follow-up 5 of that same
 note is answered by the
 [import and association error, JSON, and exit-code contract](error-contract.md),
 which specifies the JSON envelope, the error-code catalogue, and the
-exit-code mapping for review. No part of any of these documents is
-implemented.
+exit-code mapping for review. The storage, record, error, and deletion parts
+of both documents are now implemented and their contract is in
+[architecture and CLI contract](architecture.md); derived metadata,
+verification results, migration, and encrypted backup at rest are not.
 
 ## 3. Implement one offline workflow
 
-Deliver a small vertical slice: import a supported synthetic package, preserve
-its original bytes, assign it to a case, and list/export that case. Integrate a
-versioned openKRX contract rather than duplicating its parser. Cover resource
-limits, interrupted writes, duplicate input, and cross-platform paths.
+Deliver a small vertical slice: import a file, preserve its original bytes,
+assign it to a case, and list or export that case. The local half of this is
+done: `import`, `case create`, `case list`, `case show`, `submission add`,
+`archive check`, `case export`, `archive repair-permissions`, and
+`case delete` exist, with resource limits, interrupted writes, duplicate
+input, and cross-platform paths covered. What remains is importing a supported
+synthetic KRX package through a versioned openKRX contract rather than a
+duplicated parser, and importing an export back into an archive.
 
 ## 4. Associate one supported receipt type
 
 Import receipts and offer evidence-backed matching with explicit unresolved
-and ambiguous outcomes. Keep imported, matched, and cryptographically verified
-states separate. Signature verification is a separate integration milestone;
-no matching result asserts authenticity, legal effect, or delivery by itself.
+and ambiguous outcomes. The user-asserted half is done: `receipt add`,
+`receipt list`, `association create`, and `association list` record and list
+the four outcomes with the user's own evidence. What remains is receipt
+parsing and derived evidence, which stay blocked on the format gap, so every
+association this build writes carries `created_by` `user`. Keep imported,
+matched, and cryptographically verified states separate. Signature
+verification is a separate integration milestone; no matching result asserts
+authenticity, legal effect, or delivery by itself.
 
 ## Later, subject to evidence
 

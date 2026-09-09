@@ -52,7 +52,7 @@ agent skill document it carries. These invocations exist and nothing else:
 | --- | --- |
 | `openpapir --help` | Usage text from the argument parser. |
 | `openpapir --version` | The crate version. |
-| `openpapir capabilities [--json]` | The project, its stage, and the fourteen implemented operations. |
+| `openpapir capabilities [--json]` | The project, its stage, and the fifteen implemented operations. |
 | `openpapir archive init <root> [--json]` | Creates an archive in an existing, empty directory: the marker first, then the owner-only layout. |
 | `openpapir import --archive <root> <file>... [--json]` | Stores each file's original bytes in the content-addressed artefact store and records one import event per input. |
 | `openpapir case create --archive <root> --title <t> [--notes <n>] [--json]` | Records one case, the user's own folder of related correspondence. |
@@ -106,25 +106,23 @@ restored copy usable again.
 
 ## Decided designs, awaiting implementation
 
-Each document below decides something for review. None of them is implemented,
-and none of them changes the capabilities output.
+Each document below decides something for review. Each is partly implemented
+at most, and the implemented part has moved to
+[architecture and CLI contract](architecture.md), which is authoritative for
+it. Nothing that is still only decided changes the capabilities output.
 
-| Document | What it decides |
-| --- | --- |
-| [receipt evidence and local case model decisions](receipt-discovery.md) | What authoritative public sources actually state about one candidate receipt type, the smallest useful local case model, and which questions stay open. |
-| [local archive layout and storage design](archive-layout.md) | The storage technology, the on-disk layout, the record shapes, and the deletion, permission, and atomic-write semantics of the local archive. |
-| [import and association error, JSON, and exit-code contract](error-contract.md) | How a command extends the JSON envelope with an error object and warnings, the stable error-code catalogue, and the exit-code mapping. |
+| Document | What it decides | What of it is still only decided |
+| --- | --- | --- |
+| [receipt evidence and local case model decisions](receipt-discovery.md) | What authoritative public sources actually state about one candidate receipt type, the smallest useful local case model, and which questions stay open. | All of it. No receipt is parsed and no finding of that note has code behind it. |
+| [local archive layout and storage design](archive-layout.md) | The storage technology, the on-disk layout, the record shapes, and the deletion, permission, and atomic-write semantics of the local archive. | Derived-metadata and verification records, the rebuildable `cache/` index, import from an export, schema migration, and encrypted backup at rest. |
+| [import and association error, JSON, and exit-code contract](error-contract.md) | How a command extends the JSON envelope with an error object and warnings, the stable error-code catalogue, and the exit-code mapping. | The reserved codes `lock.stale`, `path.traversal`, and `write.incomplete`, and every automatic or derived evidence shape. |
 
-Archive creation, artefact import, the case, submission, receipt, and
-user-asserted association records, the whole-archive integrity check, case
-export, the permission repair, and case deletion with its explicit purge are
-the parts of those two documents that are now implemented, and their contract
-has moved to [architecture and CLI contract](architecture.md). The rest of
-both documents, including derived metadata, verification results, automatic
-association, import from an export, and migration, is still only decided. A record
-shape or code named there is a proposal, not a promised schema. It becomes a contract
-only when the implementing pull request adds it to
-[architecture and CLI contract](architecture.md).
+The archive, record, error, integrity, export, permission-repair, and
+deletion operations listed above are the parts of the last two documents
+that are now implemented. A record shape or a code named there and not in
+[architecture and CLI contract](architecture.md) is a proposal, not a promised
+schema. It becomes a contract only when an implementing pull request adds it
+to that document.
 
 ## Deferred and blocked contracts
 
@@ -169,3 +167,16 @@ release pipeline and no published version.
 policy file with a one-line purpose. The rules for keeping these documents
 correct, including which document a given kind of change must update, are in
 the Documentation section of [contributing](../CONTRIBUTING.md).
+
+The remaining documents under `docs/`, which the sections above do not link,
+are:
+
+| Document | Purpose |
+| --- | --- |
+| [testing and fixture policy](testing.md) | The test layout, the coverage expectation, and the synthetic public fixture policy. |
+| [references and evidence policy](references.md) | Related independent projects, discovery entry points, and the evidence rules every future format decision must satisfy. |
+| [runner setup](factory.md) | Tools, credentials, and checkout expectations for an explicitly launched orchestration run. |
+| [master orchestrator instructions](orchestrator.md) | The portable orchestration procedure, copied to an ignored local file before use. |
+
+Neither `factory.md` nor `orchestrator.md` describes product behaviour. They
+are contributor tooling, and nothing in them changes what the binary does.

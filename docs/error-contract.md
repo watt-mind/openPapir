@@ -2,21 +2,27 @@
 
 ## Status and scope
 
-This document is a **specification for review**, and parts of it now have code
-behind them: archive creation, artefact import, the case, submission, receipt,
-and association records, and the read-only whole-archive integrity check emit
-the envelope below and the codes [architecture](architecture.md) lists.
-Architecture is the canonical description of implemented behaviour. Every
-other command name, flag, field name, error code, and exit code below is
-**proposed**.
+This document is a **specification for review**, and much of it now has code
+behind it: every implemented operation that touches an archive, which is
+archive creation, artefact import, the case, submission, receipt, and
+user-asserted association records, the read-only whole-archive integrity
+check, the export of one case, the permission repair, and the deletion of a
+case with its explicit purge, emits the envelope below and the codes
+[architecture](architecture.md) lists. The one operation that does not is
+`skill`, which writes a document rather than an envelope.
+Architecture is the canonical description of implemented behaviour, and where
+the two disagree it is authoritative and this page is a defect. Every other
+command name, flag, field name, error code, and exit code below is
+**proposed**, and the section
+[What of this is implemented](#what-of-this-is-implemented) says which is
+which.
 
 It is follow-up 5 of the
 [receipt evidence and local case model note](receipt-discovery.md), and the
 [local archive layout and storage design](archive-layout.md) that decides the
 archive design deliberately defers every wire name, JSON shape, and exit code
-to this document. Artefact import must not print anything
-machine-readable until this contract is agreed, so it sits ahead of the first
-import code.
+to this document. It was agreed before artefact import printed anything
+machine-readable, as that sequencing required.
 
 Every code and shape below traces to a rule already recorded in
 [archive-layout](archive-layout.md), [SECURITY.md](../SECURITY.md), or
@@ -197,6 +203,21 @@ object carries `bucket` as a string; the entries below list what else it may
 carry. Nothing in `details` is required: a field may be omitted when it is
 unknown or when including it would breach the privacy rule.
 
+The `details` keys this contract defines are exactly `bucket`,
+`archive_schema_version`, `archive_path`, `argument`, `capability`,
+`cap_bytes`, `cap_count`, `conflict_count`, `count`, `digest`, `entry_count`,
+`evidence`, `expected_bytes`, `export_path`, `field`, `input_index`,
+`observed_bytes`, `observed_count`, `orphan_count`, `path_count`, `reason`,
+`read_only_restored`, `record_kind`, `reference_kind`, `referencing_record_ids`,
+`retained_count`, `rule`, `scope`, `stage`, and `supported_schema_version`. Of
+those, `evidence`, `orphan_count`, and `referencing_record_ids` belong to
+reserved or deliberately unemitted conditions and no build writes them. A new
+key is an additive change like a new code.
+
+`scope` has exactly three values: `archive` for a path inside the archive
+root, `export_destination` for one inside an export destination, and `input`
+for a path the user named on the command line. A new value is additive.
+
 ### `usage`: the invocation itself
 
 - **`usage.arguments`**: usage, not retryable. The command line is
@@ -220,6 +241,12 @@ unknown or when including it would breach the privacy rule.
 - **`archive.marker_missing`**: archive, not retryable. The root exists but
   holds no `papir-archive.json` marker, so there is no archive to open.
   Details: `bucket`.
+- **`archive.marker_malformed`**: archive, not retryable. **Decided by
+  archive creation.** The marker file exists but cannot be read as a valid
+  marker. [archive-layout](archive-layout.md) fixes what the marker records
+  but not what happens when it is unreadable; that condition was deferred to
+  the artefact-import issue and decided there. It is reported, never repaired,
+  and every operation on that archive is refused. Details: `bucket`.
 - **`archive.adopt_refused`**: archive, not retryable. Initialisation was
   asked for on a directory that is not empty and has no marker. openPapir
   never adopts such a directory; only an existing empty directory may be
@@ -242,11 +269,6 @@ unknown or when including it would breach the privacy rule.
 - **`archive.multiple_filesystems`**: archive, not retryable. The archive
   root spans more than one filesystem, which the atomic write procedure
   forbids. Details: `bucket`, `archive_path`.
-- **`archive.marker_malformed`**: archive, not retryable. **Reserved.** The
-  marker file exists but cannot be read as a valid marker.
-  [archive-layout](archive-layout.md) fixes what the marker records but not
-  what happens when it is unreadable, so the condition is deferred to the
-  artefact-import issue and only the code is fixed here. Details: `bucket`.
 
 ### `input`: bounds refused before allocation
 
@@ -589,9 +611,10 @@ buckets, never as an expanded per-input list of names.
 
 ## Reporting platform degradation
 
-[archive-layout](archive-layout.md) names three weakenings and requires that
-each be reported at the point of the write and in archive health output, never
-silently accepted and never described as equivalent. Each is a **warning
+[archive-layout](archive-layout.md) names three weakenings, and the
+implementation added a fourth, `platform.no_follow_after_open`. Each must be
+reported at the point of the write and in archive health output, never
+silently accepted and never described as equivalent, and each is a **warning
 inside the envelope**: on its own it leaves `ok` at `true` and the exit code
 at `0`, and the operation is not retried or downgraded. A degradation observed before
 a later step fails is still reported, in the `warnings` array of the failing
@@ -742,7 +765,7 @@ shape follows the association record:
     "receipt_id": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d",
     "submission_id": null,
     "outcome": "candidate",
-    "created_by": "automatic",
+    "created_by": "user",
     "created_at": "2026-01-14T09:12:33Z",
     "supersedes": null,
     "candidates": [
@@ -751,10 +774,9 @@ shape follows the association record:
         "confidence": "moderate",
         "evidence": [
           {
-            "kind": "derived_field_equality",
-            "source": "derived",
-            "extractor": "example-extractor/0.1.0",
-            "statement": "A derived field matched."
+            "kind": "user_assertion",
+            "source": "user",
+            "statement": "The reference matches the submission."
           }
         ]
       }
@@ -766,6 +788,12 @@ shape follows the association record:
 `receipt_id` here is openPapir's own minted receipt-record identifier, which
 the privacy rule allows, as distinct from any receipt identifier issued by an
 authority, which is never emitted.
+
+The shape above is what this build writes. `created_by` `automatic`, an
+evidence `kind` other than `user_assertion`, a `source` other than `user`, and
+an `extractor` field remain **proposed**: no automatic matching, derived
+metadata, or extractor exists, so no other value could be recorded honestly
+([architecture](architecture.md)).
 
 `submission_id` is `null` for `unassociated`, `candidate`, and
 `contradictory`, and non-null only for `associated`, where it equals the one
@@ -854,27 +882,30 @@ nothing are contract rather than proposal. A deletion never leaves a record or
 an object naming something the archive no longer holds: it refuses instead,
 and every refusal above leaves the archive as `archive check` found it.
 
-Everything else here is still a proposal, including `lock.stale`,
-`path.traversal`, and `write.incomplete`. Agreeing a code here creates no
-capability and no obligation on a user's archive.
+Everything else here is still a proposal. Of the catalogue, exactly three
+codes are unreachable in this build and remain reserved: `lock.stale`,
+`path.traversal`, and `write.incomplete`. Every other code in the catalogue is
+emitted, and [architecture](architecture.md) says by what. Agreeing a code
+here creates no capability and no obligation on a user's archive.
 
 ## Origin and unblocked work
 
 This is follow-up 5 of [archive-layout](archive-layout.md), listed there under
-its unblocked follow-ups and required before import prints anything
-machine-readable. With it agreed, these bounded implementation issues can be
-written and reviewed:
+its unblocked follow-ups and required before import printed anything
+machine-readable. With it agreed, these bounded implementation issues were
+written and reviewed, and all but one are now implemented:
 
-- **Artefact import with byte preservation**: may now print JSON, using the
-  `input`, `path`, `archive`, `lock`, `write`, and `platform` codes.
+- **Artefact import with byte preservation**: implemented as `archive init`
+  and `import`, using the `input`, `path`, `archive`, `lock`, `write`, and
+  `platform` codes ([architecture](architecture.md)).
 - **Association records with candidate and contradictory outcomes**: had the
   outcome shape and the rule that no outcome is an error, and is now
   implemented for user-asserted associations
   ([architecture](architecture.md)).
 - **Whole-archive integrity check**: implemented as `archive check`, with the
   counts-and-buckets report shape above.
-- **Derived-metadata staleness and recompute-on-request**: has the record
-  and cap codes it needs.
+- **Derived-metadata staleness and recompute-on-request**: not implemented.
+  It has the record and cap codes it needs.
 - **Case deletion with an explicit purge**: implemented as `case delete`,
   with the counts-and-reasons report shape and `delete.objects_retained`.
 - **Export, backup, and the permission-repair action**: implemented as
@@ -893,9 +924,11 @@ It fixes wire names, not behaviour, and no capability follows from it. It
 assumes the archive design as written; if a review changes an adoption rule, a
 cap, a lock semantic, or the deletion rule, the affected codes change with it.
 `lock.stale`, `path.traversal`, and `write.incomplete` are reserved against
-conditions the design has not fully decided; `archive.marker_malformed`,
-`record.malformed`, `integrity.orphan_object`, and `delete.objects_retained`
-have since been decided by the implementations that reached them. Command
+conditions the design has not fully decided, and they are the only reserved
+codes left; `archive.marker_malformed`, `record.malformed`,
+`integrity.orphan_object`, and `delete.objects_retained` have since been
+decided by the implementations that reached them, and their catalogue entries
+say so. Command
 names and flags are proposals only. It fixes no field, identifier, or format
 of any government artefact, and assumes nothing about what a receipt
 contains, because nothing is yet established about that
