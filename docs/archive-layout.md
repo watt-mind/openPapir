@@ -85,8 +85,8 @@ that class of bug.
 ## On-disk layout
 
 The archive root is supplied explicitly by the user. openPapir never searches
-for an archive, never adopts a directory it did not create, and never creates
-one implicitly as a side effect of another operation.
+for an archive, never adopts a directory that has no archive marker, and never
+creates one implicitly as a side effect of another operation.
 
 ```text
 <archive-root>/
@@ -271,9 +271,10 @@ The archive root and every directory inside it are created owner-only; files
 are created owner-read-write and objects become owner-read-only once stored.
 openPapir never widens permissions on an existing archive, and it refuses to
 operate on one whose permissions are already wider, reporting what it found. It
-offers no flag to override this. The consequence, accepted deliberately, is
-that archives on filesystems that cannot express owner-only access are
-unsupported.
+offers no flag to override this; the sole exception is the explicit
+permission-repair action described under export and backup, which only
+narrows. The consequence, accepted deliberately, is that archives on
+filesystems that cannot express owner-only access are unsupported.
 
 Caps are **initial proposals, adjustable by review**. They exist to bound
 resource use, and are never relaxed to make one particular input succeed
