@@ -195,6 +195,13 @@ read-only in the strongest sense the design allows: it takes no writer lock,
 so a held lock never stops it; it opens every file read-only and with the
 platform's no-follow flag; and it creates, renames, removes, and repairs
 nothing, including a leftover staging file, which it counts and leaves alone.
+Opening an archive to check it differs from opening one to write to it in
+exactly that way: no missing layout directory is created and no directory
+entry is flushed, so the check completes on a root the user cannot write to
+and reports what the archive holds rather than repairing its shape. A layout
+directory that is absent is read as empty. The refusal of a layout directory
+that is a symbolic link is kept, because a reader that walked a linked
+`records/<kind>` would read outside the archive.
 
 A re-computed digest is a storage-layer identity. A check that finds nothing
 says the stored bytes are the bytes their paths name and that every reference
@@ -250,10 +257,13 @@ question the privacy rule allows an answer to.
 
 `problems` lists every code the check can report, including the ones it did
 not see, ordered by code, so a caller reads a count rather than testing for a
-key's presence. `objects_unchecked` counts the objects that were not digested
-because one exceeds the single-file cap or could not be read at all; neither
-is reported as damage, because the check did not read the bytes to say so.
-`staging_files` counts what `objects/incoming/` still holds.
+key's presence. `objects_unchecked` counts what the check could not read: an
+object over the single-file cap, an entry whose metadata could not be read,
+and each fan-out directory that could not be listed. None of them is reported
+as damage, because the check did not read them to say so, and a digest whose
+fan-out directory could not be listed is not counted as a dangling reference
+either: an object the check could not look for is not an object the archive
+does not hold. `staging_files` counts what `objects/incoming/` still holds.
 
 A clean archive exits `0` with `ok` `true`. When the check finds something,
 `ok` is `false`, the report stays in `data`, and `error` names the first

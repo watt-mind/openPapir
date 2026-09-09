@@ -10,6 +10,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use crate::archive::import::ImportEvent;
+use crate::integrity::store::Store;
 use crate::records::association::Association;
 use crate::records::case::Case;
 use crate::records::document::{self, is_identifier};
@@ -179,14 +180,14 @@ pub fn collect(root: &Path) -> References {
 /// Count the references that name a record or object the archive does not
 /// hold, in a fixed order, keeping only the first one's kinds.
 ///
+/// A digest whose fan-out directory could not be listed is not counted: the
+/// check could not look for it, which is not the same as the archive not
+/// holding it.
+///
 /// The pass reads the records a second time rather than holding them, because
 /// a reference can only be judged once every identifier is known.
 #[must_use]
-pub fn dangling(
-    root: &Path,
-    found: &References,
-    objects: &BTreeSet<DigestKey>,
-) -> (u64, Option<Dangling>) {
+pub fn dangling(root: &Path, found: &References, objects: &Store) -> (u64, Option<Dangling>) {
     let mut count = 0_u64;
     let mut first = None;
     let mut note = |record_kind: &'static str, reference_kind: &'static str| {
@@ -199,7 +200,13 @@ pub fn dangling(
         }
     };
 
-    let stored = |digest: &str| digest_key(digest).is_some_and(|key| objects.contains(&key));
+    // A digest the store could not be searched for is left uncounted: an
+    // object the check could not look for is not an object the archive does
+    // not hold.
+    let missing = |digest: &str| {
+        digest_key(digest).map_or(Some(true), |key| objects.holds(&key).map(|held| !held))
+    };
+    let stored = |digest: &str| missing(digest) != Some(true);
 
     document::visit_records::<ImportEvent, _>(root, |event| {
         if !stored(&event.digest) {
@@ -276,7 +283,7 @@ mod tests {
         assert_eq!(found.records_checked, 0);
         assert!(found.referenced.is_empty());
         assert_eq!(found.malformed, [0; 5]);
-        let (count, first) = dangling(root.path(), &found, &BTreeSet::new());
+        let (count, first) = dangling(root.path(), &found, &Store::default());
         assert_eq!(count, 0);
         assert_eq!(first, None);
         assert_eq!(KINDS.len(), 5);

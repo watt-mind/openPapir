@@ -456,6 +456,75 @@ fn the_check_reads_the_archive_and_changes_nothing() {
 }
 
 #[test]
+fn a_missing_layout_directory_is_read_as_empty_and_never_created() {
+    let (_home, root) = archive();
+    for relative in ["records/associations", "objects/incoming"] {
+        fs::remove_dir(root.join(relative)).expect("remove a layout directory");
+    }
+    let before = snapshot(&root);
+    let output = check(&root);
+    assert_report(&output, true, None, 0);
+    assert_eq!(
+        snapshot(&root),
+        before,
+        "the check creates no directory it found missing"
+    );
+    assert!(!root.join("records/associations").exists());
+    assert!(!root.join("objects/incoming").exists());
+}
+
+/// The check must not need to write to the root it reads. The test is
+/// Unix-only because a permission bit is the only portable way to withhold
+/// write access here; on Windows owner-only access is an access-control list,
+/// which the archive already reports as a named degradation.
+#[test]
+#[cfg(unix)]
+fn a_root_that_cannot_be_written_to_is_still_checked() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let (_home, root) = archive();
+    fs::remove_dir(root.join("cache")).expect("remove a layout directory");
+    fs::set_permissions(&root, fs::Permissions::from_mode(0o500)).expect("withhold write access");
+    let output = check(&root);
+    fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).expect("restore the root");
+    assert_report(&output, true, None, 0);
+    assert!(!root.join("cache").exists(), "nothing was created");
+}
+
+/// A fan-out directory the check cannot list leaves the objects under it
+/// unjudged rather than reported as missing. Unix-only for the same reason as
+/// the test above.
+#[test]
+#[cfg(unix)]
+fn an_unlistable_fan_out_directory_is_counted_rather_than_called_dangling() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let (_home, root) = archive();
+    let directory = object(&root).parent().expect("the fan-out").to_path_buf();
+    fs::set_permissions(&directory, fs::Permissions::from_mode(0o000))
+        .expect("withhold access to the fan-out directory");
+    if fs::read_dir(&directory).is_ok() {
+        // The process can read the directory anyway, which happens when the
+        // tests run with privileges that ignore the permission bits.
+        fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
+        return;
+    }
+    let output = check(&root);
+    fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).expect("restore access");
+    let envelope = assert_report(&output, true, None, 0);
+    let data = &envelope["data"];
+    assert_eq!(data["objects_unchecked"], 1, "the directory is counted");
+    assert_eq!(data["objects_checked"], 0);
+    let counts = problems(data);
+    assert_eq!(
+        counts["integrity.dangling_reference"], 0,
+        "an object the check could not look for is not a missing object"
+    );
+    assert_eq!(counts["integrity.digest_mismatch"], 0);
+    assert_eq!(counts["path.symlink"], 0);
+}
+
+#[test]
 fn the_check_runs_while_a_writer_lock_file_is_present() {
     let (_home, root) = archive();
     let lock = root.join("lock");

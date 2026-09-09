@@ -32,13 +32,64 @@ pub struct Store {
     pub objects_checked: u64,
     /// How many bytes were streamed through the digest.
     pub bytes_digested: u64,
-    /// How many objects were not digested, because they exceed the per-file
-    /// cap or could not be read at all. Neither is asserted to be damaged.
+    /// How many entries the check could not read: an object over the
+    /// per-file cap, one whose metadata or bytes could not be read, and each
+    /// fan-out directory that could not be listed. None of them is asserted
+    /// to be damaged, because the check did not read them to say so.
     pub objects_unchecked: u64,
     /// How many leftover staging files sit in the incoming directory.
     pub staging_files: u64,
     /// The digests the store actually holds, as fixed-size keys.
     pub present: BTreeSet<DigestKey>,
+    /// Whether the store itself could not be listed at all.
+    unlistable: bool,
+    /// The first fan-out byte of each first-level directory that could not be
+    /// listed, so that a digest under one is never judged absent.
+    unlistable_high: BTreeSet<u8>,
+    /// The two fan-out bytes of each second-level directory that could not be
+    /// listed, for the same reason.
+    unlistable_pair: BTreeSet<[u8; 2]>,
+}
+
+impl Store {
+    /// Whether the store holds a digest: `Some(true)` when the object is
+    /// there, `Some(false)` when the directory it would live in was read and
+    /// does not hold it, and `None` when that directory could not be listed.
+    ///
+    /// The third answer matters: an object the check could not look for is
+    /// not an object the archive does not have, so a reference to it is left
+    /// uncounted rather than reported as dangling.
+    #[must_use]
+    pub fn holds(&self, key: &DigestKey) -> Option<bool> {
+        if self.unlistable
+            || self.unlistable_high.contains(&key[0])
+            || self.unlistable_pair.contains(&[key[0], key[1]])
+        {
+            return None;
+        }
+        Some(self.present.contains(key))
+    }
+
+    /// Record that a directory naming these fan-out bytes could not be read.
+    fn unlistable(&mut self, prefix: &[u8]) {
+        self.objects_unchecked += 1;
+        match prefix {
+            [high] => {
+                self.unlistable_high.insert(*high);
+            }
+            [high, low] => {
+                self.unlistable_pair.insert([*high, *low]);
+            }
+            _ => self.unlistable = true,
+        }
+    }
+}
+
+/// The byte a two-character fan-out directory name stands for.
+fn fan_out_byte(name: &str) -> Option<u8> {
+    u8::from_str_radix(name, 16)
+        .ok()
+        .filter(|_| name.len() == 2)
 }
 
 /// Walk `objects/` and count what disagrees with the records.
@@ -55,21 +106,29 @@ pub fn walk(root: &Path, references: &References, counts: &mut Counts) -> Store 
     };
     let base = root.join(OBJECTS_DIR).join(ALGORITHM);
     let Ok(first_level) = fs::read_dir(&base) else {
+        // An absent store holds nothing; one that exists and cannot be listed
+        // is unread, and no digest under it may be judged absent.
+        if base.exists() {
+            store.unlistable(&[]);
+        }
         return store;
     };
     let mut buffer = vec![0_u8; CHUNK_BYTES];
     for entry in first_level.flatten() {
-        let Some(high) = fan_out(&entry, counts) else {
+        let Some(high) = fan_out(&entry, counts, &mut store) else {
             continue;
         };
+        let high_byte = fan_out_byte(&high).unwrap_or_default();
         let Ok(second_level) = fs::read_dir(entry.path()) else {
+            store.unlistable(&[high_byte]);
             continue;
         };
         for entry in second_level.flatten() {
-            let Some(low) = fan_out(&entry, counts) else {
+            let Some(low) = fan_out(&entry, counts, &mut store) else {
                 continue;
             };
             let Ok(objects) = fs::read_dir(entry.path()) else {
+                store.unlistable(&[high_byte, fan_out_byte(&low).unwrap_or_default()]);
                 continue;
             };
             for object in objects.flatten() {
@@ -99,10 +158,11 @@ fn count_staging(directory: &Path) -> u64 {
 
 /// The name of a fan-out directory, or a count against the entry that is not
 /// one: a link is `path.symlink`, anything else a malformed object entry.
-fn fan_out(entry: &DirEntry, counts: &mut Counts) -> Option<String> {
+fn fan_out(entry: &DirEntry, counts: &mut Counts, store: &mut Store) -> Option<String> {
     let name = entry.file_name().to_string_lossy().into_owned();
     let Ok(metadata) = fs::symlink_metadata(entry.path()) else {
-        counts.digest_mismatch += 1;
+        // The entry could not be read, so nothing may be asserted about it.
+        store.objects_unchecked += 1;
         return None;
     };
     if metadata.file_type().is_symlink() {
@@ -133,7 +193,8 @@ fn check_object(
     let path = entry.path();
     let name = entry.file_name().to_string_lossy().into_owned();
     let Ok(metadata) = fs::symlink_metadata(&path) else {
-        counts.digest_mismatch += 1;
+        // The entry could not be read, so nothing may be asserted about it.
+        store.objects_unchecked += 1;
         return;
     };
     if !metadata.is_file() {

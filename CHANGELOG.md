@@ -22,9 +22,13 @@ matches the observable difference. See the Documentation section of
   and compares the artefact store with what the records claim. It is
   read-only: it takes no writer lock, so a held lock never stops it, opens
   every file read-only and without following a link, and creates, renames,
-  removes, and repairs nothing, including a leftover staging file, which it
-  counts and leaves alone. The report is counts and stable codes only, and
-  never the path, name, or digest of a damaged object. A clean archive exits
+  removes, and repairs nothing, including a leftover staging file and a
+  missing layout directory, which it reads as empty. It therefore completes
+  on an archive whose root the user cannot write to. An entry the check could
+  not read, including a fan-out directory it could not list, is counted as
+  unchecked rather than reported as damage or as a missing object. The report
+  is counts and stable codes only, and never the path, name, or digest of a
+  damaged object. A clean archive exits
   `0`; otherwise the report stays in `data`, `ok` is `false`, and `error`
   names the first problem in a fixed precedence, exiting `4` for a `record`
   or `integrity` condition and `3` where the only complaint is a link inside
