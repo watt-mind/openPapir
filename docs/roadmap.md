@@ -2,6 +2,9 @@
 
 Only the scaffold is implemented: Rust workspace, help/version/capabilities,
 and quality and documentation foundations. The following milestones are plans.
+The [specification index](specification.md) records what is implemented, what
+is decided but not built, and what is blocked; this page records the order in
+which the remaining work is meant to happen.
 
 ## 1. Discover supported inputs
 
@@ -32,9 +35,9 @@ storage technology, the on-disk layout, and the record shapes for review, and
 records which of that note's questions stay open. Follow-up 5 of that same
 note is answered by the
 [import and association error, JSON, and exit-code contract](error-contract.md),
-which
-specifies the JSON envelope, the error-code catalogue, and the exit-code
-mapping for review. No part of any of these documents is implemented.
+which specifies the JSON envelope, the error-code catalogue, and the
+exit-code mapping for review. No part of any of these documents is
+implemented.
 
 ## 3. Implement one offline workflow
 

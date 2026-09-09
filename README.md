@@ -54,6 +54,14 @@ scaffold. Importing a receipt, matching it to a submission, and verifying its
 cryptographic authenticity will remain separate states. Matching alone must
 never assert legal effect or successful delivery.
 
+## Documentation
+
+The [specification index](docs/specification.md) is the single entry point to
+the project's scope, what is implemented today, which designs are decided but
+not built, and which contracts are still blocked. The
+[documentation index](docs/index.md) gives every document and root policy file
+a one-line purpose.
+
 ## Development
 
 The workspace contains `openpapir-core` and `openpapir-cli`. Both crates are
@@ -64,6 +72,7 @@ unpublished, use Rust edition 2024, and are licensed under [MIT](LICENSE).
 ```
 
 Pull requests target `develop`; `master` is reserved for stable releases.
-See [contributing](CONTRIBUTING.md), [security](SECURITY.md), and the
-[documentation index](docs/index.md). The [roadmap](docs/roadmap.md) records
-bounded discovery work before implementation begins.
+See [contributing](CONTRIBUTING.md), whose Documentation section states how
+the documents are kept correct, and [security](SECURITY.md). The
+[roadmap](docs/roadmap.md) records bounded discovery work before
+implementation begins.

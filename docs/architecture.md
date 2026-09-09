@@ -1,5 +1,13 @@
 # Architecture and CLI contract
 
+## Documentation map
+
+This document is the canonical contract of what openPapir actually does. For
+the wider picture, purpose, scope, non-goals, which designs are decided but
+not built, and which contracts are still blocked, start at the
+[specification index](specification.md). Every document has a one-line purpose
+in the [documentation index](index.md).
+
 ## Current implementation
 
 The Rust edition 2024 workspace has an MSRV of 1.88 and two unpublished crates:
