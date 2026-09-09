@@ -1,0 +1,14 @@
+/target/
+/samples/
+/refs/
+/tmp/
+/node_modules/
+.env
+.env.*
+*.local
+*.pem
+*.key
+*.p12
+*.pfx
+/lcov.info
+/coverage/

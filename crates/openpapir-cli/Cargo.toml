@@ -1,0 +1,22 @@
+[package]
+name = "openpapir-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+description = "openPapir command-line interface (development scaffold)"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "openpapir"
+path = "src/main.rs"
+
+[dependencies]
+openpapir-core = { path = "../openpapir-core" }
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true

@@ -1,0 +1,20 @@
+name: Feature report
+description: Propose a focused capability.
+labels: ["type:feature", "source:human"]
+body:
+  - type: markdown
+    attributes:
+      value: Never attach real correspondence, personal data, keys, or credentials. Report vulnerabilities privately.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem and expected outcome
+    validations:
+      required: true
+  - type: textarea
+    id: example
+    attributes:
+      label: Synthetic example or reproduction steps
+      description: Include command and version where relevant. No private data.
+    validations:
+      required: true

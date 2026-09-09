@@ -1,0 +1,15 @@
+[package]
+name = "openpapir-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+description = "openPapir capability model (development scaffold)"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde.workspace = true

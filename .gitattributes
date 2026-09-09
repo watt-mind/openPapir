@@ -1,0 +1,5 @@
+* text=auto eol=lf
+*.krx binary
+*.es3 binary
+*.pdf binary
+*.zip binary
