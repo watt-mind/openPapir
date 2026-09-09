@@ -18,6 +18,26 @@ matches the observable difference. See the Documentation section of
 
 ### Added
 
+- `openpapir archive check --archive <root>` re-digests every stored object
+  and compares the artefact store with what the records claim. It is
+  read-only: it takes no writer lock, so a held lock never stops it, opens
+  every file read-only and without following a link, and creates, renames,
+  removes, and repairs nothing, including a leftover staging file, which it
+  counts and leaves alone. The report is counts and stable codes only, and
+  never the path, name, or digest of a damaged object. A clean archive exits
+  `0`; otherwise the report stays in `data`, `ok` is `false`, and `error`
+  names the first problem in a fixed precedence, exiting `4` for a `record`
+  or `integrity` condition and `3` where the only complaint is a link inside
+  the store. `capabilities` now lists `archive.check` as the eleventh
+  operation. A passing check is storage integrity only: it asserts nothing
+  about authenticity, origin, delivery, or legal effect, and `verified` stays
+  `false`.
+- `integrity.dangling_reference` is a new error code for a record that names
+  a digest, case, submission, receipt, import event, or association the
+  archive does not hold. `integrity.digest_mismatch` and
+  `integrity.orphan_object`, both previously reserved, are now emitted, and
+  an orphan is a counted report entry rather than a refusal of anything.
+
 - `openpapir receipt add --archive <root> --artefact <digest> [--import-event
   <id>] [--label <l>]` and `openpapir receipt list --archive <root>` record
   and list receipts under `records/receipts/`. A receipt is an artefact the
