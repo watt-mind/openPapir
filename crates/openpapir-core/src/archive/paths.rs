@@ -271,26 +271,29 @@ pub fn set_object_read_only(path: &Path) -> io::Result<()> {
     }
 }
 
-/// Clear a path's read-only attribute, so that it can be removed or replaced.
+/// Clear a path's read-only attribute, reporting the permissions it had.
 ///
-/// The counterpart of [`set_object_read_only`], compiled only for the
-/// platforms whose read-only attribute refuses an unlink outright. On Windows
-/// `set_readonly(false)` clears the attribute for everyone rather than for the
-/// owner alone, which is what the lint names. It does not widen who may reach
-/// the file: owner-only access there is the access-control list and not this
-/// bit (`docs/archive-layout.md`). Every caller clears the attribute as the
-/// precondition of removing or replacing the file a moment later, and none
-/// leaves a stored object cleared.
+/// The counterpart of [`set_object_read_only`], compiled only for platforms
+/// whose read-only attribute refuses an unlink outright. `set_readonly(false)`
+/// clears it for everyone rather than for the owner alone, which is what the
+/// lint names; it widens nothing, because owner-only access there is the
+/// access-control list and not this bit (`docs/archive-layout.md`), and every
+/// caller removes or replaces the file a moment later rather than leaving a
+/// stored object cleared. The permissions are read through [`open_no_follow`],
+/// so a link planted in place of the file is refused here and not in each
+/// caller, and they are returned, so that a caller which must put the
+/// attribute back reads the metadata once rather than twice.
 ///
 /// # Errors
 ///
-/// Returns the underlying I/O error.
+/// Returns the underlying I/O error, a planted link's refusal included.
 #[cfg(not(unix))]
-pub fn clear_read_only(path: &Path) -> io::Result<()> {
-    let mut permissions = fs::metadata(path)?.permissions();
+pub(crate) fn clear_read_only(path: &Path) -> io::Result<fs::Permissions> {
+    let original = open_no_follow(path)?.metadata()?.permissions();
+    let mut cleared = original.clone();
     #[allow(clippy::permissions_set_readonly_false)]
-    permissions.set_readonly(false);
-    fs::set_permissions(path, permissions)
+    cleared.set_readonly(false);
+    fs::set_permissions(path, cleared).map(|()| original)
 }
 
 /// Whether a path's permissions are wider than owner-only.
