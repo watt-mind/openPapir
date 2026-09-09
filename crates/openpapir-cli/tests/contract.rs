@@ -21,7 +21,7 @@ fn capabilities_are_honest_and_machine_readable() {
         serde_json::json!({
             "schema_version": 1, "ok": true, "command": "capabilities",
             "data": {
-                "project": "openPapir", "stage": "scaffold",
+                "project": "openPapir", "stage": "alpha",
                 "operations": [
                     "archive.init", "import",
                     "case.create", "case.list", "case.show", "submission.add",
