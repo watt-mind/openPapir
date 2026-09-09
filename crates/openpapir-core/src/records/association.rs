@@ -280,13 +280,14 @@ fn check_shape(outcome: &str, candidates: &[Candidate]) -> std::result::Result<(
 /// Resolve the superseded record, which must belong to the same receipt.
 ///
 /// The superseded record itself is never modified: supersession is recorded
-/// by the new record alone, so history stays inspectable.
+/// by the new record alone, so history stays inspectable. Only an absent
+/// value means no supersession: a supplied empty one names no association.
 fn checked_supersedes(
     root: &Path,
     receipt_id: &str,
     supersedes: Option<&str>,
 ) -> std::result::Result<Option<String>, Diagnostic> {
-    let Some(supersedes) = supersedes.filter(|value| !value.is_empty()) else {
+    let Some(supersedes) = supersedes else {
         return Ok(None);
     };
     let superseded = document::read_record::<Association>(root, supersedes, "association_id")?;
@@ -670,6 +671,13 @@ mod tests {
                 f.receipt_id.as_str(),
                 &[][..],
                 Some(ABSENT_ID),
+                "association",
+                "association_id",
+            ),
+            (
+                f.receipt_id.as_str(),
+                &[][..],
+                Some(""),
                 "association",
                 "association_id",
             ),
