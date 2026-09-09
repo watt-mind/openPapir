@@ -312,9 +312,15 @@ below (which re-digests objects) is the real answer to a damaged store.
 ## Association records
 
 An association is a separate record with its own evidence, never a foreign key
-implying certainty. Fields: identifier, receipt identifier, optional submission
-identifier, outcome, evidence list, confidence, who created it (`user` or
-`automatic`), timestamp, and an optional reference to the record it supersedes.
+implying certainty. The record carries `id`, `receipt_id`, `submission_id`
+(null unless the outcome is `associated`), `outcome`, `created_by` (`user` or
+`automatic`), `created_at`, `supersedes` (null unless the record replaces an
+earlier one), and `candidates`. Evidence and confidence are not record-level
+fields: each entry in `candidates` carries its own `submission_id`,
+`confidence`, and `evidence` list. `candidates` holds one entry for
+`associated`, several for `candidate` and `contradictory`, and none for
+`unassociated`. [error-contract](error-contract.md) is authoritative for wire
+shapes.
 
 Outcomes are exactly:
 
@@ -328,12 +334,12 @@ Outcomes are exactly:
 
 Each evidence entry records its kind, the derived record and extractor version
 it came from or that the user asserted it, and a readable statement of what was
-observed. Confidence is an ordinal label from a closed set (`weak`,
-`moderate`, `strong`) and explicitly not a probability, because no calibration
-data exists and a number would imply one. Records are append-only: a change
-writes a new record superseding the previous one, so history is inspectable. An
-association never implies delivery, receipt by an authority, authenticity, or
-legal effect ([architecture](architecture.md)).
+observed. A candidate's confidence is an ordinal label from a closed set
+(`weak`, `moderate`, `strong`) and explicitly not a probability, because no
+calibration data exists and a number would imply one. Records are append-only:
+a change writes a new record superseding the previous one, so history is
+inspectable. An association never implies delivery, receipt by an authority,
+authenticity, or legal effect ([architecture](architecture.md)).
 
 ## Export and backup
 
