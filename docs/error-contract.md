@@ -1,0 +1,625 @@
+# Import and association error, JSON, and exit-code contract
+
+## Status and scope
+
+This document is a **specification for review**. Nothing in it is implemented.
+The executable still exposes only help, version, and `capabilities`, whose
+output is unchanged and still reports `"operations": []` and
+`"verified": false` ([architecture](architecture.md)). Every command name,
+flag, field name, error code, and exit code below is **proposed**.
+
+It is follow-up 5 of the
+[receipt evidence and local case model note](receipt-discovery.md), and the
+[local archive layout and storage design](archive-layout.md) that decides the
+archive design deliberately defers every wire name, JSON shape, and exit code
+to this document. Artefact import must not print anything
+machine-readable until this contract is agreed, so it sits ahead of the first
+import code.
+
+Every code and shape below traces to a rule already recorded in
+[archive-layout](archive-layout.md), [SECURITY.md](../SECURITY.md), or
+[AGENTS.md](../AGENTS.md). Where the design leaves a condition undecided, the
+code is named and **reserved** and the condition is marked deferred; this
+document invents no new refusal.
+
+Out of scope: any command implementation, any parser, any storage or matching
+behaviour, any verification, and any government format, identifier, or API.
+Container and `.es3` handling belong to openKRX and openSzigno
+([AGENTS.md](../AGENTS.md)).
+
+Wording rule, inherited unchanged: importing bytes, associating records, and
+verifying authenticity are three separate records. No field, code, message, or
+exit status defined here may be read as evidence of delivery, receipt by an
+authority, authenticity, or legal effect.
+
+## The response envelope
+
+The envelope is an evolution of the one `capabilities --json` already emits
+([architecture](architecture.md),
+[`crates/openpapir-cli/src/main.rs`](../crates/openpapir-cli/src/main.rs)). It
+keeps the five existing keys and adds two:
+
+- `schema_version` — integer, currently `1`. Unchanged in meaning.
+- `ok` — boolean. `true` only when the command completed its stated work.
+- `command` — string, the invoked command's stable name.
+- `data` — object. Command results, including outcomes that are not errors.
+  Present and possibly empty when `ok` is `true`; `{}` when `ok` is `false`.
+- `verified` — boolean.
+- `error` — object or absent. Present exactly when `ok` is `false`.
+- `warnings` — array, possibly absent. Allowed whether `ok` is `true` or
+  `false`; a degradation observed before a failure is still reported.
+
+Exactly one JSON object is written to stdout, on one line, and nothing else.
+Human-readable output goes to stdout only in the non-`--json` form; diagnostic
+text never shares stdout with the JSON object.
+
+### The `error` object
+
+Three keys, no more:
+
+- `code` — a stable string identifier from the catalogue below.
+- `message` — one human sentence, written for a person, never parsed.
+- `details` — an object, bounded and privacy-constrained (see
+  [Privacy rule](#privacy-rule-for-all-output)). At most 16 keys; values are
+  strings, integers, booleans, or arrays of at most 16 such scalars; no
+  nesting below that. A missing `details` is equivalent to `{}`.
+
+`code` is the only field a caller may branch on. `message` wording may change
+at any time within a `schema_version`.
+
+### The `warnings` array
+
+Each entry has the same three keys as `error` and the same bounds. Warnings
+report a condition that did not stop the command at the point it was observed:
+the named platform degradations, and nothing else until this document names
+more. A warning never changes `ok` and never changes the exit code.
+
+`warnings` may accompany an `error`. A degradation observed before a later
+failure is still reported, because
+[archive-layout](archive-layout.md) requires that each named weakening be
+reported and never silently accepted; a failed command must not swallow the
+degradation it already observed. The array is therefore independent of `ok`:
+`ok` says whether the command did its work, `warnings` says what was weaker
+than the design promises, and neither implies the other. Standing degradations
+of an archive are re-reported by archive health output on every run, so a
+warning lost with a crashed process is recoverable by asking again.
+
+### Compatibility rule for `schema_version`
+
+Within one `schema_version`, changes are **additive only**: new commands, new
+keys in `data`, new error codes, new keys inside `details`. A published error
+code is never removed, never renamed, and never has its bucket changed. A key
+present in `data` is never removed and never changes type. A caller must
+ignore keys it does not recognise and must not fail on an unknown error code;
+it may fall back to the bucket prefix and to the exit code.
+
+Removing or renaming anything, or changing a code's bucket or a field's type,
+requires incrementing `schema_version`. `schema_version` is the envelope's
+version and is independent of `archive_schema_version` in
+`papir-archive.json` ([archive-layout](archive-layout.md)).
+
+### Rule for `verified`
+
+`verified` is `false` in every envelope unless a named cryptographic check
+actually ran and passed, with its verifier, scope, and supplied trust context
+recorded in `data` ([architecture](architecture.md),
+[SECURITY.md](../SECURITY.md)). Import, duplicate detection, digest equality,
+association, and the integrity check are **not** cryptographic verification:
+a digest is a storage-layer identity only
+([archive-layout](archive-layout.md)), so all of these leave `verified` at
+`false`. No error and no warning ever sets `verified` to `true`.
+
+### Examples (all proposed, none implemented)
+
+Success:
+
+```json
+{
+  "schema_version": 1,
+  "ok": true,
+  "command": "import",
+  "data": {
+    "imported": 1,
+    "duplicates": 0,
+    "artefacts": [
+      {
+        "digest": "sha256:0f1e...",
+        "byte_length": 20481,
+        "import_event": "9d0a2c4b6e8f1a3c5d7e9f0b2c4d6e8f",
+        "created_object": true
+      }
+    ]
+  },
+  "verified": false
+}
+```
+
+Error:
+
+```json
+{
+  "schema_version": 1,
+  "ok": false,
+  "command": "import",
+  "data": {},
+  "error": {
+    "code": "input.cap.file_size",
+    "message": "An input file exceeds the single-file size cap.",
+    "details": {
+      "bucket": "input",
+      "cap_bytes": 67108864,
+      "observed_bytes": 91234567,
+      "input_index": 3
+    }
+  },
+  "verified": false
+}
+```
+
+Success with warnings:
+
+```json
+{
+  "schema_version": 1,
+  "ok": true,
+  "command": "import",
+  "data": { "imported": 1, "duplicates": 0 },
+  "warnings": [
+    {
+      "code": "platform.no_directory_fsync",
+      "message": "Directory durability is weaker on this platform.",
+      "details": { "bucket": "platform", "scope": "record_write" }
+    }
+  ],
+  "verified": false
+}
+```
+
+## Error-code catalogue
+
+### Naming and stability
+
+Codes are lowercase, dot-separated, and prefixed by their bucket, for example
+`archive.marker_missing`, `input.cap.file_size`, `path.symlink`. A code is
+stable once published: additive-only within a `schema_version`, as above. The
+bucket prefix is load-bearing — a caller that does not recognise a code may
+branch on the prefix — so a code never moves between buckets.
+
+Buckets are `usage`, `input`, `path`, `archive`, `lock`, `write`, `record`,
+`integrity`, `export`, `delete`, `platform`, and `internal`. Every `details`
+object carries `bucket` as a string; the entries below list what else it may
+carry. Nothing in `details` is required: a field may be omitted when it is
+unknown or when including it would breach the privacy rule.
+
+### `usage` — the invocation itself
+
+- **`usage.arguments`** — usage, not retryable. The command line is
+  malformed, or a flag's value is unusable, before any archive is touched.
+  Details: `bucket`, `argument` (the flag or positional name, never its
+  value).
+- **`usage.archive_root_missing`** — usage, not retryable. No archive root was
+  supplied, or the supplied path does not exist. The root is always supplied
+  explicitly; openPapir never searches for an archive
+  ([archive-layout](archive-layout.md)). Details: `bucket` only — the supplied
+  path is user-supplied and outside the archive, so it is not echoed.
+
+### `archive` — state of the archive itself
+
+- **`archive.marker_missing`** — archive, not retryable. The root exists but
+  holds no `papir-archive.json` marker, so there is no archive to open.
+  Details: `bucket`.
+- **`archive.adopt_refused`** — archive, not retryable. Initialisation was
+  asked for on a directory that is not empty and has no marker. openPapir
+  never adopts such a directory; only an existing empty directory may be
+  initialised explicitly ([archive-layout](archive-layout.md)). Details:
+  `bucket`, `entry_count`.
+- **`archive.schema_newer`** — archive, not retryable. The marker's
+  `archive_schema_version` is newer than this build supports. Every
+  operation is refused, including read-only ones; there is no best-effort
+  read, partial listing, or repair. Details: `bucket`,
+  `archive_schema_version`, `supported_schema_version`.
+- **`archive.schema_older`** — archive, not retryable by the same invocation.
+  The archive predates this build; writes are refused and an explicit
+  migration is required. Migration never runs as a side effect. Details:
+  `bucket`, `archive_schema_version`, `supported_schema_version`.
+- **`archive.permissions_wide`** — archive, not retryable. Permissions on the
+  archive root or a path inside it are wider than owner-only. There is no
+  override flag; the only remedy is the explicit repair action, which only
+  narrows ([archive-layout](archive-layout.md)). Details: `bucket`,
+  `archive_path` (archive-relative), `path_count`.
+- **`archive.multiple_filesystems`** — archive, not retryable. The archive
+  root spans more than one filesystem, which the atomic write procedure
+  forbids. Details: `bucket`, `archive_path`.
+- **`archive.marker_malformed`** — archive, not retryable. **Reserved.** The
+  marker file exists but cannot be read as a valid marker.
+  [archive-layout](archive-layout.md) fixes what the marker records but not
+  what happens when it is unreadable, so the condition is deferred to the
+  artefact-import issue and only the code is fixed here. Details: `bucket`.
+
+### `input` — bounds refused before allocation
+
+Every cap is checked before allocation, from the size the filesystem reports,
+and enforced again while streaming ([archive-layout](archive-layout.md)); a
+mid-stream breach aborts the write and removes the staging file. All five are
+refusals of the input, never archive damage. All carry `bucket`, `cap_bytes`
+or `cap_count`, `observed_bytes` or `observed_count`, and `input_index` — the
+position of the offending input in the invocation, never its name.
+
+- **`input.cap.file_size`** — input, not retryable. One file exceeds the
+  single-file cap (proposed 64 MiB).
+- **`input.cap.import_bytes`** — input, not retryable. The import's total
+  bytes exceed the per-operation cap (proposed 512 MiB).
+- **`input.cap.import_files`** — input, not retryable. The import names more
+  files than the per-operation cap (proposed 1000).
+- **`input.cap.record_size`** — input, not retryable. A record document,
+  including derived metadata, would exceed the record cap (proposed 1 MiB).
+- **`input.cap.filename_length`** — input, not retryable. A supplied original
+  filename exceeds the attribute cap (proposed 255 bytes). Only the length is
+  reported, never the name.
+
+Caps are never relaxed to make one input succeed ([AGENTS.md](../AGENTS.md)).
+The cap values themselves are proposals in
+[archive-layout](archive-layout.md) and adjustable by review; the codes are
+not.
+
+### `path` — path-safety refusals
+
+A violating path is refused and reported, never repaired, resolved, or
+followed ([archive-layout](archive-layout.md)).
+
+- **`path.symlink`** — input, not retryable. A path that must not be a
+  symbolic link is one: the archive root, a directory inside it, an object, a
+  record, or a component of an export destination. Details: `bucket`,
+  `archive_path` when the path is inside the archive; otherwise `bucket` and
+  `scope` (`archive` or `export_destination`) only.
+- **`path.traversal`** — input, not retryable. A path derivation would leave
+  the archive root. Reserved: user-supplied filenames are stored as attributes
+  and never joined into a path, so this is a defence-in-depth code for a
+  derivation bug or a hostile identifier, not an expected outcome. Details:
+  `bucket`.
+- **`path.overwrite`** — input, not retryable. A write would replace a file
+  openPapir did not create — a stored object, a record, or an existing file at
+  an export destination. Details: `bucket`, `archive_path` when inside the
+  archive, `scope` otherwise.
+- **`path.cross_device`** — input, not retryable. A rename would cross a
+  device boundary; the write is abandoned and the archive is refused as
+  misconfigured. Details: `bucket`, `archive_path`.
+
+### `lock` — the single-writer lock
+
+- **`lock.held`** — archive, **retryable**. Another writer holds the advisory
+  lock. A second writer refuses rather than waiting indefinitely. Details:
+  `bucket`. The lock file records the holder's process identifier, host, and
+  start time; none of that is echoed, because a hostname is environment data
+  the design gives no reason to publish.
+- **`lock.stale`** — archive, not retryable by the same invocation. The lock's
+  holder appears to be gone. A stale lock is **never** broken silently and
+  never on a timeout; only an explicit user action takes it over, and it says
+  what it found. Details: `bucket`, `evidence` (a short bucket name for what
+  made the holder appear gone). What counts as proof is deferred to the
+  artefact-import issue ([archive-layout](archive-layout.md)); until that is
+  decided this code is reserved and its `evidence` values are unfixed.
+
+### `write` — interrupted or incomplete writes
+
+- **`write.interrupted`** — archive, **retryable**. A write was interrupted
+  before its rename. The staging file is abandoned and never adopted, so the
+  archive holds the complete artefact or nothing. Details: `bucket`,
+  `stage` (`object` or `record`).
+- **`write.incomplete`** — archive, not retryable. **Reserved.** A write
+  completed fewer bytes than expected, or a stream ended early, and the
+  partial file is removed. The design states only that an interrupted import
+  leaves the complete artefact or nothing; how a short write is distinguished
+  from an interruption is deferred to the artefact-import issue. Details:
+  `bucket`, `stage`, `expected_bytes`, `observed_bytes`.
+
+### `record` — record documents
+
+- **`record.malformed`** — archive, not retryable. **Reserved.** A record file
+  exists but is not valid JSON, is missing a required field, or names a record
+  kind this build does not know. [archive-layout](archive-layout.md) fixes the
+  record shapes but decides no behaviour for a record that violates them, so
+  the condition is deferred to the artefact-import issue. Details: `bucket`,
+  `archive_path`, `record_kind` when it is readable. Never the record's
+  content.
+
+### `integrity` — stored bytes disagree with what is recorded
+
+- **`integrity.digest_mismatch`** — archive, not retryable. A stored object's
+  bytes no longer digest to its own path. The object is reported as damaged
+  and never overwritten. Details: `bucket`, `archive_path`, `digest`
+  (the expected digest, which is already the object's path).
+- **`integrity.length_mismatch`** — archive, not retryable. On a duplicate
+  import the stored object's byte length differs from the incoming length,
+  which means the store is damaged; it is reported, never overwritten
+  ([archive-layout](archive-layout.md)). Details: `bucket`, `archive_path`,
+  `expected_bytes`, `observed_bytes`.
+- **`integrity.orphan_object`** — archive, not retryable as an error but
+  normally a report entry, not a failure. Reserved for the case where an
+  orphan must stop an operation; the whole-archive integrity report carries
+  orphan counts instead (see below). Details: `bucket`, `count`.
+
+### `export` — writing outside the archive
+
+- **`export.destination_conflict`** — archive, not retryable. The export
+  destination already holds a file openPapir would have to replace. Export
+  never overwrites and refuses instead ([archive-layout](archive-layout.md)).
+  Details: `bucket`, `scope` (`export_destination`), `conflict_count`. The
+  destination path is user-supplied and outside the archive, so it is not
+  echoed.
+- **`export.copy_mismatch`** — archive, not retryable. An exported copy
+  re-digested to something other than the original. Details: `bucket`,
+  `digest`, `conflict_count`.
+
+### `delete` — deletion and purge
+
+- **`delete.objects_retained`** — archive, not retryable. A purge could not
+  remove objects because records still reference them. Each retained object is
+  reported with the record still referencing it, by identifier
+  ([archive-layout](archive-layout.md)). Details: `bucket`,
+  `retained_count`, `referencing_record_ids` (openPapir-minted identifiers,
+  bounded to 16 entries), `orphan_count`.
+
+Deletion itself is real and its summary is **not persisted**: counts and
+record kinds only, never filenames, digests, or titles
+([archive-layout](archive-layout.md)). Deletion does not erase data from the
+storage medium and no message may claim that it does.
+
+### `platform` — environment cannot provide a guarantee
+
+- **`platform.filesystem_unsupported`** — platform, not retryable. The
+  filesystem cannot express owner-only access, so the archive is unsupported.
+  This is a deliberate refusal, not a degradation
+  ([archive-layout](archive-layout.md)). Details: `bucket`.
+- **`platform.no_directory_fsync`** — platform. Used as a **warning**, never
+  as an error; see below.
+- **`platform.replace_while_open`** — platform, **retryable**. Replacing a
+  file failed because another process holds it open. As an error this stops
+  the operation; the retry is the user's, after closing the other process.
+  Details: `bucket`, `stage`.
+- **`platform.owner_only_via_acl`** — platform. Used as a **warning**, never
+  as an error; see below.
+
+### `internal` — a bug in openPapir
+
+- **`internal.unexpected`** — internal, not retryable. An invariant this
+  document or [archive-layout](archive-layout.md) states was violated. The
+  message asks for a report under [SECURITY.md](../SECURITY.md) when the
+  condition may be security-relevant. Details: `bucket` only; never a
+  backtrace, never a path, never any input-derived value.
+
+## Exit codes
+
+The exit code carries the bucket and nothing else. It **never** encodes a
+count, an identifier, a digest, a cap value, or the number of failed inputs.
+
+- `0` — success. `ok` is `true`. Duplicate imports and every association
+  outcome exit `0`, and a warning alone never raises the exit code above `0`.
+- `2` — usage error. Bucket `usage`.
+- `3` — refused input. Buckets `input` and `path`.
+- `4` — archive state. Buckets `archive`, `lock`, `write`, `record`,
+  `integrity`, `export`, and `delete`.
+- `5` — platform or environment. Bucket `platform`.
+- `6` — internal error. Bucket `internal`.
+
+`1` is reserved and not emitted, so that a code of `1` is recognisable as
+something other than a contract failure. `101`, the Rust panic exit, is
+likewise never a contract value; if it appears it is `internal` by definition
+and a bug.
+
+A command that reports several failures still exits with one code: the highest
+of the exit-code groups above, in the order `6` > `5` > `4` > `3` > `2`. That
+covers all twelve buckets, because every bucket maps to exactly one group.
+The envelope's single `error` object names the first refusal; the rest, when a
+command is defined to continue past one, appear in `data` as counts and code
+buckets, never as an expanded per-input list of names.
+
+## Reporting platform degradation
+
+[archive-layout](archive-layout.md) names three weakenings and requires that
+each be reported at the point of the write and in archive health output, never
+silently accepted and never described as equivalent. Each is a **warning
+inside the envelope**: on its own it leaves `ok` at `true` and the exit code
+at `0`, and the operation is not retried or downgraded. A degradation observed before
+a later step fails is still reported, in the `warnings` array of the failing
+envelope; it is never dropped because the command ended badly.
+
+- **`platform.no_directory_fsync`** — the directory entry created by a rename
+  may not be durable after power loss, although the file content was flushed.
+  Details: `bucket`, `stage` (`object_write`, `record_write`, or
+  `marker_write`).
+- **`platform.replace_while_open`** — emitted as a warning only where the
+  design permits the operation to continue; where it stops the write it is the
+  error of the same name. Details: `bucket`, `stage`.
+- **`platform.owner_only_via_acl`** — owner-only access is expressed as an
+  access-control list rather than a permission bit and therefore depends on
+  the underlying filesystem. Details: `bucket`.
+
+A warning is never omitted because the command otherwise succeeded, and
+success is never reported without the warning that applies. Where an
+environment cannot provide owner-only access at all, the outcome is the
+`platform.filesystem_unsupported` error, not a warning.
+
+## Whole-archive integrity report
+
+The integrity check re-digests stored objects and reports damage and orphans
+([archive-layout](archive-layout.md)). Its `data` is **counts and buckets
+only** — never a list of damaged paths, digests, or record titles:
+
+```json
+{
+  "schema_version": 1,
+  "ok": true,
+  "command": "integrity",
+  "data": {
+    "objects_checked": 412,
+    "records_checked": 907,
+    "problems": [
+      { "code": "integrity.digest_mismatch", "count": 1 },
+      { "code": "record.malformed", "count": 0 }
+    ],
+    "orphan_objects": 3
+  },
+  "verified": false
+}
+```
+
+`ok` is `true` when the check ran to completion, even when it found damage:
+the check succeeded at its job. A check that could not run — a held lock, a
+newer schema version — is an error in its own bucket. `verified` stays `false`
+because re-digesting is a storage-layer identity check, not a cryptographic
+verification.
+
+## Results that are not errors
+
+### Duplicate import
+
+Re-importing bytes already present is **not an error**
+([archive-layout](archive-layout.md)). `ok` is `true`, the exit code is `0`,
+and the outcome is a field in `data`. The object is untouched and a second
+import event is recorded, so an import-event count is history, not an anomaly:
+
+```json
+{
+  "digest": "sha256:0f1e...",
+  "created_object": false,
+  "import_event": "3b7f5c1d9e2a4b6c8d0e2f4a6b8c0d1e",
+  "previous_import_count": 2,
+  "first_imported_at": "2026-01-14T09:12:33Z"
+}
+```
+
+A length mismatch on a duplicate is the separate
+`integrity.length_mismatch` error, because it means the store is damaged.
+
+### Association outcomes
+
+`unassociated`, `candidate`, `associated`, and `contradictory` are the four
+recorded outcomes ([archive-layout](archive-layout.md)). All four are results
+in `data`, all exit `0`, and none is an error — `contradictory` least of all,
+since retaining conflicting evidence is the designed behaviour. Their minimal
+shape follows the association record:
+
+```json
+{
+  "association": {
+    "id": "5c9d1e3f7a2b4c6d8e0f1a2b3c4d5e6f",
+    "receipt_id": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d",
+    "submission_id": null,
+    "outcome": "candidate",
+    "created_by": "automatic",
+    "created_at": "2026-01-14T09:12:33Z",
+    "supersedes": null,
+    "candidates": [
+      {
+        "submission_id": "7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b",
+        "confidence": "moderate",
+        "evidence": [
+          {
+            "kind": "derived_field_equality",
+            "source": "derived",
+            "extractor": "example-extractor/0.1.0",
+            "statement": "A derived field matched."
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+`receipt_id` here is openPapir's own minted receipt-record identifier, which
+the privacy rule allows, as distinct from any receipt identifier issued by an
+authority, which is never emitted.
+
+`submission_id` is `null` for `unassociated` and `candidate`; `candidates`
+holds one entry for `associated`, several for `candidate` and
+`contradictory`, and none for `unassociated`. `confidence` is the closed
+ordinal set `weak`, `moderate`, `strong` and is never a number, because no
+calibration data exists. A candidate set is never collapsed to a single best
+guess automatically. No outcome, and no wording around one, implies delivery,
+receipt by an authority, authenticity, or legal effect
+([receipt-discovery](receipt-discovery.md)); `verified` stays `false` for all
+four.
+
+## Privacy rule for all output
+
+Real correspondence is private ([AGENTS.md](../AGENTS.md),
+[SECURITY.md](../SECURITY.md)). The rule binds `message`, `details`, `data`,
+human-readable output, and anything written to stderr.
+
+Allowed, and only where the design already permits it:
+
+- Counts, byte lengths, cap values, indexes, and durations.
+- Bucket names, error codes, record kinds, and outcome labels.
+- Archive-relative internal paths such as `objects/sha256/ab/cd/…` or
+  `records/receipts/<id>.json`, which contain only digests and
+  openPapir-minted identifiers.
+- Identifiers openPapir minted itself: record identifiers, import-event
+  identifiers, the archive's own opaque identifier.
+- SHA-256 digests of stored artefacts, in the contexts where
+  [archive-layout](archive-layout.md) already exposes them — object paths,
+  export manifests, integrity reporting — and never presented as verification.
+- Timestamps openPapir recorded.
+
+Never, by default and with no flag to enable it:
+
+- Original filenames, or any sanitised or truncated form of one.
+- User-supplied paths outside the archive, including the archive root itself
+  and any export destination.
+- Payload bytes, excerpts, extracted text, or parsed field values.
+- Signer information, certificate data, subject or issuer names.
+- Any government identifier, or any receipt identifier issued by an
+  authority, as distinct from openPapir's own minted receipt-record
+  identifier, which is allowed.
+- User-supplied titles, labels, descriptions, and notes.
+- Hostnames, usernames, or process owners.
+
+Private-corpus reporting stays aggregate: counts and stable error-code buckets
+only, never an enumeration ([AGENTS.md](../AGENTS.md),
+[testing](testing.md)). A message that would otherwise need a forbidden value
+omits it and relies on the code and the counts instead; "which file" is
+answered by `input_index`, not by a name.
+
+## Nothing here is implemented
+
+`capabilities --json` is unchanged: it still reports `"operations": []` and
+`"verified": false`, and it gains no `error` and no `warnings` key. No command
+named in this document exists. No exit code other than the ones the current
+scaffold already produces is emitted. Agreeing this contract creates no
+capability and no obligation on a user's archive.
+
+## Origin and unblocked work
+
+This is follow-up 5 of [archive-layout](archive-layout.md), listed there under
+its unblocked follow-ups and required before import prints anything
+machine-readable. With it agreed, these bounded implementation issues can be
+written and reviewed:
+
+- **Artefact import with byte preservation** — may now print JSON, using the
+  `input`, `path`, `archive`, `lock`, `write`, and `platform` codes.
+- **Association records with candidate and contradictory outcomes** — has the
+  outcome shape and the rule that no outcome is an error.
+- **Whole-archive integrity check** — has the counts-and-buckets report shape.
+- **Derived-metadata staleness and recompute-on-request** — has the record
+  and cap codes it needs.
+- **Export, backup, and the permission-repair action** — has
+  `export.destination_conflict`, `export.copy_mismatch`, and
+  `archive.permissions_wide`.
+
+Unchanged blockers: receipt parsing still needs the format gap closed, and the
+delegated verification boundary still needs published, versioned contracts
+from openKRX and openSzigno ([archive-layout](archive-layout.md)). No
+verification code is specified here for that reason.
+
+## Limits of this specification
+
+It fixes wire names, not behaviour, and no capability follows from it. It
+assumes the archive design as written; if a review changes an adoption rule, a
+cap, a lock semantic, or the deletion rule, the affected codes change with it.
+`lock.stale`, `path.traversal`, `integrity.orphan_object`,
+`archive.marker_malformed`, `write.incomplete`, and `record.malformed` are
+reserved against conditions the design has not fully decided. Command names and flags
+are proposals only. It fixes no field, identifier, or format of any government
+artefact, and assumes nothing about what a receipt contains, because nothing
+is yet established about that ([receipt-discovery](receipt-discovery.md)).

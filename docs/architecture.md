@@ -38,6 +38,13 @@ This envelope describes capabilities only. It is not a promised response schema
 for future commands. `operations` is empty because no correspondence operation
 is implemented. `verified` is false because no cryptographic check took place.
 
+How future commands would extend this envelope with an `error` object and
+warnings, the stable error-code catalogue, and the exit-code mapping are
+specified for review in
+[import error, JSON, and exit-code contract](error-contract.md). That document
+is a proposal: no command, code, or exit status it names is implemented, and
+the capabilities output above is unchanged by it.
+
 ## Planned ownership
 
 openPapir will own persistent cases, submission relationships, receipt
