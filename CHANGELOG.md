@@ -254,6 +254,28 @@ delivery, receipt by an authority, authenticity, or legal effect.
 
 ### Fixed
 
+- A record document is now opened once and judged on that opened handle. The
+  reader opens it with the platform's no-follow flag and takes both the file
+  kind and the length from the handle it will read from, instead of checking
+  the path and opening it afterwards, so a local writer can no longer swap a
+  regular file for a symbolic link between the check and the read. The read is
+  capped as well as checked. Every observable refusal is unchanged:
+  `record.not_found` for a document that is not there, `record.malformed` for
+  one that is not a regular file or is not a valid record, and
+  `input.cap.record_size` for one over the record cap.
+- A leftover staging file in a record directory is counted rather than
+  silently passed over. `Visited`, the result of reading one record
+  directory, gained a `staging` count beside its `unreadable` count, so an
+  interrupted write is visible to a caller. The file is still never adopted as
+  a record and never reported as a malformed one, and no reader removes it:
+  removing it is a write, and only the holder of the writer lock may write.
+  The `archive check` report is unchanged; its `staging_files` still counts
+  `objects/incoming/` alone.
+- `association create --supersedes ""` is refused with `record.not_found`
+  instead of being read as no supersession. An empty value is not an
+  identifier, so it names no association, exactly like any other value that
+  does. Only omitting the flag records no supersession.
+
 - `archive check` no longer reads a record directory it cannot list as an
   empty one. A `records/<kind>` directory whose listing fails for any reason
   other than being absent now increments the report's new `records_unchecked`

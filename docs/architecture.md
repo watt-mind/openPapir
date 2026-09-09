@@ -538,7 +538,10 @@ value could be recorded honestly.
 
 Records are append-only. `--supersedes` names an earlier association for the
 same receipt; the superseded record is never modified, moved, or removed, and
-history stays inspectable.
+history stays inspectable. Only an absent `--supersedes` records no
+supersession. A supplied value is always resolved, so an empty one is
+`record.not_found` like any other value that names no association, rather than
+a silent no-op.
 
 The consistency rules below are enforced before anything is written. Each
 refusal is the additive `record.inconsistent`, whose `details` carry
@@ -701,13 +704,21 @@ follows, and no other reserved code became reachable:
    that could not be read, and never the document's path or content. Reading a
    directory of records reports it rather than passing over the document
    silently; the one exception is a staging file, which is openPapir's own
-   transient artefact and never a record. A stored document is untrusted
-   input: an entry that is not a regular file, and one larger than the record
-   cap, count as unreadable and are never opened, so a symbolic link in a
-   record directory is refused rather than followed and an oversized document
-   is refused from the size the filesystem reports. Reading one record by
-   identifier refuses an oversized document as `input.cap.record_size`, the
-   cap that bounds it.
+   transient artefact and never a record. A leftover staging file is counted
+   as such, so an interrupted write is visible rather than ignored, and it is
+   left exactly where it is: removing one is a write, and a reader holds no
+   writer lock. It is never a malformed record, because its name is not an
+   identifier and it can never be adopted as a record. A stored document is
+   untrusted input: it is opened with the platform's no-follow flag, and both
+   its kind and its length are taken from that opened handle rather than from
+   a separate look at the path, so the file that is checked is the file that
+   is read. An entry that is not a regular file, and one larger than the
+   record cap, count as unreadable, so a symbolic link in a record directory
+   is refused rather than followed and an oversized document is refused before
+   its bytes are read. The read is capped as well as checked, so a document
+   that grows between the two yields no more than the record cap. Reading one
+   record by identifier refuses an oversized document as
+   `input.cap.record_size`, the cap that bounds it.
 5. A reference that names no record or object is the additive
    `record.not_found`, whose `details` carry the kind that was not found and
    how it was referenced, never the value the user supplied. An identifier
