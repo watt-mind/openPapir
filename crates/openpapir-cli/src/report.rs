@@ -253,7 +253,7 @@ pub fn case_deleted(deleted: &Deleted) -> Vec<String> {
             reasons.join(", ")
         ),
         if deleted.purge {
-            "A purge was requested, so an object no remaining import event, receipt, or submission references was unlinked.".to_owned()
+            "A purge was requested: an object is unlinked only when no remaining import event, receipt, or submission references it.".to_owned()
         } else {
             "No purge was requested, so no object was removed.".to_owned()
         },

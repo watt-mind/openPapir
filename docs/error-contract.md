@@ -452,12 +452,22 @@ would name belongs to an archive the refusal is not about.
 
 ### `delete`: deletion and purge
 
-- **`delete.objects_retained`**: archive, not retryable. A purge could not
-  remove objects because records still reference them. Each retained object is
-  reported with the record still referencing it, by identifier
-  ([archive-layout](archive-layout.md)). Details: `bucket`,
-  `retained_count`, `referencing_record_ids` (openPapir-minted identifiers,
-  bounded to 16 entries), `orphan_count`.
+- **`delete.objects_retained`**: archive, not retryable. **Decided by
+  `case delete`.** A purge could not remove every object it planned to
+  remove. Details: `bucket`, `retained_count`, and the additive `reason`,
+  whose only implemented value is `unremovable`. Nothing else: no digest, no
+  path, and no identifier. `referencing_record_ids` and `orphan_count` are
+  **not** emitted. An object a remaining record still references is not a
+  refusal at all, because the purge was never entitled to remove it: it is
+  reported in `data` as a retained object with the reason
+  `referenced_elsewhere`, alongside `purge_not_requested` for an object left
+  because no purge was asked for. Reporting the identifier of a record that
+  survived would also say which surviving record points at content the user
+  asked to purge, which the privacy rule below does not allow.
+  `case delete` is the second command whose `data` survives a failure: the
+  deletion completed everything else, so the counts stay in `data` and the
+  error names only how many objects are still in the store
+  ([architecture](architecture.md)).
 
 Deletion itself is real and its summary is **not persisted**: counts and
 record kinds only, never filenames, digests, or titles
@@ -484,10 +494,14 @@ storage medium and no message may claim that it does.
   as an error; see below.
 - **`platform.no_follow_after_open`**: platform. Used as a **warning**, never
   as an error; see below.
-- **`platform.replace_while_open`**: platform, **retryable**. Replacing a
-  file failed because another process holds it open. As an error this stops
-  the operation; the retry is the user's, after closing the other process.
-  Details: `bucket`, `stage`.
+- **`platform.replace_while_open`**: platform, **retryable**. Replacing or
+  removing a file failed because another process holds it open. As an error
+  this stops the operation; the retry is the user's, after closing the other
+  process. `case delete` emits it as a **warning** instead, because a
+  deferred unlink stops that one object rather than the purge: the command
+  completes, counts the object as `unremovable`, and reports
+  `delete.objects_retained` ([architecture](architecture.md)). Details:
+  `bucket`, `stage`.
 - **`platform.owner_only_via_acl`**: platform. Used as a **warning**, never
   as an error; see below.
 
@@ -779,10 +793,13 @@ Case export and the permission repair are implemented, so
 than proposal, and `archive.permissions_wide` now has a documented remedy
 rather than only a refusal.
 
-Everything else here is still a proposal, including every `delete` code,
-`lock.stale`, `path.traversal`, `platform.replace_while_open`, and
-`write.incomplete`. Agreeing a code here creates no capability and no
-obligation on a user's archive.
+Deleting a case is implemented, so `delete.objects_retained`, its `reason`
+detail, and the rule that a deletion reports counts and record kinds and
+persists nothing are contract rather than proposal.
+
+Everything else here is still a proposal, including `lock.stale`,
+`path.traversal`, and `write.incomplete`. Agreeing a code here creates no
+capability and no obligation on a user's archive.
 
 ## Origin and unblocked work
 
@@ -801,6 +818,8 @@ written and reviewed:
   counts-and-buckets report shape above.
 - **Derived-metadata staleness and recompute-on-request**: has the record
   and cap codes it needs.
+- **Case deletion with an explicit purge**: implemented as `case delete`,
+  with the counts-and-reasons report shape and `delete.objects_retained`.
 - **Export, backup, and the permission-repair action**: implemented as
   `case export` and `archive repair-permissions`, using
   `export.destination_conflict`, `export.copy_mismatch`, and
@@ -818,8 +837,9 @@ assumes the archive design as written; if a review changes an adoption rule, a
 cap, a lock semantic, or the deletion rule, the affected codes change with it.
 `lock.stale`, `path.traversal`, and `write.incomplete` are reserved against
 conditions the design has not fully decided; `archive.marker_malformed`,
-`record.malformed`, and `integrity.orphan_object` have since been decided by
-the implementations that reached them. Command names and flags
-are proposals only. It fixes no field, identifier, or format of any government
-artefact, and assumes nothing about what a receipt contains, because nothing
-is yet established about that ([receipt-discovery](receipt-discovery.md)).
+`record.malformed`, `integrity.orphan_object`, and `delete.objects_retained`
+have since been decided by the implementations that reached them. Command
+names and flags are proposals only. It fixes no field, identifier, or format
+of any government artefact, and assumes nothing about what a receipt
+contains, because nothing is yet established about that
+([receipt-discovery](receipt-discovery.md)).

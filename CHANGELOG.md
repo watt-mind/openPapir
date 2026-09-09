@@ -59,6 +59,29 @@ matches the observable difference. See the Documentation section of
 - `capabilities` now lists `case.export` and `archive.repair_permissions` as
   the twelfth and thirteenth operations.
 
+- `openpapir case delete --archive <root> --case <id> [--purge]` deletes one
+  case, every submission recorded against it, and the receipts and
+  associations tied only to those submissions. A receipt or an association
+  that still references a submission or case the deletion leaves behind is
+  kept, and so is an association a surviving record supersedes. Without
+  `--purge` no object is removed and the objects that would become
+  unreferenced are counted as retained; with `--purge` every object no
+  remaining import event, receipt, or submission references is unlinked, and
+  the import events naming a purged object go with it once that object has
+  actually gone. The whole archive is scanned under the writer lock before
+  anything is removed, so a malformed record document aborts the deletion with
+  `record.malformed` while the archive is still untouched, and an unknown case
+  is `record.not_found`. Every removal is the unlink of one file openPapir
+  created, never a recursive directory removal, and nothing outside `records/`
+  and `objects/sha256/` is touched. The report is counts, record kinds, and
+  the reason an object stayed, and never a digest, a path, or a filename;
+  nothing about the deletion is persisted. `capabilities` now lists
+  `case.delete` as the fourteenth operation.
+- `delete.objects_retained` is now emitted, with the additive `reason` detail
+  key, when a purge could not unlink an object. The deletion completes what it
+  can, its counts stay in `data`, and the error carries the count alone.
+  `platform.replace_while_open` is emitted by `case delete` as a warning where
+  the platform defers an unlink.
 - `openpapir archive check --archive <root>` re-digests every stored object
   and compares the artefact store with what the records claim. It is
   read-only: it takes no writer lock, so a held lock never stops it, opens

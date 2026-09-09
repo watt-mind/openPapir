@@ -9,11 +9,13 @@ into a content-addressed store that preserves the original bytes, organises
 what it holds into cases and submissions, records receipts together with the
 user's own assertions about whether a receipt relates to a submission, and
 checks a whole archive against what its records claim without changing
-anything, copies one case out of the archive as plain files, and narrows a
-restored archive's permissions back to owner-only. Automatic matching, derived
-metadata, receipt parsing, import from an export, deletion, editing of a
-stored record, signature verification, and government delivery are not
-implemented. There is no published release.
+anything, copies one case out of the archive as plain files, narrows a
+restored archive's permissions back to owner-only, and deletes a case when
+asked, removing stored bytes only on an explicit `--purge`. Automatic
+matching, derived metadata, receipt parsing, import from an export, editing of
+a stored record, deleting a single submission or receipt, deleting an archive,
+signature verification, and government delivery are not implemented. There is
+no published release.
 
 openPapir is an independent open-source project. It is not the government's
 e-Papír service, is not affiliated with its operators, and does not submit
@@ -40,6 +42,7 @@ cargo run --locked -p openpapir-cli -- association list --archive ./my-archive -
 cargo run --locked -p openpapir-cli -- archive check --archive ./my-archive --json
 cargo run --locked -p openpapir-cli -- case export --archive ./my-archive --case <case-id> --to ./my-export --json
 cargo run --locked -p openpapir-cli -- archive repair-permissions --archive ./my-archive --json
+cargo run --locked -p openpapir-cli -- case delete --archive ./my-archive --case <case-id> --purge --json
 ```
 
 The capabilities command reports the current implementation honestly:
@@ -65,7 +68,8 @@ The capabilities command reports the current implementation honestly:
       "association.list",
       "archive.check",
       "case.export",
-      "archive.repair_permissions"
+      "archive.repair_permissions",
+      "case.delete"
     ]
   },
   "verified": false
@@ -86,7 +90,12 @@ passing check is storage integrity rather than authenticity. `case export`
 copies one case out as plain files, the original bytes named by their digest
 plus readable JSON records and a manifest, without changing the archive, and
 re-digests every copy. `archive repair-permissions` narrows a restored
-archive back to owner-only; it never widens anything.
+archive back to owner-only; it never widens anything. `case delete` is the one
+destructive command: it removes a case and its submissions, and the receipts
+and associations tied only to them, but it removes no stored bytes unless
+`--purge` is given, and even then only bytes nothing that remains references.
+It reports counts and record kinds, never a digest or a filename, records no
+deletion anywhere, and does not erase data from the storage medium.
 `verified: false` means no cryptographic verification was performed: a
 digest identifies bytes, and says nothing about authenticity or delivery.
 The full contract, including the error codes and exit codes, is in
