@@ -296,6 +296,12 @@ envelope.
   requirements are split into those already enforced, with pointers to the
   archive layout and the error contract, and those still ahead. No policy,
   reporting channel, or behaviour changes.
+- The archive layout document opens by saying what it is today, the
+  implemented layout with the departures that building it produced recorded in
+  the sections that decide them, and it points at the architecture document
+  for the operations `capabilities` reports rather than describing the project
+  as an unimplemented design. The stale pointers to closed issues for the
+  stale-lock recovery flow and the degradation wire shapes go with it.
 - The `archive check` report counts the leftover staging files the record
   directories hold, in a new additive `records_staging_files` field beside the
   existing `staging_files`, which keeps its meaning and still counts
