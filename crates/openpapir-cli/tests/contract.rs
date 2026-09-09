@@ -22,7 +22,10 @@ fn capabilities_are_honest_and_machine_readable() {
             "schema_version": 1, "ok": true, "command": "capabilities",
             "data": {
                 "project": "openPapir", "stage": "scaffold",
-                "operations": ["archive.init", "import"]
+                "operations": [
+                    "archive.init", "import",
+                    "case.create", "case.list", "case.show", "submission.add"
+                ]
             },
             "verified": false
         })
@@ -35,7 +38,9 @@ fn human_status_names_only_what_is_implemented() {
     assert!(output.status.success());
     assert!(output.stderr.is_empty());
     let text = String::from_utf8(output.stdout).unwrap();
-    assert!(text.contains("archive.init, import"));
+    assert!(
+        text.contains("archive.init, import, case.create, case.list, case.show, submission.add")
+    );
     assert!(text.contains("Nothing is verified"));
 }
 

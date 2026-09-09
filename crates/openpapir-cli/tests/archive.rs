@@ -213,6 +213,8 @@ fn creating_an_archive_writes_a_marker_and_an_owner_only_layout() {
         "objects/sha256",
         "objects/incoming",
         "records/imports",
+        "records/cases",
+        "records/submissions",
         "cache",
     ] {
         assert!(root.path().join(relative).is_dir(), "{relative} exists");
@@ -928,13 +930,20 @@ fn absent(inputs: &tempfile::TempDir) -> PathBuf {
 }
 
 #[test]
-fn capabilities_report_exactly_the_two_implemented_operations() {
+fn capabilities_report_exactly_the_implemented_operations() {
     let output = run(&["capabilities", "--json"]);
     let envelope = stdout_json(&output);
     assert_envelope(&envelope, "capabilities", true);
     assert_eq!(
         envelope["data"]["operations"],
-        serde_json::json!(["archive.init", "import"])
+        serde_json::json!([
+            "archive.init",
+            "import",
+            "case.create",
+            "case.list",
+            "case.show",
+            "submission.add"
+        ])
     );
     assert_eq!(output.status.code(), Some(0));
 }
