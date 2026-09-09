@@ -152,9 +152,28 @@ matches the observable difference. See the Documentation section of
 - The pull request template requires the affected documents, any new code,
   flag, or field, a changelog entry, and any new fixture to be covered by the
   same pull request.
+- The CI Documentation job now runs `python3 scripts/check-prose.py` and
+  passes the same markdownlint exclusions as `scripts/check.sh`, so a local
+  run and CI accept exactly the same tree. The `CONTRIBUTING.md` checks table
+  records the prose check as running locally and in CI.
+- `scripts/check-prose.py` and `scripts/check-doc-links.py` share one
+  skip-prefix list, spelled identically in both files with a comment pointing
+  at the other. The list is the union of the two previous lists, which selects
+  the same tracked files as before.
+- The MSRV CI job states the version once, in a job-level `MSRV` environment
+  variable used by the toolchain selection, the banner assertion, and the
+  `Cargo.toml` guard; only the job name and the action pin comment still
+  spell it out.
 
 ### Fixed
 
+- The MSRV CI job passes a `prefix-key` naming the MSRV to
+  `Swatinem/rust-cache`, whose key otherwise derived from the runner's stable
+  `rustc` while the job compiles under 1.88.0, so the cache never hit.
+- The Security workflow retries the pinned `actionlint` download up to five
+  times with backoff. A single HTTP 500 from GitHub Releases had turned
+  `develop` red for an unrelated merge. The version pin and the checksum
+  verification against the release's published checksums file are unchanged.
 - The pinned minimum-supported-Rust action no longer receives an unsupported
   toolchain input, which had failed the MSRV job (#3).
 - The minimum-supported-Rust CI job now compiles on Rust 1.88 rather than on
