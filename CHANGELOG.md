@@ -414,13 +414,29 @@ envelope.
 
 ### Fixed
 
+- `case delete` scopes the `record.malformed` warning to the deletion it
+  actually changed. The scan reads the whole archive, so one hand-edited
+  document anywhere made every later deletion carry the warning, including
+  deletions with no candidate object and deletions that asked for no purge.
+  It is now emitted only where the unresolvable reference held an object of
+  this deletion back, which needs `--purge` and a candidate the purge would
+  otherwise have removed, and its message says "for this case". Finding such
+  a document wherever it sits stays `archive check`'s work.
+- `case delete` without `--purge` again reports a candidate object as
+  `purge_not_requested` when a record it keeps holds a reference that is not
+  a digest. No purge was going to unlink anything, so the unresolvable
+  reference decided nothing, and the reason now names what actually held the
+  object. `referenced_elsewhere` is reserved for a candidate a remaining
+  record names outright, and, for an unresolvable reference, for one a purge
+  would otherwise have removed. Totals are unchanged and nothing that was
+  retained becomes removable.
 - `case delete` no longer purges past a record it keeps whose artefact
   reference is not a digest. Such a reference names an object the archive
   cannot identify, and it was previously read as a reference to nothing, so
   the record protected no object from a purge. Every object the purge had
-  considered is now retained with the reason `referenced_elsewhere`, with or
-  without `--purge`, and the number of such references is reported as a
-  `record.malformed` warning carrying `stage` and `malformed_count`. The
+  considered is now retained with the reason `referenced_elsewhere`, and the
+  number of such references is reported as a `record.malformed` warning
+  carrying `stage` and `malformed_count`, as scoped above. The
   records the deletion planned to remove still go and `ok` stays `true`. No
   openPapir command writes such a record, because a digest is validated on
   every write; a document edited outside openPapir can hold one.
@@ -438,6 +454,18 @@ envelope.
   read-only attribute, and so carries no `read_only_restored` flag, is
   replaced by a later one that cleared it and put it back; an object left
   writable, which reports the flag as `false`, still outranks both.
+- `archive repair-permissions` no longer decides a refusal's `stage` from a
+  catch-all. The kinds of path the repair walks are a closed enum, and each
+  one names its stage in a match the compiler checks for exhaustiveness, so a
+  kind added or renamed without a decided stage does not build instead of
+  silently reporting `record_write`. The reported kind names, their order, the
+  counts, and every stage a refusal can carry are unchanged; the human and
+  JSON output of the command is byte for byte what it was. The write-stage
+  table now appears once in each of `docs/error-contract.md` and
+  `docs/architecture.md`, naming the same paths per stage, with the prose that
+  used to repeat a slightly different list replaced by a link to it. A test
+  parses both tables and fails when they drift apart or when they stop naming
+  exactly the stages the implementation can report.
 - `case delete` no longer unlinks part of its records before refusing. The
   record pass is now all or nothing per case: before the first unlink, every
   record directory the deletion would remove an entry from is opened without
