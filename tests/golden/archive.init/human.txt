@@ -1,0 +1,2 @@
+Archive created at the supplied root.
+Archive identifier: <id>. Schema version: 1.

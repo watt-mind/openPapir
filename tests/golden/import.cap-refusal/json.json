@@ -1,0 +1,16 @@
+{
+  "command": "import",
+  "data": {},
+  "error": {
+    "code": "input.cap.import_files",
+    "details": {
+      "bucket": "input",
+      "cap_count": 1000,
+      "observed_count": 1001
+    },
+    "message": "The import names more files than the per-operation cap allows."
+  },
+  "ok": false,
+  "schema_version": 1,
+  "verified": false
+}

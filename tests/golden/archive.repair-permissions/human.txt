@@ -1,0 +1,8 @@
+Narrowed 1 of 29 archive path(s) to owner-only.
+cache 0
+directory 1
+marker 0
+object 0
+record 0
+root 0
+Permissions are only ever narrowed here; nothing was widened and no content was read or changed.

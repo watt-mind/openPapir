@@ -18,6 +18,32 @@ matches the observable difference. See the Documentation section of
 
 ### Added
 
+- `openpapir skill` writes the agent skill document the binary carries to
+  stdout, byte for byte and with nothing added. It takes no file and no
+  `--json`, touches no archive, and exits `0`, so an agent can install the
+  document with `openpapir skill > .claude/skills/openpapir/SKILL.md` and no
+  checkout. The same bytes are committed as
+  `crates/openpapir-cli/skills/openpapir/SKILL.md` and are embedded with
+  `include_str!`. The document describes when to reach for openPapir, every
+  implemented command with its exact invocation and the `data` fields to read,
+  the envelope, the exit codes by bucket, the privacy rule, the input caps,
+  and the separation of imported, matched, and authenticity-verified.
+- `capabilities` now lists `skill` as the fifteenth operation. It is the one
+  operation that touches no archive, and it is reported there so that a
+  machine caller learns of it from the same list as every other operation.
+- `tests/golden/` pins the output of twenty-three invocations, in both the JSON
+  and the human form, with both streams and the exit code of each. The harness
+  is `crates/openpapir-cli/tests/golden.rs`; it builds every archive from
+  constants, normalises the four values that legitimately move between runs
+  through the documented placeholders `<id>`, `<digest>`, `<time>`, and
+  `<root>`, and compares byte for byte. Regeneration is deliberate and never
+  automatic: `OPENPAPIR_UPDATE_GOLDEN=1` rewrites the files, and CI never sets
+  it. `tests/golden/README.md` states the contract, the placeholders, and which
+  kind of change each difference is.
+- README.md gains "Agents and automation" and "People", which show the same
+  command in its two modes with captured output and link the agent skill and
+  the golden output contract.
+
 - `openpapir case export --archive <root> --case <case-id> --to <dir>` copies
   one case out of the archive as plain files. Every object the case's
   submissions and receipts reference is copied byte for byte to

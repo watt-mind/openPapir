@@ -1,0 +1,53 @@
+{
+  "command": "case.delete",
+  "data": {
+    "objects_removed": 1,
+    "objects_retained": [
+      {
+        "count": 0,
+        "reason": "purge_not_requested"
+      },
+      {
+        "count": 0,
+        "reason": "records_retained"
+      },
+      {
+        "count": 0,
+        "reason": "referenced_elsewhere"
+      },
+      {
+        "count": 0,
+        "reason": "unremovable"
+      }
+    ],
+    "objects_retained_total": 0,
+    "purge": true,
+    "records_removed": [
+      {
+        "count": 1,
+        "kind": "association"
+      },
+      {
+        "count": 1,
+        "kind": "case"
+      },
+      {
+        "count": 1,
+        "kind": "import_event"
+      },
+      {
+        "count": 0,
+        "kind": "receipt"
+      },
+      {
+        "count": 1,
+        "kind": "submission"
+      }
+    ],
+    "records_removed_total": 4,
+    "records_retained": 0
+  },
+  "ok": true,
+  "schema_version": 1,
+  "verified": false
+}

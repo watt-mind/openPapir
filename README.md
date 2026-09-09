@@ -10,12 +10,12 @@ what it holds into cases and submissions, records receipts together with the
 user's own assertions about whether a receipt relates to a submission, and
 checks a whole archive against what its records claim without changing
 anything, copies one case out of the archive as plain files, narrows a
-restored archive's permissions back to owner-only, and deletes a case when
-asked, removing stored bytes only on an explicit `--purge`. Automatic
-matching, derived metadata, receipt parsing, import from an export, editing of
-a stored record, deleting a single submission or receipt, deleting an archive,
-signature verification, and government delivery are not implemented. There is
-no published release.
+restored archive's permissions back to owner-only, deletes a case when asked,
+removing stored bytes only on an explicit `--purge`, and writes the agent
+skill document it carries. Automatic matching, derived metadata, receipt
+parsing, import from an export, editing of a stored record, deleting a single
+submission or receipt, deleting an archive, signature verification, and
+government delivery are not implemented. There is no published release.
 
 openPapir is an independent open-source project. It is not the government's
 e-Papír service, is not affiliated with its operators, and does not submit
@@ -43,6 +43,7 @@ cargo run --locked -p openpapir-cli -- archive check --archive ./my-archive --js
 cargo run --locked -p openpapir-cli -- case export --archive ./my-archive --case <case-id> --to ./my-export --json
 cargo run --locked -p openpapir-cli -- archive repair-permissions --archive ./my-archive --json
 cargo run --locked -p openpapir-cli -- case delete --archive ./my-archive --case <case-id> --purge --json
+cargo run --locked -p openpapir-cli -- skill
 ```
 
 The capabilities command reports the current implementation honestly:
@@ -69,15 +70,18 @@ The capabilities command reports the current implementation honestly:
       "archive.check",
       "case.export",
       "archive.repair_permissions",
-      "case.delete"
+      "case.delete",
+      "skill"
     ]
   },
   "verified": false
 }
 ```
 
-The operation list names exactly what can process input today. `archive init`
-needs an existing, empty directory and refuses to adopt anything else.
+The operation list names exactly what can process input today, plus `skill`,
+which writes the embedded agent skill document and touches no archive.
+`archive init` needs an existing, empty directory and refuses to adopt
+anything else.
 `import` stores each file's bytes unchanged, records one import event per
 input, and reports a re-import of the same bytes as a duplicate rather than an
 error. Every record is the user's own local record: openPapir sends nothing
@@ -116,13 +120,71 @@ cryptographic authenticity remain separate records: an association changes
 nothing about the artefact and creates no verification result. Matching alone
 must never assert legal effect or successful delivery.
 
+## Agents and automation
+
+Every command has two modes, and they are the same contract seen twice. With
+`--json` exactly one object reaches stdout and nothing reaches stderr, so a
+program reads a result without parsing prose. Branch on the exit code first,
+which carries the error's bucket and nothing else, then on `error.code`, which
+is stable within a `schema_version`; `message` wording is not. `verified` is
+`false` in every envelope this build emits.
+
+```console
+$ openpapir receipt add --archive ./archive --artefact sha256:5e0d7d51... \
+    --label "Envelope from the post" --json
+{"schema_version":1,"ok":true,"command":"receipt.add","data":{"receipt":{"archive_schema_version":1,"artefact_digest":"sha256:5e0d7d511a1df60c20dc2d589f7f1d13b87019603a724a938c71e81a8d7e1dac","created_at":"2026-09-09T16:10:57Z","id":"71df7d0ed619cc29d4478e0db8d014b6","import_event_id":"db11ed295d6b8d7c3edebf4ab251de78","label":"Envelope from the post","record_kind":"receipt"}},"verified":false}
+```
+
+The binary carries an agent skill document describing when to reach for
+openPapir, every command's exact invocation, the envelope, the exit codes, the
+privacy rule, and the boundary between imported, matched, and
+authenticity-verified. `openpapir skill` writes it to stdout byte for byte and
+nothing else, so installing it needs no checkout:
+
+```sh
+mkdir -p .claude/skills/openpapir
+openpapir skill > .claude/skills/openpapir/SKILL.md
+```
+
+Use `.codex/skills/openpapir/` for Codex, or `~/.claude/skills/openpapir/` to
+install it for every project instead of one. The same bytes are committed as
+[the agent skill](crates/openpapir-cli/skills/openpapir/SKILL.md).
+
+Both modes are pinned byte for byte by the captured output under
+[tests/golden](tests/golden/README.md), so a change to what a caller parses is
+a reviewed change rather than an accident.
+
+## People
+
+Without `--json` the same command prints lines meant to be read, with the
+result on stdout and any warning or error on stderr, so diagnostic text never
+shares stdout with a result. The lines carry the user's own titles, labels, and
+statements, the identifiers and digests openPapir minted, and no path,
+filename, or payload byte.
+
+```console
+$ openpapir receipt add --archive ./archive --artefact sha256:5e0d7d51... \
+    --label "Envelope from the post"
+Receipt 8bbfed851cf9dedefc80442ca4f80a0d, recorded 2026-09-09T16:10:57Z.
+Artefact: sha256:5e0d7d511a1df60c20dc2d589f7f1d13b87019603a724a938c71e81a8d7e1dac
+Import event: db11ed295d6b8d7c3edebf4ab251de78
+Label: Envelope from the post
+These are the user's own assertions. openPapir checked nothing about the file and reports no delivery, authenticity, or legal effect.
+```
+
+The closing line is not decoration. A receipt is a file the user believes to
+be one, an association is what the user asserts about it, and neither is a
+verification: openPapir reads no artefact bytes and opens no socket.
+
 ## Documentation
 
 The [specification index](docs/specification.md) is the single entry point to
 the project's scope, what is implemented today, which designs are decided but
 not built, and which contracts are still blocked. The
 [documentation index](docs/index.md) gives every document and root policy file
-a one-line purpose.
+a one-line purpose, including
+[the agent skill](crates/openpapir-cli/skills/openpapir/SKILL.md) and the
+[golden output contract](tests/golden/README.md).
 
 ## Development
 

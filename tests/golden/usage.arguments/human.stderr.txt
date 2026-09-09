@@ -1,0 +1,7 @@
+error: the following required arguments were not provided:
+  --archive <ROOT>
+  <FILE>...
+
+Usage: openpapir import --archive <ROOT> <FILE>...
+
+For more information, try '--help'.

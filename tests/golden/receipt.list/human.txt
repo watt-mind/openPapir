@@ -1,0 +1,3 @@
+1 receipt(s) in this archive.
+<id> <time> sha256:<digest>
+These are the user's own assertions. openPapir checked nothing about the file and reports no delivery, authenticity, or legal effect.

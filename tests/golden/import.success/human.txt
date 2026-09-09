@@ -1,0 +1,5 @@
+Stored 3 artefact(s); 0 already present.
+sha256:<digest> (27 bytes), import event <id>, stored.
+sha256:<digest> (23 bytes), import event <id>, stored.
+sha256:<digest> (27 bytes), import event <id>, stored.
+A digest identifies bytes only. Nothing here is verified, matched, or delivered.

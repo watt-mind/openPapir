@@ -1,0 +1,15 @@
+{
+  "command": "import",
+  "data": {},
+  "error": {
+    "code": "usage.arguments",
+    "details": {
+      "argument": "archive",
+      "bucket": "usage"
+    },
+    "message": "The command line is malformed or a value is unusable."
+  },
+  "ok": false,
+  "schema_version": 1,
+  "verified": false
+}

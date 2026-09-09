@@ -1,0 +1,11 @@
+Association <id>, recorded <time> by user.
+Receipt: <id>
+Outcome: contradictory
+Confirmed submission: none
+Supersedes: nothing
+Candidates: 2.
+<id> confidence weak
+user_assertion from user: The date is close.
+<id> confidence moderate
+user_assertion from user: The reference matches instead.
+These are the user's own assertions. openPapir checked nothing about the file and reports no delivery, authenticity, or legal effect.

@@ -1,0 +1,41 @@
+{
+  "command": "archive.check",
+  "data": {
+    "bytes_digested": 77,
+    "objects_checked": 3,
+    "objects_unchecked": 0,
+    "orphan_objects": 0,
+    "problems": [
+      {
+        "code": "integrity.dangling_reference",
+        "count": 0
+      },
+      {
+        "code": "integrity.digest_mismatch",
+        "count": 0
+      },
+      {
+        "code": "integrity.length_mismatch",
+        "count": 0
+      },
+      {
+        "code": "integrity.orphan_object",
+        "count": 0
+      },
+      {
+        "code": "path.symlink",
+        "count": 0
+      },
+      {
+        "code": "record.malformed",
+        "count": 0
+      }
+    ],
+    "records_checked": 8,
+    "records_unchecked": 0,
+    "staging_files": 0
+  },
+  "ok": true,
+  "schema_version": 1,
+  "verified": false
+}

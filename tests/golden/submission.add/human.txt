@@ -1,0 +1,7 @@
+Case <id>.
+Submission <id>, recorded <time>.
+Description: Posted the completed form.
+Date stated by the user: 2026-01-13. openPapir does not interpret it.
+Artefacts referenced: 1.
+sha256:<digest> as cover letter
+Cases and submissions are the user's own local records. Nothing here is verified, matched, or delivered.
