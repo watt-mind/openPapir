@@ -27,14 +27,96 @@ repository; no third-party schema or document content is redistributed here.
 
 ## Evidence matrix
 
-| # | Issuing organisation | Source title | Version / date | URL and section | Retrieved | Redistribution terms | Claim supported | Kind |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| E1 | Operator of the e-Papír service (imprint names IdomSoft Zrt. as the service provider) | e-Papír Súgó, "Általános tájékoztató" section | Page footer shows `verzió: 1.1.6 (2025-11-04)` | <https://epapir.gov.hu/sugo> (accordion section "Általános tájékoztató"; "Impresszum" for the operator statement) | 2026-09-09, retrieved | Not established | A submitter receives a *Feladási igazolás* in their personal delivery storage after a successful submission; the storage retains incoming documents, *igazolások* and *nyugták* for 30 days, with an option to move items to permanent storage; a letter may carry attachments up to 25 MB; the accepted attachment format list includes `.pdf` | Descriptive |
-| E2 | Nemzeti Jogszabálytár (national consolidated law database) | 451/2016. (XII. 19.) Korm. rendelet az elektronikus ügyintézés részletszabályairól | Consolidated text dated 2024-07-01 | <https://njt.jog.gov.hu/jogszabaly/2016-451-20-22> (§ 6(10); § 30(3)) | 2026-09-09, partially retrieved | Not established | § 6(10) states that the secure delivery service provider sends the sender authentic confirmations (`hiteles igazolásokat`) about delivery; § 30(3) requires certain confirmations to be transmitted via the secure delivery service | Normative |
-| E3 | Operator of the magyarorszag.hu SZÜF portal | "Tárhely szolgáltatások: Személyes tárhely, Cégkapu, Hivatali kapu" service description | No version or date shown on the page | <https://magyarorszag.hu/szuf_ugyleiras?id=2b96c3a5-d636-4a82-8a4e-ee4a13fbdc5b> | 2026-09-09, retrieved | Not established | A single "Hiteles Elektronikus Postafiók" surface provides storage for citizens, Hivatali kapu and Cégkapu holders, i.e. the receipt destination is a storage mailbox, not a per-application inbox | Descriptive |
-| E4 | e-Papír content management group; copy published by Emberi Erőforrás Támogatáskezelő (EMET) | e-Papír Felhasználói Kézikönyv | `v1.0`, `2018.02.21.` (read from the document's own title page text) | <https://emet.gov.hu/app/uploads/sites/2/2020/11/epapir_felhasznaloi_kezikonyv.pdf> | 2026-09-09, retrieved but not usable | Not established | Establishes only that a manual with this title, version and date exists; see the finding in F2 | Unknown |
-| E5 | Police (Országos Rendőr-főkapitányság) e-administration site | NOVA.PACK information page | Not established | <https://ugyintezes.police.hu/novapack> | 2026-09-09, **not retrieved** | Not established | None (see F3) | Unknown |
-| E6 | Országos Bírósági Hivatal / Magyarország Bíróságai | "Az elektronikus beadványok beküldését követő értesítések" | Not established | <https://birosag.hu/ugyfeleknek/elektronikus-ugyintezes/elektronikus-kapcsolattartas-birosagokkal/e-per/e-kapcsolattartas-az-egyes-ugytipusokban/az-elektronikus-beadvanyok-bekuldeset-koveto-ertesitesek> | 2026-09-09, **not retrieved** | Not established | None (see F4) | Unknown |
+One subsection per source, each recording the same fields: the issuing
+organisation, the source title, its version or date, the URL and section, the
+retrieval date, the redistribution terms, the claim the source supports, and
+the kind of that claim.
+
+### E1: e-Papír Súgó, "Általános tájékoztató"
+
+- Issuing organisation: Operator of the e-Papír service (imprint names
+  IdomSoft Zrt. as the service provider).
+- Source title: e-Papír Súgó, "Általános tájékoztató" section.
+- Version / date: Page footer shows `verzió: 1.1.6 (2025-11-04)`.
+- URL and section: <https://epapir.gov.hu/sugo> (accordion section
+  "Általános tájékoztató"; "Impresszum" for the operator statement).
+- Retrieved: 2026-09-09, retrieved.
+- Redistribution terms: Not established.
+- Claim supported: A submitter receives a *Feladási igazolás* in their
+  personal delivery storage after a successful submission; the storage retains
+  incoming documents, *igazolások* and *nyugták* for 30 days, with an option
+  to move items to permanent storage; a letter may carry attachments up to
+  25 MB; the accepted attachment format list includes `.pdf`.
+- Kind: Descriptive.
+
+### E2: 451/2016. (XII. 19.) Korm. rendelet
+
+- Issuing organisation: Nemzeti Jogszabálytár (national consolidated law
+  database).
+- Source title: 451/2016. (XII. 19.) Korm. rendelet az elektronikus
+  ügyintézés részletszabályairól.
+- Version / date: Consolidated text dated 2024-07-01.
+- URL and section: <https://njt.jog.gov.hu/jogszabaly/2016-451-20-22>
+  (§ 6(10); § 30(3)).
+- Retrieved: 2026-09-09, partially retrieved.
+- Redistribution terms: Not established.
+- Claim supported: § 6(10) states that the secure delivery service provider
+  sends the sender authentic confirmations (`hiteles igazolásokat`) about
+  delivery; § 30(3) requires certain confirmations to be transmitted via the
+  secure delivery service.
+- Kind: Normative.
+
+### E3: magyarorszag.hu tárhely szolgáltatások
+
+- Issuing organisation: Operator of the magyarorszag.hu SZÜF portal.
+- Source title: "Tárhely szolgáltatások: Személyes tárhely, Cégkapu,
+  Hivatali kapu" service description.
+- Version / date: No version or date shown on the page.
+- URL and section: <https://magyarorszag.hu/szuf_ugyleiras?id=2b96c3a5-d636-4a82-8a4e-ee4a13fbdc5b>
+- Retrieved: 2026-09-09, retrieved.
+- Redistribution terms: Not established.
+- Claim supported: A single "Hiteles Elektronikus Postafiók" surface provides
+  storage for citizens, Hivatali kapu and Cégkapu holders, i.e. the receipt
+  destination is a storage mailbox, not a per-application inbox.
+- Kind: Descriptive.
+
+### E4: e-Papír Felhasználói Kézikönyv
+
+- Issuing organisation: e-Papír content management group; copy published by
+  Emberi Erőforrás Támogatáskezelő (EMET).
+- Source title: e-Papír Felhasználói Kézikönyv.
+- Version / date: `v1.0`, `2018.02.21.` (read from the document's own title
+  page text).
+- URL and section: <https://emet.gov.hu/app/uploads/sites/2/2020/11/epapir_felhasznaloi_kezikonyv.pdf>
+- Retrieved: 2026-09-09, retrieved but not usable.
+- Redistribution terms: Not established.
+- Claim supported: Establishes only that a manual with this title, version and
+  date exists; see the finding in F2.
+- Kind: Unknown.
+
+### E5: NOVA.PACK information page
+
+- Issuing organisation: Police (Országos Rendőr-főkapitányság)
+  e-administration site.
+- Source title: NOVA.PACK information page.
+- Version / date: Not established.
+- URL and section: <https://ugyintezes.police.hu/novapack>
+- Retrieved: 2026-09-09, **not retrieved**.
+- Redistribution terms: Not established.
+- Claim supported: None (see F3).
+- Kind: Unknown.
+
+### E6: "Az elektronikus beadványok beküldését követő értesítések"
+
+- Issuing organisation: Országos Bírósági Hivatal / Magyarország Bíróságai.
+- Source title: "Az elektronikus beadványok beküldését követő
+  értesítések".
+- Version / date: Not established.
+- URL and section: <https://birosag.hu/ugyfeleknek/elektronikus-ugyintezes/elektronikus-kapcsolattartas-birosagokkal/e-per/e-kapcsolattartas-az-egyes-ugytipusokban/az-elektronikus-beadvanyok-bekuldeset-koveto-ertesitesek>
+- Retrieved: 2026-09-09, **not retrieved**.
+- Redistribution terms: Not established.
+- Claim supported: None (see F4).
+- Kind: Unknown.
 
 ### Findings on evidence quality
 
@@ -56,9 +138,8 @@ repository; no third-party schema or document content is redistributed here.
 - **F4: E6 returned HTTP 403.** Search-engine surfaced snippets describing a
   *Letöltési igazolás* and an *Átvételi értesítő* were seen, but they could not
   be verified against the page itself. They are recorded here as unverified
-  hearsay and support no design decision. Those snippets suggest "receipt" may
-  be a family of artefacts rather than one type; that remains unverified, and
-  no design decision rests on it.
+  hearsay, and they suggest "receipt" may be a family of artefacts rather than
+  one type. That remains unverified, and no design decision rests on it.
 - **F5: redistribution terms are unestablished everywhere.** No consulted
   source stated licence terms permitting redistribution of its text, schemas,
   or sample documents. Link only; vendor nothing.
