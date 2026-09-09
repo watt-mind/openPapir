@@ -84,10 +84,15 @@ pub mod codes {
     /// An exported copy re-digested to something other than the original.
     pub const EXPORT_COPY_MISMATCH: &str = "export.copy_mismatch";
 
+    /// A purge could not remove every object it planned to remove.
+    pub const DELETE_OBJECTS_RETAINED: &str = "delete.objects_retained";
+
     /// The filesystem cannot provide a guarantee the archive requires.
     pub const PLATFORM_FILESYSTEM_UNSUPPORTED: &str = "platform.filesystem_unsupported";
     /// A no-follow open refuses the link after opening it, not at the call.
     pub const PLATFORM_NO_FOLLOW_AFTER_OPEN: &str = "platform.no_follow_after_open";
+    /// A file could not be removed or replaced while another process holds it.
+    pub const PLATFORM_REPLACE_WHILE_OPEN: &str = "platform.replace_while_open";
     /// The directory entry a rename created may not be durable.
     pub const PLATFORM_NO_DIRECTORY_FSYNC: &str = "platform.no_directory_fsync";
     /// Owner-only access is expressed as an access-control list.
@@ -404,7 +409,9 @@ mod tests {
             (codes::INTEGRITY_ORPHAN_OBJECT, Bucket::Integrity, 4),
             (codes::EXPORT_DESTINATION_CONFLICT, Bucket::Export, 4),
             (codes::EXPORT_COPY_MISMATCH, Bucket::Export, 4),
+            (codes::DELETE_OBJECTS_RETAINED, Bucket::Delete, 4),
             (codes::PLATFORM_FILESYSTEM_UNSUPPORTED, Bucket::Platform, 5),
+            (codes::PLATFORM_REPLACE_WHILE_OPEN, Bucket::Platform, 5),
             (codes::PLATFORM_NO_DIRECTORY_FSYNC, Bucket::Platform, 5),
             (codes::PLATFORM_NO_FOLLOW_AFTER_OPEN, Bucket::Platform, 5),
             (codes::PLATFORM_OWNER_ONLY_VIA_ACL, Bucket::Platform, 5),

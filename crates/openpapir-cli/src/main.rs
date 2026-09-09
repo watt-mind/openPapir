@@ -22,6 +22,9 @@
 //! - `openpapir case create|list|show ... [--json]`, the user's own cases.
 //! - `openpapir case export --archive <root> --case <id> --to <dir> [--json]`,
 //!   a plain copy of one case out of the archive.
+//! - `openpapir case delete --archive <root> --case <id> [--purge] [--json]`,
+//!   deleting a case and, only with `--purge`, the objects nothing else
+//!   references.
 //! - `openpapir submission add ... [--json]`, what the user states they sent.
 //! - `openpapir receipt add|list ... [--json]`, an artefact the user believes
 //!   to be a receipt.
@@ -29,7 +32,8 @@
 //!   about whether a receipt relates to a submission.
 //!
 //! There is no automatic matching, no derived metadata, no receipt parsing,
-//! no import from an export, no deletion, no editing of a stored record, no
+//! no import from an export, no editing of a stored record, no deletion of a
+//! single submission or receipt, no deletion of an archive, no
 //! signature verification, and no government delivery. The integrity check
 //! re-digests stored bytes, which is a storage-layer identity check and never
 //! a cryptographic verification.
@@ -60,6 +64,7 @@
 //! a dependency. No output may state or imply authenticity, successful
 //! delivery, or legal effect.
 
+mod delete;
 mod envelope;
 mod report;
 mod usage;
@@ -163,6 +168,8 @@ enum ArchiveCommand {
 
 #[derive(Subcommand)]
 enum CaseCommand {
+    /// Delete a case and its submissions; objects go only with `--purge`.
+    Delete(delete::Delete),
     /// Record a new case, which is local organisation and nothing else.
     Create {
         /// The archive root, which is always supplied explicitly.
@@ -426,6 +433,13 @@ fn run_case(command: CaseCommand) -> i32 {
             openpapir_core::export_case(&archive, &case_id, &destination),
             json,
             report::exported,
+        ),
+        CaseCommand::Delete(arguments) => emit_with_problems(
+            "case.delete",
+            arguments.run(),
+            arguments.json,
+            report::case_deleted,
+            delete::retained,
         ),
         CaseCommand::Show {
             archive,
