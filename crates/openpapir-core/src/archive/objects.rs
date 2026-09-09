@@ -166,8 +166,13 @@ fn place(
 /// Refuse a fan-out directory of this digest that is wider than owner-only.
 ///
 /// The check runs before anything is published, so a wide directory stops the
-/// operation rather than receiving an object.
-fn check_object_permissions(root: &Path, digest: &str) -> Result<(), Diagnostic> {
+/// operation rather than receiving an object. A record that references an
+/// object runs the same check before it is written.
+///
+/// # Errors
+///
+/// Returns `archive.permissions_wide`, naming the archive-relative path.
+pub fn check_object_permissions(root: &Path, digest: &str) -> Result<(), Diagnostic> {
     let mut relative = format!("{OBJECTS_DIR}/{ALGORITHM}");
     let mut path = root.join(OBJECTS_DIR).join(ALGORITHM);
     for segment in [&digest[0..2], &digest[2..4]] {

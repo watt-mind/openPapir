@@ -18,6 +18,38 @@ matches the observable difference. See the Documentation section of
 
 ### Added
 
+- `openpapir case create --archive <root> --title <t> [--notes <n>]`,
+  `openpapir case list --archive <root>`, and
+  `openpapir case show --archive <root> <case-id>` record, list, and show
+  cases under `records/cases/`. A case is the user's own folder of related
+  correspondence and corresponds to nothing any government service issues.
+- `openpapir submission add --archive <root> --case <case-id> --description
+  <d> [--date <yyyy-mm-dd>] [--artefact <digest>[:<role>]]...` records a
+  submission under `records/submissions/`, referencing its case by identifier
+  and each artefact by the digest of an object already stored in the archive,
+  with the short role label the user gave it. openPapir sends nothing, so a
+  submission is what the user states they sent, and `--date` is stored
+  verbatim, never interpreted, and never read as a delivery or receipt date.
+- Records are one UTF-8, LF-terminated JSON document each, with sorted keys,
+  carrying `id`, `record_kind`, `archive_schema_version`, and `created_at`,
+  written through the existing atomic write procedure under the writer lock
+  and owner-only permissions. Listing and showing take no lock.
+- Field caps refused before any write, with the new `input.cap.field_length`
+  code: `title` 200 bytes, `notes` 4096 bytes, `description` 1024 bytes, and
+  an artefact `role` 64 bytes. `capabilities` now reports `archive.init`,
+  `import`, `case.create`, `case.list`, `case.show`, and `submission.add`.
+- New error code `record.not_found`, for a case identifier or artefact digest
+  that names nothing in the archive. It is a `record` refusal that exits `4`
+  and never echoes the reference the user supplied.
+- `record.malformed`, published until now as reserved, is implemented and its
+  condition decided: a record document a command must read that is not valid
+  JSON, is missing a required field, claims an unknown record kind, does not
+  name the file it lives in, is not a regular file, or is larger than the
+  record cap. Its details carry `record_kind` and `path_count`; the
+  `archive_path` key the reserved entry listed is deliberately not emitted,
+  because it would name an identifier the caller never supplied and the count
+  answers the only useful question.
+
 - `openpapir archive init <root>` creates a local archive in an existing,
   empty directory: the `papir-archive.json` marker is written first, then an
   owner-only layout of `objects/`, `records/`, and `cache/`. openPapir never

@@ -41,16 +41,21 @@ provenance of every association recorded, without uploading anything.
 
 ## Implemented today
 
-The executable creates a local archive and imports files into it. These
-invocations exist and nothing else:
+The executable creates a local archive, imports files into it, and organises
+what it holds into cases and submissions. These invocations exist and nothing
+else:
 
 | Invocation | Result |
 | --- | --- |
 | `openpapir --help` | Usage text from the argument parser. |
 | `openpapir --version` | The crate version. |
-| `openpapir capabilities [--json]` | The project, its stage, and the two implemented operations, `archive.init` and `import`. |
+| `openpapir capabilities [--json]` | The project, its stage, and the six implemented operations. |
 | `openpapir archive init <root> [--json]` | Creates an archive in an existing, empty directory: the marker first, then the owner-only layout. |
 | `openpapir import --archive <root> <file>... [--json]` | Stores each file's original bytes in the content-addressed artefact store and records one import event per input. |
+| `openpapir case create --archive <root> --title <t> [--notes <n>] [--json]` | Records one case, the user's own folder of related correspondence. |
+| `openpapir case list --archive <root> [--json]` | Lists every case in the archive. |
+| `openpapir case show --archive <root> <case-id> [--json]` | Shows one case with the submissions recorded against it and their artefact references. |
+| `openpapir submission add --archive <root> --case <case-id> --description <d> [--date <yyyy-mm-dd>] [--artefact <digest>[:<role>]]... [--json]` | Records one submission the user states they sent, against a case. |
 
 The exact envelope, the storage guarantees, the input caps, the implemented
 error codes, the exit-code mapping, and the privacy rule that binds all output
@@ -59,9 +64,12 @@ canonical description of implemented behaviour. `verified` is `false` in every
 response, because no cryptographic check is implemented: a digest is a
 storage-layer identity only.
 
-No case storage, submission, receipt, association, derived metadata, export,
-deletion, integrity check, migration, receipt matching, signature
-verification, or government delivery exists.
+A case and a submission are the user's own local organisation: openPapir sends
+nothing, so a submission is always user-asserted, and a user-supplied date is
+stored verbatim and never interpreted as a delivery or receipt date. No
+receipt, association, derived metadata, or verification record exists, and
+there is no export, deletion, editing, integrity check, migration, receipt
+matching, signature verification, or government delivery.
 
 ## Decided designs, awaiting implementation
 
@@ -74,13 +82,13 @@ and none of them changes the capabilities output.
 | [local archive layout and storage design](archive-layout.md) | The storage technology, the on-disk layout, the record shapes, and the deletion, permission, and atomic-write semantics of the local archive. |
 | [import and association error, JSON, and exit-code contract](error-contract.md) | How a command extends the JSON envelope with an error object and warnings, the stable error-code catalogue, and the exit-code mapping. |
 
-Archive creation and artefact import are the parts of those two documents that
-are now implemented, and their contract has moved to
-[architecture and CLI contract](architecture.md). The rest of both documents,
-including every other record kind, association, export, deletion, migration,
-and the integrity check, is still only decided. A record shape or code named
-there is a proposal, not a promised schema. It becomes a contract only when the
-implementing pull request adds it to
+Archive creation, artefact import, and the case and submission records are the
+parts of those two documents that are now implemented, and their contract has
+moved to [architecture and CLI contract](architecture.md). The rest of both
+documents, including every other record kind, association, export, deletion,
+migration, and the integrity check, is still only decided. A record shape or
+code named there is a proposal, not a promised schema. It becomes a contract
+only when the implementing pull request adds it to
 [architecture and CLI contract](architecture.md).
 
 ## Deferred and blocked contracts

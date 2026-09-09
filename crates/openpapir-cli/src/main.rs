@@ -15,10 +15,12 @@
 //! - `openpapir capabilities [--json]`, the implementation status.
 //! - `openpapir archive init <root> [--json]`, archive creation.
 //! - `openpapir import --archive <root> <file>... [--json]`, artefact import.
+//! - `openpapir case create|list|show ... [--json]`, the user's own cases.
+//! - `openpapir submission add ... [--json]`, what the user states they sent.
 //!
-//! There is no case storage, no receipt matching, no association, no export,
-//! no deletion, no integrity check, no signature verification, and no
-//! government delivery.
+//! There is no receipt matching, no association, no export, no deletion, no
+//! editing of a stored record, no integrity check, no signature verification,
+//! and no government delivery.
 //!
 //! # Envelope and exit codes
 //!
@@ -33,7 +35,9 @@
 //! # Boundaries
 //!
 //! No network access and no background work. Output never carries a
-//! user-supplied path, an original filename, or a payload byte. KRX and
+//! user-supplied path, an original filename, or a payload byte. It does carry
+//! the titles, descriptions, roles, and dates the user typed into their own
+//! records, and the identifiers and digests openPapir minted. KRX and
 //! `.es3` handling belong to openKRX and openSzigno respectively; neither is
 //! a dependency. No output may state or imply authenticity, successful
 //! delivery, or legal effect.
@@ -45,6 +49,7 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 use openpapir_core::error::{Failure, Outcome};
+use openpapir_core::records;
 use openpapir_core::{Capabilities, capabilities};
 use serde::Serialize;
 
@@ -72,6 +77,16 @@ enum Command {
         #[command(subcommand)]
         command: ArchiveCommand,
     },
+    /// Create, list, and show local cases.
+    Case {
+        #[command(subcommand)]
+        command: CaseCommand,
+    },
+    /// Record what the user states they sent, against a case.
+    Submission {
+        #[command(subcommand)]
+        command: SubmissionCommand,
+    },
     /// Import local files into the archive's artefact store.
     Import {
         /// The archive root, which is always supplied explicitly.
@@ -93,6 +108,71 @@ enum ArchiveCommand {
         /// The archive root, which must exist and be empty.
         #[arg(value_name = "ROOT")]
         root: PathBuf,
+        /// Emit one JSON object instead of human-readable text.
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum CaseCommand {
+    /// Record a new case, which is local organisation and nothing else.
+    Create {
+        /// The archive root, which is always supplied explicitly.
+        #[arg(long, value_name = "ROOT")]
+        archive: PathBuf,
+        /// The user's own title for the case, at most 200 bytes.
+        #[arg(long, value_name = "TITLE")]
+        title: String,
+        /// The user's own notes, at most 4096 bytes.
+        #[arg(long, value_name = "NOTES")]
+        notes: Option<String>,
+        /// Emit one JSON object instead of human-readable text.
+        #[arg(long)]
+        json: bool,
+    },
+    /// List every case in the archive.
+    List {
+        /// The archive root, which is always supplied explicitly.
+        #[arg(long, value_name = "ROOT")]
+        archive: PathBuf,
+        /// Emit one JSON object instead of human-readable text.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show one case and the submissions recorded against it.
+    Show {
+        /// The archive root, which is always supplied explicitly.
+        #[arg(long, value_name = "ROOT")]
+        archive: PathBuf,
+        /// The case's own identifier, as `case create` reported it.
+        #[arg(value_name = "CASE_ID")]
+        case_id: String,
+        /// Emit one JSON object instead of human-readable text.
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum SubmissionCommand {
+    /// Record a submission the user states they sent.
+    Add {
+        /// The archive root, which is always supplied explicitly.
+        #[arg(long, value_name = "ROOT")]
+        archive: PathBuf,
+        /// The identifier of the case the submission belongs to.
+        #[arg(long = "case", value_name = "CASE_ID")]
+        case_id: String,
+        /// The user's own description, at most 1024 bytes.
+        #[arg(long, value_name = "DESCRIPTION")]
+        description: String,
+        /// The user's own date, `YYYY-MM-DD`, stored verbatim.
+        #[arg(long, value_name = "DATE")]
+        date: Option<String>,
+        /// A stored artefact, as `sha256:<digest>` or `sha256:<digest>:<role>`.
+        #[arg(long = "artefact", value_name = "DIGEST[:ROLE]")]
+        artefacts: Vec<String>,
         /// Emit one JSON object instead of human-readable text.
         #[arg(long)]
         json: bool,
@@ -128,8 +208,64 @@ fn main() {
             json,
             report::imported,
         ),
+        Command::Case { command } => run_case(command),
+        Command::Submission {
+            command:
+                SubmissionCommand::Add {
+                    archive,
+                    case_id,
+                    description,
+                    date,
+                    artefacts,
+                    json,
+                },
+        } => emit(
+            "submission.add",
+            records::submission::add(
+                &archive,
+                &case_id,
+                &description,
+                date.as_deref(),
+                &artefacts,
+            ),
+            json,
+            report::submission_added,
+        ),
     };
     std::process::exit(code);
+}
+
+/// Dispatch one `case` subcommand and return the process exit code.
+fn run_case(command: CaseCommand) -> i32 {
+    match command {
+        CaseCommand::Create {
+            archive,
+            title,
+            notes,
+            json,
+        } => emit(
+            "case.create",
+            records::case::create(&archive, &title, notes.as_deref()),
+            json,
+            report::case_created,
+        ),
+        CaseCommand::List { archive, json } => emit(
+            "case.list",
+            records::case::list(&archive),
+            json,
+            report::case_list,
+        ),
+        CaseCommand::Show {
+            archive,
+            case_id,
+            json,
+        } => emit(
+            "case.show",
+            records::case::show(&archive, &case_id),
+            json,
+            report::case_shown,
+        ),
+    }
 }
 
 /// The two lines `capabilities` prints without `--json`.
