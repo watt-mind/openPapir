@@ -2,11 +2,17 @@
 
 ## Status and scope
 
-This document is a **design for review**. It decides the on-disk layout and the
-storage technology of openPapir's local archive so that implementation issues
-can be written against something concrete. Nothing here is implemented: the
-executable still exposes only help, version, and `capabilities`, whose output
-is unchanged and still reports `"operations": []` and `"verified": false`
+This document is a **design for review**, and much of it now has code behind
+it. It decides the on-disk layout and the storage technology of openPapir's
+local archive so that implementation issues can be written against something
+concrete, and the archive, artefact store, record, integrity, export,
+permission-repair, and deletion parts of it were then implemented.
+[architecture](architecture.md) is the canonical description of the
+implemented contract: where it and this document disagree, architecture is
+authoritative and this page is a defect. Derived-metadata records,
+verification results, the rebuildable `cache/` index, import from an export,
+schema migration, and encrypted backup at rest are **not implemented** and
+stay a design. `verified` is `false` in every envelope
 ([architecture](architecture.md)).
 
 It is follow-up 3 of
@@ -101,11 +107,16 @@ creates one implicitly as a side effect of another operation.
         submissions/<id>.json
         receipts/<id>.json
         imports/<id>.json
-        derived/<id>.json
         associations/<id>.json
-        verifications/<id>.json
+        derived/<id>.json          designed, not created
+        verifications/<id>.json    designed, not created
     cache/                  disposable, rebuildable, never authoritative
 ```
+
+`records/derived/` and `records/verifications/` are part of this design and
+are not created by any build: derived metadata and verification results have
+no code behind them. Everything else in the tree is created by
+`archive init`.
 
 `papir-archive.json` is the marker and the first file written when an archive
 is created. It records the archive schema version, the archive's own opaque
@@ -176,7 +187,8 @@ original filename as supplied by the user's filesystem (an attribute only,
 never used to derive a path), and whether this import created the object or
 found it already present.
 
-**Derived metadata**: anything computed from an artefact: detected type,
+**Derived metadata** (designed, **not implemented**): anything computed from
+an artefact: detected type,
 extracted text, parsed fields. Fields: identifier, artefact digest, extractor
 name and version, computation timestamp, and the derived payload. Derived
 records are disposable by definition: deleting all of them and recomputing must
@@ -184,7 +196,8 @@ never alter an original or a user-entered record.
 
 **Association record**: described in its own section below.
 
-**Verification result**: the outcome of a specified cryptographic check
+**Verification result** (designed, **not implemented**): the outcome of a
+specified cryptographic check
 performed by a named verifier. Fields: identifier, the exact artefact covered,
 the verifier's identity and version, the trust context supplied by the user,
 the precise scope of what was checked, and the outcome. Delegated `.es3` and
@@ -250,20 +263,23 @@ and reports instead of replacing anything it did not create.
 
 ### Windows degradation
 
-Two guarantees weaken and must be reported rather than assumed:
+Three guarantees weaken and must be reported rather than assumed:
 
 - Directory `fsync` has no portable equivalent, so the durability of the rename
   itself after a power loss is weaker than on POSIX. The file content is still
   flushed; the directory entry may not be.
-- Replacing an existing file can fail when another process holds it open, and
-  owner-only access is expressed as an access-control list rather than a
+- Replacing or removing an existing file can fail when another process holds it
+  open.
+- Owner-only access is expressed as an access-control list rather than a
   permission bit, so it depends on the underlying filesystem supporting them.
 
 Each weakening is a named condition the implementation must report at the point
 of the write and in any archive health output. Its wire name and JSON shape
 belong to the error-contract issue (follow-up 5) and are deliberately not fixed
 here. What is fixed: degradation is reported, never silently accepted and never
-described as equivalent.
+described as equivalent. The implementation added a fourth condition, the
+no-follow open that refuses the handle rather than the open, and reports it the
+same way ([architecture](architecture.md)).
 
 ## Limits and permissions
 
@@ -306,15 +322,18 @@ Before recording a duplicate the stored object's byte length is compared with
 the incoming length; a mismatch means the store is damaged and is reported as
 such rather than overwritten. A matching length is not evidence that the bytes
 are identical, only that nothing obvious is wrong; the stored object is not
-re-read on every import, for cost reasons, so the whole-archive integrity check
-below (which re-digests objects) is the real answer to a damaged store.
+re-read on every import, for cost reasons, so the whole-archive integrity
+check, implemented as `archive check` and specified in
+[architecture](architecture.md), is the real answer to a damaged store: it
+re-digests every object.
 
 ## Association records
 
 An association is a separate record with its own evidence, never a foreign key
 implying certainty. The record carries `id`, `receipt_id`, `submission_id`
 (null unless the outcome is `associated`), `outcome`, `created_by` (`user` or
-`automatic`), `created_at`, `supersedes` (null unless the record replaces an
+`automatic`, and only `user` is written today, because no automatic matching
+exists), `created_at`, `supersedes` (null unless the record replaces an
 earlier one), and `candidates`. Evidence and confidence are not record-level
 fields: each entry in `candidates` carries its own `submission_id`,
 `confidence`, and `evidence` list. `candidates` holds one entry for
@@ -343,15 +362,38 @@ authenticity, or legal effect ([architecture](architecture.md)).
 
 ## Export and backup
 
-Export writes a directory holding, for each exported artefact, the original
-bytes copied **byte for byte** under a sanitised form of the recorded original
-filename, plus a `.metadata.json` sidecar carrying the digest, byte length,
-import events, and the related case, submission, receipt, association, and
-verification records. A top-level manifest lists every exported file with its
-digest and is authoritative when sanitisation forced a suffix onto a colliding
-name. Export re-digests each copy and fails if it differs; it never converts,
-re-encodes, or normalises an original. The result is restorable without
-openPapir: the files are the files, the sidecars are readable JSON.
+Export is implemented as `case export`, and
+[architecture](architecture.md) is authoritative for its contract. What
+follows is the design, reconciled with what was built.
+
+Export writes a directory holding the original bytes of each exported
+artefact, copied **byte for byte**, plus readable JSON records and a
+manifest. The implemented layout is:
+
+| Path | Content |
+| --- | --- |
+| `objects/<digest>` | One copied object, named by its lowercase hexadecimal digest and nothing else. |
+| `records/<kind>/<id>.json` | One record document, exactly as the archive stores it, with `<kind>` one of `case`, `submission`, `receipt`, `association`, or `import_event`. |
+| `manifest.json` | One JSON document with sorted keys listing every copied object with its digest and byte length and every record with its kind and identifier. |
+
+An exported object is named by its **digest alone**. The earlier design here
+named an object by a sanitised form of the recorded original filename and
+carried a `.metadata.json` sidecar beside it; that was rejected during
+implementation, because sanitising a filename into a path publishes the name
+the privacy rule protects and reintroduces the collision handling the digest
+removes. The original filename stays where it has always been, an attribute
+inside the exported import-event record. There is no sidecar: the records are
+whole documents in their own directories, so nothing has to be reassembled.
+
+The manifest is authoritative for what the export contains. Export re-digests
+each copy as it writes it and fails if it differs; it never converts,
+re-encodes, normalises, compresses, or encrypts an original. The result is
+restorable without openPapir: the files are the files, the records are
+readable JSON. Re-digesting is a storage-layer identity check and never a
+cryptographic verification.
+
+Exporting a whole archive, and importing an export back into an archive, are
+not implemented.
 
 A backup is a copy of the whole archive root taken while no openPapir process
 holds the lock; `cache/` may be omitted. Ordinary copy tooling routinely widens
@@ -364,11 +406,44 @@ not designed here; see the deferred question below.
 
 ## Deletion
 
-Deleting a case deletes its records and does **not** delete objects by default.
-Objects go only by an explicit purge, and only when no remaining record
-references them. Each retained object is reported with the record still
-referencing it, and each object with no remaining reference is reported as an
-orphan; a purge never leaves an unreported orphan.
+Deletion is implemented as `case delete`, and
+[architecture](architecture.md) is authoritative for its contract. What
+follows is the design, reconciled with what was built.
+
+Deleting a case deletes its records and does **not** delete objects by
+default. Objects go only by an explicit purge, and only when no remaining
+import event, receipt, or submission references them. Every object left behind
+is counted with the reason it stayed, which is one of `purge_not_requested`,
+`referenced_elsewhere`, `records_retained`, and `unremovable`; a purge never
+leaves an unreported orphan, and an archive the integrity check found clean
+stays clean after a deletion.
+
+The reason is a **reason, not a reference**. The earlier design here reported
+each retained object with the record still referencing it; that was rejected
+during implementation, because naming a surviving record would say which
+record still points at content the user asked to purge.
+
+What goes with the case is fixed:
+
+- Every submission recorded against the case.
+- Every association whose named submissions are all going, provided it names
+  at least one. An association naming no submission stays, and one a surviving
+  association supersedes is kept, because removing it would leave the newer
+  record naming a record the archive no longer holds.
+- Every receipt an association tied to a departing submission, unless a
+  remaining association still names it.
+- **Import events are history and are kept.** The one exception is an import
+  event naming an object the purge actually removed: it goes with that object,
+  because an event describing content that is gone describes nothing. An
+  object the purge could not unlink keeps its import event, so it stays a
+  referenced object rather than becoming an orphan.
+
+An association naming submissions in **two cases** is refused rather than
+resolved. It references a submission that remains, so it cannot go, and one
+that is going, so keeping it whole would leave a dangling reference. openPapir
+edits no stored record, so the deletion is refused in the scan before anything
+is unlinked, and the refusal is symmetric: until the user resolves the
+association themselves, neither case can be deleted.
 
 Deletion is real: the record files are removed. The deletion summary (counts
 and record kinds only, no filenames, digests, or titles) is reported to the
@@ -423,10 +498,12 @@ The discovery note left seven open questions
    older extractor is reported as stale and recomputed only on explicit
    request. That keeps listings reproducible and avoids background work.
 5. **Retention of import events and association history: resolved.** History
-   is deletable: deleting a case deletes its import events and association
-   records with it, and openPapir keeps no immutable log of the user's own
-   correspondence. Whether a separate "delete history, keep artefacts"
-   operation is worth offering is deferred to the association issue.
+   is deletable, and openPapir keeps no immutable log of the user's own
+   correspondence. As implemented, deleting a case removes the associations
+   tied only to it, and removes an import event only together with an object
+   the purge actually unlinked; every other import event is kept as history.
+   Whether a separate "delete history, keep artefacts" operation is worth
+   offering stays deferred.
 6. **Windows parity: resolved as documented degradation.** Owner-only access
    is required with no override, so filesystems that cannot express it are
    refused rather than silently accepted; the two weakened guarantees above are
@@ -445,20 +522,23 @@ This design unblocks the following bounded implementation issues, which the
 tracker owns; the sequencing only is recorded here.
 
 - **Artefact import with byte preservation** (discovery note follow-up 4):
-  archive creation and the version marker, the content-addressed store, the
-  atomic write procedure, permissions, caps, and duplicate import events.
-  Depends on this document only.
+  **implemented** as `archive init` and `import`.
 - **Import and association error codes with their JSON and exit-code contract**
-  (follow-up 5), including the named degradation and refusal conditions above.
-  Depends on this document, can be specified in parallel with import, and must
-  be agreed before import prints anything machine-readable.
+  (follow-up 5): **agreed** as
+  [error-contract](error-contract.md), and emitted by every implemented
+  command.
 - **Association records with candidate and contradictory outcomes**
-  (follow-up 6): the record shape above, using local evidence only and no
-  receipt parsing. Depends on artefact import.
-- **Whole-archive integrity check** (new): re-digest stored objects and report
-  damage and orphans. Depends on artefact import.
-- **Derived-metadata staleness and recompute-on-request** (new). Depends on
-  artefact import.
+  (follow-up 6): **implemented** as `receipt add`, `receipt list`,
+  `association create`, and `association list`, using the user's own evidence
+  only and no receipt parsing.
+- **Whole-archive integrity check** (new): **implemented** as `archive check`.
+- **Case export, backup, and the permission-repair action** (new):
+  **implemented** as `case export` and `archive repair-permissions`.
+- **Case deletion with an explicit purge** (new): **implemented** as
+  `case delete`.
+- **Derived-metadata staleness and recompute-on-request** (new): **not
+  implemented**, and the only follow-up here with no code behind it. Depends
+  on nothing further in this document.
 
 Unchanged blockers: receipt parsing still needs the format gap closed
 (follow-up 1), and the delegated verification boundary still needs published,
@@ -466,12 +546,14 @@ versioned contracts from openKRX and openSzigno (follow-up 8).
 
 ## Limits of this design
 
-It is a layout, not an implementation, and no capability follows from it. The
-caps are proposals chosen for safety rather than measurement, and no
-performance work has been done. It assumes one user and one writing process on
-one local filesystem; network filesystems and multi-user archives are not
-designed for. It fixes no response schema, exit code, command name, or field of
-any government artefact, and assumes nothing about what a receipt contains,
+It is a layout, not an implementation. No capability follows from the parts
+still awaiting code, and [architecture](architecture.md) rather than this page
+is the contract for the parts that have it. The caps are proposals chosen for
+safety rather than measurement, and no performance work has been done. It
+assumes one user and one writing process on one local filesystem; network
+filesystems and multi-user archives are not designed for. It fixes no response
+schema, exit code, command name, or field of any government artefact, and
+assumes nothing about what a receipt contains,
 because nothing is yet established about that
 ([receipt-discovery](receipt-discovery.md)). Treat every number and name above
 as reviewable.
