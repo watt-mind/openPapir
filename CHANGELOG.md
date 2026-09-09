@@ -59,6 +59,45 @@ matches the observable difference. See the Documentation section of
 - `capabilities` now lists `case.export` and `archive.repair_permissions` as
   the twelfth and thirteenth operations.
 
+- `openpapir case delete --archive <root> --case <id> [--purge]` deletes one
+  case, every submission recorded against it, and the receipts and
+  associations tied only to those submissions. A receipt or an association
+  that still references a submission or case the deletion leaves behind is
+  kept, and so is an association a surviving record supersedes. Without
+  `--purge` no object is removed and the objects that would become
+  unreferenced are counted as retained; with `--purge` every object no
+  remaining import event, receipt, or submission references is unlinked, and
+  the import events naming a purged object go with it once that object has
+  actually gone. The whole archive is scanned under the writer lock before
+  anything is removed, so a malformed record document aborts the deletion with
+  `record.malformed` while the archive is still untouched, and an unknown case
+  is `record.not_found`. Every removal is the unlink of one file openPapir
+  created, never a recursive directory removal, and nothing outside `records/`
+  and `objects/sha256/` is touched. The report is counts, record kinds, and
+  the reason an object stayed, and never a digest, a path, or a filename;
+  nothing about the deletion is persisted. `capabilities` now lists
+  `case.delete` as the fourteenth operation.
+- `delete.objects_retained` is now emitted, with the additive `reason` detail
+  key, when a purge could not unlink an object. The deletion completes what it
+  can, its counts stay in `data`, and the error carries the count alone.
+  `platform.replace_while_open` is emitted by `case delete` as a warning where
+  the platform defers an unlink, carrying the additive `read_only_restored`
+  flag: where the platform needs a read-only attribute cleared before an
+  unlink, it is put back when the unlink still fails, so a surviving object
+  keeps the access it had. The warning is reported once however many objects
+  deferred, and carries the worst outcome any of them saw.
+- `delete.records_retained` and `delete.record_entangled` are new error codes
+  in the `delete` bucket. A record document the filesystem refuses to unlink
+  stops the object pass entirely rather than purging around the record that
+  stayed, and reports how many documents the deletion planned to remove and
+  did not. A record that has to survive the deletion and names a record the
+  deletion would remove, which today means an association naming submissions
+  in two cases, refuses the deletion in the scan before anything is unlinked,
+  because openPapir edits no stored record and will neither corrupt the
+  association nor delete an assertion about a case the user did not name. A
+  deletion therefore never leaves a record or an object naming something the
+  archive no longer holds: an archive `archive check` found clean stays clean
+  after a deletion and after every refusal.
 - `openpapir archive check --archive <root>` re-digests every stored object
   and compares the artefact store with what the records claim. It is
   read-only: it takes no writer lock, so a held lock never stops it, opens

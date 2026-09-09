@@ -13,16 +13,18 @@
 //!
 //! # Status
 //!
-//! Thirteen operations are implemented, `archive.init`, `import`,
+//! Fourteen operations are implemented, `archive.init`, `import`,
 //! `case.create`, `case.list`, `case.show`, `submission.add`, `receipt.add`,
 //! `receipt.list`, `association.create`, `association.list`,
-//! `archive.check`, `case.export`, and `archive.repair_permissions`, and they
-//! are the thirteen [`capabilities`] reports.
-//! Everything else in the design stays a plan: no deletion, no editing, no
-//! import from an export, no automatic matching, no derived metadata, no
-//! receipt parsing, and no verification of any kind. An export copies the
-//! bytes the archive already holds and changes nothing inside it, and the
-//! permission repair only narrows. The integrity check re-digests
+//! `archive.check`, `case.export`, `archive.repair_permissions`, and
+//! `case.delete`, and they are the fourteen [`capabilities`] reports.
+//! Everything else in the design stays a plan: no editing of a stored
+//! record, no deletion of a single submission or receipt, no deletion of an
+//! archive, no import from an export, no automatic matching, no derived
+//! metadata, no receipt parsing, and no verification of any kind. An export
+//! copies the bytes the archive already holds and changes nothing inside it,
+//! the permission repair only narrows, and a deletion removes an object only
+//! on an explicit purge. The integrity check re-digests
 //! stored bytes, which is a storage-layer identity check and never a
 //! cryptographic verification. Every record here is the user's own local organisation:
 //! openPapir sends nothing and reads no artefact bytes, so a submission, a
@@ -50,6 +52,7 @@
 
 pub mod archive;
 pub mod clock;
+pub mod deletion;
 pub mod error;
 pub mod export;
 pub mod ident;
@@ -58,6 +61,7 @@ pub mod records;
 
 pub use archive::import::{Artefact, Imported, import};
 pub use archive::{Created, init, repair_permissions};
+pub use deletion::{Deleted, RemovedRecords, RetainedObjects, delete};
 pub use error::{Diagnostic, Failure, Outcome, Warning};
 pub use export::repair::Repaired;
 pub use export::{Exported, KindCount, export_case};
@@ -86,6 +90,7 @@ const OPERATIONS: &[&str] = &[
     "archive.check",
     "case.export",
     "archive.repair_permissions",
+    "case.delete",
 ];
 
 /// Machine-readable implementation status; never a verification verdict.
@@ -131,7 +136,8 @@ mod tests {
                 "association.list",
                 "archive.check",
                 "case.export",
-                "archive.repair_permissions"
+                "archive.repair_permissions",
+                "case.delete"
             ]
         );
         assert_eq!(reported.project, "openPapir");
