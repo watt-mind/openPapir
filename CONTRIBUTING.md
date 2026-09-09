@@ -119,6 +119,14 @@ under `## Unreleased` in the right category, `Added`, `Changed`, `Fixed`,
 a user or a contributor, not the diff. Reference a pull request as `(#12)`.
 Never reference a private tracker identifier.
 
+While `openpapir-core` has no published version, a change to its public Rust
+API needs no entry, whether it adds, removes, or makes an item private. The
+CLI contract in [architecture](docs/architecture.md), meaning the JSON
+envelope, the error codes, the `capabilities` list, the exit codes, and the
+output, is the only public contract today, and every change to it is logged.
+Once a crate version is published, see [releasing](docs/releasing.md), library
+API changes are contributor-visible and are logged under their own heading.
+
 [keepachangelog]: https://keepachangelog.com/en/1.1.0/
 
 ## Review expectations
