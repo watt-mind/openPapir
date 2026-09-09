@@ -195,6 +195,44 @@ pub fn init(root: &Path) -> Result<Created> {
     })
 }
 
+/// Narrow every path in the archive at `root` back to owner-only.
+///
+/// This is the only action besides [`init`] that narrows permissions, and it
+/// is the documented remedy for copy tooling that widened them on restore
+/// (`docs/archive-layout.md`). It only ever narrows: a path can lose access
+/// and never gain it. It takes the writer lock, because it writes modes, and
+/// it deliberately does not run the archive's permission check first, since
+/// the wide permissions that check refuses are exactly what it repairs.
+///
+/// # Errors
+///
+/// Returns `usage.archive_root_missing`, `usage.arguments`, `path.symlink`,
+/// `archive.marker_missing`, `archive.marker_malformed`,
+/// `archive.schema_newer`, `archive.schema_older`, `lock.held`, or
+/// `write.interrupted`.
+pub fn repair_permissions(root: &Path) -> Result<crate::export::repair::Repaired> {
+    let mut warnings = Vec::new();
+    match repair(root, &mut warnings) {
+        Ok(data) => Ok(Outcome { data, warnings }),
+        Err(error) => Err(Failure::with_warnings(error, warnings)),
+    }
+}
+
+fn repair(
+    root: &Path,
+    warnings: &mut Vec<Warning>,
+) -> std::result::Result<crate::export::repair::Repaired, Diagnostic> {
+    check_root_shape(root)?;
+    if !cfg!(unix) {
+        warnings.push(paths::owner_only_via_acl_warning());
+    }
+    let marker = read_marker(root)?;
+    check_schema_version(marker.archive_schema_version)?;
+    check_layout_links(root)?;
+    let _lock = lock::WriterLock::acquire(root)?;
+    crate::export::repair::narrow_archive(root, &LAYOUT_DIRS)
+}
+
 /// Narrow the root, write the marker first, then create the layout.
 fn init_layout(
     root: &Path,

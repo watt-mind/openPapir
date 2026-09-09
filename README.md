@@ -9,9 +9,11 @@ into a content-addressed store that preserves the original bytes, organises
 what it holds into cases and submissions, records receipts together with the
 user's own assertions about whether a receipt relates to a submission, and
 checks a whole archive against what its records claim without changing
-anything. Automatic matching, derived metadata, receipt parsing, export,
-deletion, editing of a stored record, repair, signature verification, and
-government delivery are not implemented. There is no published release.
+anything, copies one case out of the archive as plain files, and narrows a
+restored archive's permissions back to owner-only. Automatic matching, derived
+metadata, receipt parsing, import from an export, deletion, editing of a
+stored record, signature verification, and government delivery are not
+implemented. There is no published release.
 
 openPapir is an independent open-source project. It is not the government's
 e-Papír service, is not affiliated with its operators, and does not submit
@@ -36,6 +38,8 @@ cargo run --locked -p openpapir-cli -- receipt list --archive ./my-archive --jso
 cargo run --locked -p openpapir-cli -- association create --archive ./my-archive --receipt <receipt-id> --outcome candidate --candidate "<submission-id>:moderate:The reference matches." --json
 cargo run --locked -p openpapir-cli -- association list --archive ./my-archive --receipt <receipt-id> --json
 cargo run --locked -p openpapir-cli -- archive check --archive ./my-archive --json
+cargo run --locked -p openpapir-cli -- case export --archive ./my-archive --case <case-id> --to ./my-export --json
+cargo run --locked -p openpapir-cli -- archive repair-permissions --archive ./my-archive --json
 ```
 
 The capabilities command reports the current implementation honestly:
@@ -59,7 +63,9 @@ The capabilities command reports the current implementation honestly:
       "receipt.list",
       "association.create",
       "association.list",
-      "archive.check"
+      "archive.check",
+      "case.export",
+      "archive.repair_permissions"
     ]
   },
   "verified": false
@@ -76,7 +82,11 @@ sent, a receipt is an artefact the user believes to be one, an association is
 what the user asserts about it, and a date they supply is stored verbatim and
 never read as a delivery or receipt date. `archive check` re-digests what the
 store holds and reports counts only; it takes no lock, changes nothing, and a
-passing check is storage integrity rather than authenticity.
+passing check is storage integrity rather than authenticity. `case export`
+copies one case out as plain files, the original bytes named by their digest
+plus readable JSON records and a manifest, without changing the archive, and
+re-digests every copy. `archive repair-permissions` narrows a restored
+archive back to owner-only; it never widens anything.
 `verified: false` means no cryptographic verification was performed: a
 digest identifies bytes, and says nothing about authenticity or delivery.
 The full contract, including the error codes and exit codes, is in

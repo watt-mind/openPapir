@@ -10,7 +10,7 @@ use openpapir_core::archive::Created;
 use openpapir_core::archive::import::Imported;
 use openpapir_core::{
     Association, AssociationCreated, AssociationHistory, Case, CaseCreated, CaseList, CaseView,
-    Receipt, ReceiptAdded, ReceiptList, Submission, SubmissionAdded,
+    Exported, Receipt, ReceiptAdded, ReceiptList, Repaired, Submission, SubmissionAdded,
 };
 
 /// The lines `archive init` prints when it succeeds.
@@ -89,6 +89,51 @@ pub fn integrity(report: &Report) -> Vec<String> {
     ));
     lines.push(
         "The check read the archive and changed nothing. A digest identifies bytes only: a passing check is storage integrity, never authenticity, delivery, or legal effect."
+            .to_owned(),
+    );
+    lines
+}
+
+/// The lines `case export` prints when it succeeds.
+///
+/// The destination is the one path any output here may carry: the user
+/// supplied it in this invocation, and the line repeats their own argument
+/// back to them. It never reaches the JSON envelope, where the privacy rule
+/// admits no user-supplied path at all.
+#[must_use]
+pub fn exported(exported: &Exported) -> Vec<String> {
+    let mut lines = vec![
+        format!(
+            "Exported case {} to {}.",
+            exported.case_id, exported.destination
+        ),
+        format!(
+            "Copied {} object(s), {} byte(s), and wrote {} record(s).",
+            exported.object_count, exported.bytes_copied, exported.record_count
+        ),
+    ];
+    for kind in &exported.records {
+        lines.push(format!("{} {}", kind.kind, kind.count));
+    }
+    lines.push(
+        "The archive was not changed. Every copy was re-digested: a digest identifies bytes only, never authenticity, delivery, or legal effect."
+            .to_owned(),
+    );
+    lines
+}
+
+/// The lines `archive repair-permissions` prints when it succeeds.
+#[must_use]
+pub fn repaired(repaired: &Repaired) -> Vec<String> {
+    let mut lines = vec![format!(
+        "Narrowed {} of {} archive path(s) to owner-only.",
+        repaired.paths_changed, repaired.paths_checked
+    )];
+    for kind in &repaired.changed {
+        lines.push(format!("{} {}", kind.kind, kind.count));
+    }
+    lines.push(
+        "Permissions are only ever narrowed here; nothing was widened and no content was read or changed."
             .to_owned(),
     );
     lines

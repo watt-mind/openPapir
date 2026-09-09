@@ -1024,7 +1024,9 @@ fn capabilities_report_exactly_the_implemented_operations() {
             "receipt.list",
             "association.create",
             "association.list",
-            "archive.check"
+            "archive.check",
+            "case.export",
+            "archive.repair_permissions"
         ])
     );
     assert_eq!(output.status.code(), Some(0));
