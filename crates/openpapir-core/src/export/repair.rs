@@ -23,7 +23,7 @@
 //! `lock` count would therefore always be zero, and the report says only what
 //! it actually looked at.
 //!
-//! [`Repaired`] is the whole of this module's public API. The kinds of path
+//! [`Repaired`] and [`narrow_archive`] are this module's public API. The kinds of path
 //! it walks, the write stages they report, and the kinds the report lists are
 //! internal: a caller sees them only as the strings of a report or a refusal,
 //! which is what the documents promise, so the types stay `pub(crate)` and
