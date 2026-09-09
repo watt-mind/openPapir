@@ -4,10 +4,11 @@ A proposed local-first Rust library and CLI for organising Hungarian government
 correspondence: cases, submissions, attachments, and receipts.
 
 **Status: early.** The executable reports its capabilities, creates a local
-archive, and imports files into a content-addressed store that preserves the
-original bytes. Case storage, receipt matching, association, export, deletion,
-signature verification, and government delivery are not implemented. There is
-no published release.
+archive, imports files into a content-addressed store that preserves the
+original bytes, and organises what it holds into cases and submissions.
+Receipt matching, association, export, deletion, editing, signature
+verification, and government delivery are not implemented. There is no
+published release.
 
 openPapir is an independent open-source project. It is not the government's
 e-Papír service, is not affiliated with its operators, and does not submit
@@ -23,6 +24,10 @@ cargo run --locked -p openpapir-cli -- --version
 cargo run --locked -p openpapir-cli -- capabilities --json
 cargo run --locked -p openpapir-cli -- archive init ./my-archive --json
 cargo run --locked -p openpapir-cli -- import --archive ./my-archive ./a-file --json
+cargo run --locked -p openpapir-cli -- case create --archive ./my-archive --title "Tax matter" --json
+cargo run --locked -p openpapir-cli -- case list --archive ./my-archive --json
+cargo run --locked -p openpapir-cli -- submission add --archive ./my-archive --case <case-id> --description "Posted the form." --json
+cargo run --locked -p openpapir-cli -- case show --archive ./my-archive <case-id> --json
 ```
 
 The capabilities command reports the current implementation honestly:
@@ -35,7 +40,14 @@ The capabilities command reports the current implementation honestly:
   "data": {
     "project": "openPapir",
     "stage": "scaffold",
-    "operations": ["archive.init", "import"]
+    "operations": [
+      "archive.init",
+      "import",
+      "case.create",
+      "case.list",
+      "case.show",
+      "submission.add"
+    ]
   },
   "verified": false
 }
@@ -45,7 +57,10 @@ The operation list names exactly what can process input today. `archive init`
 needs an existing, empty directory and refuses to adopt anything else.
 `import` stores each file's bytes unchanged, records one import event per
 input, and reports a re-import of the same bytes as a duplicate rather than an
-error. `verified: false` means no cryptographic verification was performed: a
+error. A case and a submission are the user's own local records: openPapir
+sends nothing, so a submission is what the user states they sent, and a date
+they supply is stored verbatim and never read as a delivery or receipt date.
+`verified: false` means no cryptographic verification was performed: a
 digest identifies bytes, and says nothing about authenticity or delivery.
 The full contract, including the error codes and exit codes, is in
 [architecture and CLI contract](docs/architecture.md).

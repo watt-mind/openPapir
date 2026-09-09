@@ -14,7 +14,7 @@ The Rust edition 2024 workspace has an MSRV of 1.88 and two unpublished crates:
 
 | Crate | Current responsibility |
 | --- | --- |
-| `openpapir-core` | The local archive: marker, artefact store, atomic writes, single-writer lock, input caps, path safety, and import-event records. |
+| `openpapir-core` | The local archive: marker, artefact store, atomic writes, single-writer lock, input caps, path safety, import-event records, and the case and submission records. |
 | `openpapir-cli` | Argument parsing, the response envelope, and the exit-code mapping. |
 
 Only these invocations are supported:
@@ -25,15 +25,20 @@ openpapir --version
 openpapir capabilities [--json]
 openpapir archive init <root> [--json]
 openpapir import --archive <root> <file>... [--json]
+openpapir case create --archive <root> --title <t> [--notes <n>] [--json]
+openpapir case list --archive <root> [--json]
+openpapir case show --archive <root> <case-id> [--json]
+openpapir submission add --archive <root> --case <case-id> --description <d> [--date <yyyy-mm-dd>] [--artefact <digest>[:<role>]]... [--json]
 ```
 
-Two operations are implemented, `archive.init` and `import`, and those are the
-two names `capabilities` reports. Everything else in
+Six operations are implemented, `archive.init`, `import`, `case.create`,
+`case.list`, `case.show`, and `submission.add`, and those are the six names
+`capabilities` reports. Everything else in
 [local archive layout and storage design](archive-layout.md) and
 [import error, JSON, and exit-code contract](error-contract.md) remains a
-design: no cases, submissions, receipts, associations, derived metadata, or
-verification records; no export, deletion, integrity check, matching, receipt
-parsing, or migration.
+design: no receipt, association, derived-metadata, or verification records; no
+export, deletion, editing, integrity check, matching, receipt parsing, or
+migration.
 
 ## The response envelope
 
@@ -57,7 +62,7 @@ within a `schema_version`. `details` carries at most 16 keys, whose values are
 strings, integers, booleans, or arrays of at most 16 such scalars, and always
 carries `bucket`. Changes within `schema_version` are additive only.
 
-The capabilities response is unchanged in shape and now lists the two
+The capabilities response is unchanged in shape and now lists the six
 implemented operations:
 
 ```json
@@ -68,7 +73,14 @@ implemented operations:
   "data": {
     "project": "openPapir",
     "stage": "scaffold",
-    "operations": ["archive.init", "import"]
+    "operations": [
+      "archive.init",
+      "import",
+      "case.create",
+      "case.list",
+      "case.show",
+      "submission.add"
+    ]
   },
   "verified": false
 }
@@ -95,6 +107,8 @@ created owner-only:
     objects/sha256/
     objects/incoming/
     records/imports/
+    records/cases/
+    records/submissions/
     cache/
 ```
 
@@ -158,6 +172,149 @@ content-addressed artefact store and records one import event per input.
 A duplicate adds `previous_import_count` and `first_imported_at` to the
 artefact entry and still exits `0`.
 
+## Records
+
+A case and a submission are the user's own local organisation. A case
+corresponds to nothing any government service issues, and a submission is
+something the user states they sent: openPapir sends nothing, so a submission
+is always user-asserted. Neither asserts delivery, receipt by an authority,
+authenticity, or legal effect.
+
+Every record is one UTF-8, LF-terminated JSON document with sorted keys,
+holding `id` (a 128-bit random identifier as 32 lowercase hexadecimal
+characters), `record_kind`, `archive_schema_version`, and `created_at`. Records
+reference each other, and reference stored artefacts, by identifier only.
+Records are written through the atomic write procedure, under the writer lock,
+into owner-only directories. Opening an archive created by an earlier build
+adds the two record directories if they are absent; nothing else changes.
+
+| Record | Path | Fields |
+| --- | --- | --- |
+| Case | `records/cases/<id>.json` | `title`, optional `notes`, plus the four common fields. |
+| Submission | `records/submissions/<id>.json` | `case_id`, `description`, optional `stated_date`, `artefacts`, plus the four common fields. |
+
+Each entry of `artefacts` is an object with `digest`, the algorithm-qualified
+digest of an object already stored in this archive, and an optional `role`, the
+short label the user gave that artefact. `role` is omitted when the user
+supplied none, so an entry is `{"digest": "sha256:..."}` or
+`{"digest": "sha256:...", "role": "cover letter"}`.
+
+`stated_date` is the user's own statement about their own submission. It is
+accepted as `YYYY-MM-DD` only, checked for calendar plausibility, stored
+verbatim, never compared with `created_at`, and never interpreted. It is not a
+delivery date, a receipt date, or evidence of anything.
+
+Every user-supplied field is bounded in bytes, and the bound is checked before
+the record is built, so an oversized field is refused before the archive is
+touched. `title` and `role` are single lines and carry no control character;
+`notes` and `description` may carry a line feed and no other control
+character.
+
+| Field | Cap | Required | Code when it is too long |
+| --- | --- | --- | --- |
+| `title` | 200 bytes | Yes | `input.cap.field_length` |
+| `notes` | 4096 bytes | No | `input.cap.field_length` |
+| `description` | 1024 bytes | Yes | `input.cap.field_length` |
+| `role` | 64 bytes | No | `input.cap.field_length` |
+
+An empty required field, a forbidden control character, an unusable artefact
+reference, and a date that is not a calendar date are `usage.arguments`,
+naming the argument and never its value.
+
+## `case create`
+
+`openpapir case create --archive <root> --title <t> [--notes <n>]` writes one
+case record. It takes the writer lock and runs the archive's permission checks
+first.
+
+```json
+{
+  "schema_version": 1,
+  "ok": true,
+  "command": "case.create",
+  "data": {
+    "case": {
+      "archive_schema_version": 1,
+      "created_at": "2026-01-14T09:12:33Z",
+      "id": "6b73d041fb6bed26be75545fabfd45bc",
+      "notes": "First contact.",
+      "record_kind": "case",
+      "title": "Tax matter"
+    }
+  },
+  "verified": false
+}
+```
+
+## `case list`
+
+`openpapir case list --archive <root>` reads every case record. It takes no
+lock, because no record file is ever modified in place. `data` holds `cases`,
+ordered by identifier, and `count`. An archive with no case is not an error:
+`cases` is empty, `count` is `0`, and the exit code is `0`.
+
+## `case show`
+
+`openpapir case show --archive <root> <case-id>` reads one case and the
+submissions that name it. `data` holds `case`, `submissions` ordered by
+identifier, and `submission_count`. An identifier that names no case is
+`record.not_found`.
+
+```json
+{
+  "schema_version": 1,
+  "ok": true,
+  "command": "case.show",
+  "data": {
+    "case": {
+      "archive_schema_version": 1,
+      "created_at": "2026-01-14T09:12:33Z",
+      "id": "6b73d041fb6bed26be75545fabfd45bc",
+      "record_kind": "case",
+      "title": "Tax matter"
+    },
+    "submissions": [
+      {
+        "archive_schema_version": 1,
+        "artefacts": [
+          {
+            "digest": "sha256:a002fd0595c559505437ce754971d911b703373addf2b59e425ec057d631614f",
+            "role": "cover letter"
+          }
+        ],
+        "case_id": "6b73d041fb6bed26be75545fabfd45bc",
+        "created_at": "2026-01-15T10:00:00Z",
+        "description": "Posted the completed form.",
+        "id": "78957f91825e701adf0d9eecd7f7af50",
+        "record_kind": "submission",
+        "stated_date": "2026-01-13"
+      }
+    ],
+    "submission_count": 1
+  },
+  "verified": false
+}
+```
+
+## `submission add`
+
+`openpapir submission add --archive <root> --case <case-id> --description <d>`
+writes one submission record against an existing case. `--date` is optional and
+takes `YYYY-MM-DD`. `--artefact` may be repeated; each value is
+`sha256:<64 lowercase hex>` or `sha256:<64 lowercase hex>:<role>`. The command
+takes the writer lock, then resolves every reference before it writes
+anything:
+
+- A case identifier that names no case record is `record.not_found` with
+  `record_kind` `case`.
+- A digest that names no stored object is `record.not_found` with
+  `record_kind` `artefact`. The object's bytes are never opened: only its
+  presence, its link state, and the permissions of its fan-out directories are
+  checked, exactly as import checks them.
+- A value that is not a digest of that form is `usage.arguments`.
+
+`data` holds `submission`, whose shape is the submission entry shown above.
+
 ## Storage guarantees
 
 | Guarantee | How it is kept |
@@ -183,6 +340,16 @@ environment variable, or configuration relaxes a cap.
 | Files per import | 1000 | `input.cap.import_files` |
 | Record document | 1 MiB | `input.cap.record_size` |
 | Original filename | 255 bytes | `input.cap.filename_length` |
+| Case title | 200 bytes | `input.cap.field_length` |
+| Case notes | 4096 bytes | `input.cap.field_length` |
+| Submission description | 1024 bytes | `input.cap.field_length` |
+| Artefact role | 64 bytes | `input.cap.field_length` |
+
+`input.cap.record_size` bounds a whole document and reports one cap, the
+record cap. A per-field cap has to say which field it refused and which of the
+four bounds applied, which that code cannot carry, so the field caps use the
+additive `input.cap.field_length` instead. Both are `input` refusals and both
+exit `3`.
 
 ## Implemented codes and exit codes
 
@@ -193,8 +360,8 @@ emitted.
 | --- | --- | --- |
 | `0` | Success, including a duplicate import and a warning | |
 | `2` | `usage` | `usage.arguments`, `usage.archive_root_missing` |
-| `3` | `input`, `path` | the five caps above, `path.symlink`, `path.overwrite`, `path.cross_device` |
-| `4` | `archive`, `lock`, `write`, `integrity` | `archive.marker_missing`, `archive.marker_malformed`, `archive.adopt_refused`, `archive.schema_newer`, `archive.schema_older`, `archive.permissions_wide`, `archive.multiple_filesystems`, `lock.held`, `write.interrupted`, `integrity.length_mismatch` |
+| `3` | `input`, `path` | the six cap codes above, `path.symlink`, `path.overwrite`, `path.cross_device` |
+| `4` | `archive`, `lock`, `write`, `record`, `integrity` | `record.not_found`, `record.malformed`, `archive.marker_missing`, `archive.marker_malformed`, `archive.adopt_refused`, `archive.schema_newer`, `archive.schema_older`, `archive.permissions_wide`, `archive.multiple_filesystems`, `lock.held`, `write.interrupted`, `integrity.length_mismatch` |
 | `5` | `platform` | None. The named degradations are warnings, and `platform.filesystem_unsupported` is not detected yet. |
 | `6` | `internal` | `internal.unexpected` |
 
@@ -202,13 +369,13 @@ An invocation the argument parser rejects exits `2` with the parser's usage
 text on stderr and no envelope, as it did before.
 
 Every other code in [error-contract](error-contract.md) is unimplemented,
-including all `export`, `delete`, and `record` codes, `lock.stale`,
-`path.traversal`, `write.incomplete`, `record.malformed`,
-`integrity.digest_mismatch`, and `integrity.orphan_object`.
+including all `export` and `delete` codes, `lock.stale`, `path.traversal`,
+`write.incomplete`, `integrity.digest_mismatch`, and
+`integrity.orphan_object`.
 
 ### Decisions this implementation had to make
 
-The error contract deferred three conditions to the implementing change. They
+The error contract deferred five conditions to an implementing change. They
 are decided as follows, and no other reserved code became reachable:
 
 1. A marker that cannot be read is `archive.marker_malformed`. It is reported,
@@ -218,6 +385,19 @@ are decided as follows, and no other reserved code became reachable:
    marker stays `archive.adopt_refused`.
 3. A lock whose holder is gone is still `lock.held`. No takeover exists, silent
    or explicit, so `lock.stale` stays reserved.
+4. A record document that cannot be read as a valid record of its kind is
+   `record.malformed`: it is not valid JSON, it is missing a required field,
+   it claims another record kind, or it does not name the file it lives in.
+   Its `details` carry `record_kind` and `path_count`, the number of documents
+   that could not be read, and never the document's path or content. Reading a
+   directory of records reports it rather than passing over the document
+   silently; the one exception is a staging file, which is openPapir's own
+   transient artefact and never a record.
+5. A reference that names no record or object is the additive
+   `record.not_found`, whose `details` carry the kind that was not found and
+   how it was referenced, never the value the user supplied. An identifier
+   that is not 32 lowercase hexadecimal characters cannot name a record, so it
+   is refused with the same code and is never joined into a path.
 
 Permissions are never repaired as a side effect. `archive init` narrows the
 supplied root once, deliberately, as part of creating the archive; after that
@@ -229,9 +409,10 @@ bucket alone. The contract fixes `scope` as `archive` or `export_destination`
 and names no value for an input outside the archive, so none is invented.
 
 An import-event record that cannot be parsed is skipped when counting a
-duplicate's history rather than reported, because `record.malformed` is
-reserved. The reported `previous_import_count` is therefore a count of the
-readable events.
+duplicate's history rather than reported, so `previous_import_count` is a count
+of the readable events. Import keeps that behaviour: `record.malformed` names
+the case and submission documents a command must read to do its work, and an
+unreadable import event does not stop bytes from being stored.
 
 ## Platform degradation
 
@@ -263,8 +444,8 @@ record only.
 
 ## Planned ownership
 
-openPapir will own persistent cases, submission relationships, receipt
-associations, and the user workflow around them. The storage technology and
+Cases and submissions are implemented as described above. openPapir will also
+own receipt associations and the wider user workflow. The storage technology and
 the on-disk layout are decided in
 [local archive layout and storage design](archive-layout.md); the parts of it
 not listed above are not implemented, and the record shapes it fixes for

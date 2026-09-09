@@ -2,11 +2,12 @@
 
 ## Status and scope
 
-This document is a **specification for review**. Nothing in it is implemented.
-The executable still exposes only help, version, and `capabilities`, whose
-output is unchanged and still reports `"operations": []` and
-`"verified": false` ([architecture](architecture.md)). Every command name,
-flag, field name, error code, and exit code below is **proposed**.
+This document is a **specification for review**, and parts of it now have code
+behind them: archive creation, artefact import, and the case and submission
+records emit the envelope below and the codes
+[architecture](architecture.md) lists. Architecture is the canonical
+description of implemented behaviour. Every other command name, flag, field
+name, error code, and exit code below is **proposed**.
 
 It is follow-up 5 of the
 [receipt evidence and local case model note](receipt-discovery.md), and the
@@ -256,6 +257,14 @@ position of the offending input in the invocation, never its name.
 - **`input.cap.filename_length`**: input, not retryable. A supplied original
   filename exceeds the attribute cap (proposed 255 bytes). Only the length is
   reported, never the name.
+- **`input.cap.field_length`**: input, not retryable. One user-supplied field
+  of a record exceeds its own cap. Added additively by the case and submission
+  records, which need to say which field was refused and which of several
+  bounds applied; `input.cap.record_size` reports one cap, the record cap, and
+  bounds the whole document instead. Details: `bucket`, `field` (the field's
+  fixed openPapir name, never its value), `cap_bytes`, `observed_bytes`. The
+  implemented fields and caps are in
+  [architecture](architecture.md).
 
 Caps are never relaxed to make one input succeed ([AGENTS.md](../AGENTS.md)).
 The cap values themselves are proposals in
@@ -315,13 +324,22 @@ followed ([archive-layout](archive-layout.md)).
 
 ### `record`: record documents
 
-- **`record.malformed`**: archive, not retryable. **Reserved.** A record file
-  exists but is not valid JSON, is missing a required field, or names a record
-  kind this build does not know. [archive-layout](archive-layout.md) fixes the
-  record shapes but decides no behaviour for a record that violates them, so
-  the condition is deferred to the artefact-import issue. Details: `bucket`,
-  `archive_path`, `record_kind` when it is readable. Never the record's
-  content.
+- **`record.malformed`**: archive, not retryable. **Decided by the case and
+  submission records.** A record document a command must read exists but is
+  not valid JSON, is missing a required field, claims a record kind this build
+  does not know, or does not name the file it lives in. It is reported rather
+  than repaired, skipped, or guessed at. Details: `bucket`, `record_kind`, and
+  `path_count`, the number of documents that could not be read. The document's
+  path and content are never reported: the path would name an identifier the
+  caller never supplied, and the count answers the only useful question.
+- **`record.not_found`**: archive, not retryable. A reference names no record
+  or object in this archive: a case identifier with no case record, or an
+  artefact digest with no stored object. An identifier that cannot name a
+  record at all, because it is not openPapir's 32-character hexadecimal form,
+  is refused with the same code and is never joined into a path. Details:
+  `bucket`, `record_kind` (the kind that was not found, such as `case` or
+  `artefact`) and `reference_kind` (how it was named, such as `case_id` or
+  `artefact_digest`). The value the user supplied is never echoed.
 
 ### `integrity`: stored bytes disagree with what is recorded
 
@@ -581,13 +599,19 @@ only, never an enumeration ([AGENTS.md](../AGENTS.md),
 omits it and relies on the code and the counts instead; "which file" is
 answered by `input_index`, not by a name.
 
-## Nothing here is implemented
+## What of this is implemented
 
-`capabilities --json` is unchanged: it still reports `"operations": []` and
-`"verified": false`, and it gains no `error` and no `warnings` key. No command
-named in this document exists. No exit code other than the ones the current
-scaffold already produces is emitted. Agreeing this contract creates no
-capability and no obligation on a user's archive.
+Part of this contract now has code behind it.
+[architecture](architecture.md) is the canonical description of that part and
+lists exactly which codes are emitted; where the two disagree, architecture is
+authoritative and this page is a defect. `capabilities --json` reports the
+implemented operations, and `verified` stays `false` in every envelope.
+
+Everything else here is still a proposal, including every `export` and
+`delete` code, `lock.stale`, `path.traversal`, `write.incomplete`,
+`integrity.digest_mismatch`, `integrity.orphan_object`, the association
+outcomes, and the whole-archive integrity report. Agreeing a code here creates
+no capability and no obligation on a user's archive.
 
 ## Origin and unblocked work
 
@@ -617,9 +641,10 @@ verification code is specified here for that reason.
 It fixes wire names, not behaviour, and no capability follows from it. It
 assumes the archive design as written; if a review changes an adoption rule, a
 cap, a lock semantic, or the deletion rule, the affected codes change with it.
-`lock.stale`, `path.traversal`, `integrity.orphan_object`,
-`archive.marker_malformed`, `write.incomplete`, and `record.malformed` are
-reserved against conditions the design has not fully decided. Command names and flags
+`lock.stale`, `path.traversal`, `integrity.orphan_object`, and
+`write.incomplete` are reserved against conditions the design has not fully
+decided; `archive.marker_malformed` and `record.malformed` have since been
+decided by the implementations that reached them. Command names and flags
 are proposals only. It fixes no field, identifier, or format of any government
 artefact, and assumes nothing about what a receipt contains, because nothing
 is yet established about that ([receipt-discovery](receipt-discovery.md)).
