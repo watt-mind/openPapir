@@ -12,14 +12,14 @@
 //! the record it claims to be is `record.malformed`; it is never repaired,
 //! skipped, or guessed at.
 
-use std::fs::{self, File};
+use std::fs;
 use std::io::{self, Read as _};
 use std::path::Path;
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-use crate::archive::{limits, write};
+use crate::archive::{limits, paths, write};
 use crate::error::{Details, Diagnostic, Warning, codes};
 
 /// The prefix the atomic write procedure gives a staging file.
@@ -308,8 +308,14 @@ enum Unreadable {
 /// put a link or a device in its place. The read is capped as well as
 /// checked, so a file that grows between the two still reads no more than the
 /// record cap allows.
+///
+/// The open is the archive's own no-follow open, in its non-blocking variant:
+/// the no-follow rule has one implementation (`docs/archive-layout.md`), and
+/// the non-blocking flag is what keeps the open itself bounded, because a
+/// record directory is untrusted input and a named pipe with no writer would
+/// otherwise hold the open call open forever.
 fn read_document(path: &Path) -> Result<String, Unreadable> {
-    let file = open_document(path).map_err(|error| match error.kind() {
+    let file = paths::open_no_follow_nonblocking(path).map_err(|error| match error.kind() {
         io::ErrorKind::NotFound => Unreadable::Missing,
         _ => Unreadable::Malformed,
     })?;
@@ -325,28 +331,6 @@ fn read_document(path: &Path) -> Result<String, Unreadable> {
         .read_to_string(&mut text)
         .map_err(|_| Unreadable::Malformed)?;
     Ok(text)
-}
-
-/// Open a stored document without following a link and without waiting.
-///
-/// The no-follow rule is the archive's (`docs/archive-layout.md`). The
-/// non-blocking flag is what keeps the open itself bounded: a named pipe with
-/// no writer would otherwise hold the open call open forever, and a record
-/// directory is untrusted input. It changes nothing for a regular file, which
-/// is the only thing that gets past the check on the handle.
-fn open_document(path: &Path) -> io::Result<File> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt as _;
-        fs::OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-            .open(path)
-    }
-    #[cfg(not(unix))]
-    {
-        crate::archive::paths::open_no_follow(path)
-    }
 }
 
 /// Parse one document, checking that it is this kind and names this file.
@@ -652,6 +636,39 @@ mod tests {
             list_records::<Sample>(root.path()).unwrap_err().code,
             codes::RECORD_MALFORMED,
             "a directory in a record directory is not a record"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_document_that_cannot_be_opened_is_malformed_rather_than_absent() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join(Sample::DIRECTORY);
+        fs::create_dir_all(&directory).unwrap();
+        write_record(root.path(), &sample(ID)).unwrap();
+        let path = directory.join(format!("{ID}.json"));
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o000)).unwrap();
+        if fs::File::open(&path).is_ok() {
+            // Skipped: the process reads the file anyway, which is what
+            // happens when the tests run with privileges that ignore the
+            // permission bits, so there is no unreadable document to refuse.
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+            return;
+        }
+        let read = read_record::<Sample>(root.path(), ID, "sample_id");
+        let listed = list_records::<Sample>(root.path());
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        // The document is there and could not be read, which is the condition
+        // of the archive; saying `record.not_found` would claim the archive
+        // does not hold a record it does hold.
+        assert_eq!(read.err().unwrap().code, codes::RECORD_MALFORMED);
+        let refusal = listed.unwrap_err();
+        assert_eq!(refusal.code, codes::RECORD_MALFORMED);
+        assert_eq!(
+            serde_json::to_value(&refusal).unwrap()["details"]["path_count"],
+            1
         );
     }
 

@@ -87,6 +87,11 @@ pub struct References {
     pub ids: [BTreeSet<IdKey>; 5],
     /// How many documents of each kind could not be read as a record.
     pub malformed: [u64; 5],
+    /// How many leftover staging files each kind's directory holds, in the
+    /// order of [`KINDS`]. A staging file is openPapir's own transient
+    /// artefact from an interrupted write, so it is neither a record nor a
+    /// malformed one, and the check leaves it exactly where it is.
+    pub staging: [u64; 5],
     /// Whether each kind's directory could not be listed, in the order of
     /// [`KINDS`]. A directory that is not there is not one of these: it
     /// genuinely holds no records.
@@ -119,6 +124,12 @@ impl References {
             .count() as u64
     }
 
+    /// How many leftover staging files the record directories hold together.
+    #[must_use]
+    pub fn records_staging(&self) -> u64 {
+        self.staging.iter().sum()
+    }
+
     /// Whether a stored object that no record names may be called an orphan.
     ///
     /// Only an import event, a receipt, or a submission references an object,
@@ -148,13 +159,16 @@ const ASSOCIATIONS: usize = 4;
 ///
 /// A record directory that is not there holds no records. One that is there
 /// and could not be listed is recorded as unchecked instead, so that nothing
-/// is concluded from records the check never read.
+/// is concluded from records the check never read. A leftover staging file is
+/// counted per kind and left where it is: it is openPapir's own transient
+/// artefact rather than a record, and the check writes nothing.
 #[must_use]
 pub fn collect(root: &Path) -> References {
     let mut found = References::default();
     let count = |records: u64, visited: Visited, kind: usize, found: &mut References| {
         found.records_checked += records + visited.unreadable;
         found.malformed[kind] = visited.unreadable;
+        found.staging[kind] = visited.staging;
         found.unchecked[kind] = visited.unchecked;
     };
 
@@ -329,6 +343,8 @@ mod tests {
         assert_eq!(found.records_checked, 0);
         assert!(found.referenced.is_empty());
         assert_eq!(found.malformed, [0; 5]);
+        assert_eq!(found.staging, [0; 5]);
+        assert_eq!(found.records_staging(), 0);
         let (count, first) = dangling(root.path(), &found, &Store::default());
         assert_eq!(count, 0);
         assert_eq!(first, None);
@@ -336,6 +352,25 @@ mod tests {
         assert_eq!(found.records_unchecked(), 0);
         assert!(found.may_judge_orphans());
         assert!(found.orphaned(&object_key(DIGEST).unwrap()));
+    }
+
+    #[test]
+    fn a_leftover_staging_file_in_a_record_directory_is_counted_not_malformed() {
+        use crate::records::document::Record as _;
+
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join(Case::DIRECTORY);
+        std::fs::create_dir_all(&directory).unwrap();
+        let staging = directory.join(".papir-staging-abc");
+        std::fs::write(&staging, b"partial").unwrap();
+        let found = collect(root.path());
+        assert_eq!(found.staging[CASES], 1);
+        assert_eq!(found.records_staging(), 1);
+        assert_eq!(found.malformed, [0; 5], "a staging file is not a record");
+        assert_eq!(found.records_checked, 0);
+        assert_eq!(found.records_unchecked(), 0);
+        assert!(staging.exists(), "the check deletes nothing");
+        assert_eq!(References::default().records_staging(), 0);
     }
 
     #[test]

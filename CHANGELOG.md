@@ -283,6 +283,20 @@ delivery, receipt by an authority, authenticity, or legal effect.
 
 ### Changed
 
+- The `archive check` report counts the leftover staging files the record
+  directories hold, in a new additive `records_staging_files` field beside the
+  existing `staging_files`, which keeps its meaning and still counts
+  `objects/incoming/` alone. The record reader already counted such a file
+  rather than passing over it, and the figure now reaches the report, so an
+  interrupted record write is visible to a caller. It is not a problem: no
+  code is reported for it, the exit code is unaffected, and the check still
+  deletes nothing. The human form names both figures on its staging line.
+- The archive's no-follow open has one implementation again. `open_no_follow`
+  and the new `open_no_follow_nonblocking` in the archive's path module share
+  it, and the record reader uses the second instead of repeating the Unix arm
+  with the non-blocking flag added. No behaviour changed on any platform: the
+  rule that a link fails at the open rather than after a check on the path is
+  the same one, expressed once.
 - The `record.inconsistent` rule tables in `docs/error-contract.md` and
   `docs/architecture.md` now use one polarity. Both state the violation the
   rule reports, matching the rule names, under the column heading `Violation
@@ -376,8 +390,8 @@ delivery, receipt by an authority, authenticity, or legal effect.
   interrupted write is visible to a caller. The file is still never adopted as
   a record and never reported as a malformed one, and no reader removes it:
   removing it is a write, and only the holder of the writer lock may write.
-  The `archive check` report is unchanged; its `staging_files` still counts
-  `objects/incoming/` alone.
+  The count now reaches the `archive check` report as `records_staging_files`;
+  the report's `staging_files` still counts `objects/incoming/` alone.
 - `association create --supersedes ""` is refused with `record.not_found`
   instead of being read as no supersession. An empty value is not an
   identifier, so it names no association, exactly like any other value that
