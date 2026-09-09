@@ -278,11 +278,11 @@ pub fn set_object_read_only(path: &Path) -> io::Result<()> {
 /// clears it for everyone rather than for the owner alone, which is what the
 /// lint names; it widens nothing, because owner-only access there is the
 /// access-control list and not this bit (`docs/archive-layout.md`), and every
-/// caller removes or replaces the file a moment later rather than leaving a
-/// stored object cleared. The permissions are read through [`open_no_follow`],
-/// so a link planted in place of the file is refused here and not in each
-/// caller, and they are returned, so that a caller which must put the
-/// attribute back reads the metadata once rather than twice.
+/// caller removes or replaces the file a moment later. The permissions are
+/// read through [`open_no_follow`], so a planted link is refused here and not
+/// in each caller; the clearing itself is still by path, for want of a handle
+/// form of it, so nothing is locked across the two calls. The permissions are
+/// returned so a caller restoring the attribute reads them once, not twice.
 ///
 /// # Errors
 ///
