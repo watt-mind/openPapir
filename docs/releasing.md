@@ -26,7 +26,7 @@ green pipeline. No automation opens, approves, or merges a promotion pull
 request, and no agent may merge one.
 
 The reason is that `master` is the branch a reader treats as the project's
-stated position. While the project is a scaffold, that position must not move
+stated position. While the project is unreleased, that position must not move
 because a check went green; it moves when a maintainer decides the claim on
 `master` is still accurate.
 

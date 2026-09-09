@@ -282,6 +282,18 @@ envelope.
 
 ### Changed
 
+- The documentation states the stage the binary reports. `README.md` says
+  `alpha` in its status line and in its sample `capabilities --json` output,
+  which is regenerated from the binary and lists the same fifteen operations,
+  and the remaining prose in `CONTRIBUTING.md`, `docs/roadmap.md`,
+  `docs/index.md`, `docs/releasing.md`, `docs/references.md`,
+  `docs/receipt-discovery.md`, `docs/testing.md`, and `docs/factory.md` names
+  the alpha stage or the repository instead of calling the project a scaffold.
+  In those files `scaffold` survives only as the first value of the documented
+  `stage` vocabulary in [architecture](docs/architecture.md); `AGENTS.md` and
+  `docs/orchestrator.md` are not swept here. The receipt discovery
+  note no longer claims the tool exposes help, version, and `capabilities`
+  alone. No behaviour, contract, or output changes.
 - `AGENTS.md` and `SECURITY.md` describe the scope the binary actually has.
   The agent boundaries name the fifteen implemented operations, point at
   architecture as the implemented contract and the specification index as the
@@ -304,7 +316,8 @@ envelope.
   stale-lock recovery flow and the degradation wire shapes go with it.
 - `capabilities` reports `alpha` where it reported `scaffold`, in both the
   JSON and the human form, because the fifteen operations it lists are
-  implemented and no document calls the repository a scaffold any more.
+  implemented, and the documents that still called the repository a scaffold
+  when this landed were corrected afterwards.
   [architecture](docs/architecture.md) now documents `stage` beside the
   capabilities contract: a plain string from the closed set `scaffold`,
   `alpha`, `beta`, `stable`, which is not a version and not a support promise,

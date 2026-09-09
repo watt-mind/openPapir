@@ -87,7 +87,7 @@ dependencies and path overlap at each claim. Never take another worker's claim.
 Create one isolated worktree and one `codex/<public-safe-slug>` branch per
 issue from current `origin/develop`. Use the repository's worktree tooling if
 present; otherwise use standard `git worktree add` with an unused location.
-This scaffold needs no ports, database, environment generation, or service.
+This repository needs no ports, database, environment generation, or service.
 Keep private issue identifiers out of public branch names.
 
 Give each worker the full issue, exact worktree, owned paths, required commands,
@@ -152,7 +152,7 @@ and authorisation; stop before merging those changes.
 
 After each merge, wait for all applicable `develop` CI at the resulting commit
 to pass. There is no deployed service or deployment smoke check in this
-scaffold; do not invent one. Mark the ticket `Done` only after that green
+repository; do not invent one. Mark the ticket `Done` only after that green
 post-merge result. Record the merge and verification evidence in the tracker,
 then clean up only that completed task's branch and worktree when safe.
 

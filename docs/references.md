@@ -1,6 +1,6 @@
 # References and evidence policy
 
-This scaffold defines project boundaries; it does not contain a government
+This repository defines project boundaries; it does not contain a government
 service specification or claim conformance with any receipt or KRX profile.
 
 ## Related independent projects

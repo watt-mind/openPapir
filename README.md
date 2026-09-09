@@ -3,7 +3,7 @@
 A proposed local-first Rust library and CLI for organising Hungarian government
 correspondence: cases, submissions, attachments, and receipts.
 
-**Status: scaffold**, which is the stage the tool itself reports. The
+**Status: alpha**, which is the stage the tool itself reports. The
 executable reports its capabilities, creates a local archive, imports files
 into a content-addressed store that preserves the original bytes, organises
 what it holds into cases and submissions, records receipts together with the
@@ -22,7 +22,7 @@ openPapir is an independent open-source project. It is not the government's
 e-Papír service, is not affiliated with its operators, and does not submit
 correspondence to it.
 
-## Try the scaffold
+## Try it
 
 Build from this checkout with Rust 1.88 or newer:
 
@@ -56,7 +56,7 @@ The capabilities command reports the current implementation honestly:
   "command": "capabilities",
   "data": {
     "project": "openPapir",
-    "stage": "scaffold",
+    "stage": "alpha",
     "operations": [
       "archive.init",
       "import",
@@ -136,7 +136,7 @@ exit codes, is in [architecture and CLI contract](docs/architecture.md).
 | Preserve original submission and receipt bytes in a local case archive. | Implemented by `import` and the write-once artefact store. |
 | Associate submissions, attachments, and receipts with explicit provenance. | Implemented for the user's own assertions; automatic matching, derived metadata, and receipt parsing are not implemented. |
 | Expose case information through a CLI and structured JSON. | Implemented by the list, show, and export commands; search is not implemented. |
-| Delegate KRX container processing to [openKRX](https://github.com/watt-mind/openKRX) and `.es3` processing to [openSzigno](https://github.com/watt-mind/openSzigno). | Not implemented. Neither sibling project is a build dependency of this scaffold, and neither parser is copied into it. |
+| Delegate KRX container processing to [openKRX](https://github.com/watt-mind/openKRX) and `.es3` processing to [openSzigno](https://github.com/watt-mind/openSzigno). | Not implemented. Neither sibling project is a build dependency of this project, and neither parser is copied into it. |
 | Delegated authenticity verification, reported with its exact scope and trust context. | Not implemented. No cryptographic check of any kind exists here. |
 | Government submission and delivery. | Not implemented and out of scope for now. |
 

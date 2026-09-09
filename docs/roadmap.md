@@ -1,6 +1,6 @@
 # Roadmap
 
-The project is at the scaffold stage. The local archive is implemented as far
+The project is at the alpha stage. The local archive is implemented as far
 as the operations the tool reports, and every milestone below still
 has work left in it. The [specification index](specification.md) records what
 is implemented, what is decided but not built, and what is blocked, and
