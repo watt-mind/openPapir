@@ -239,6 +239,18 @@ delivery, receipt by an authority, authenticity, or legal effect.
 
 ### Fixed
 
+- `archive check` no longer reads a record directory it cannot list as an
+  empty one. A `records/<kind>` directory whose listing fails for any reason
+  other than being absent now increments the report's new `records_unchecked`
+  count, and what the unread records could have named is left unjudged: no
+  stored object is reported as `integrity.orphan_object` while
+  `records/imports`, `records/receipts`, or `records/submissions` is unread,
+  and no reference into an unread kind is reported as
+  `integrity.dangling_reference`. A directory that is simply absent still
+  reads as empty. Previously `chmod 000 records/imports` reported every
+  stored object as an orphan and exited `4` over a permission error. The
+  record listings the record commands use are unchanged: they still report
+  the records that are there.
 - The MSRV CI job passes a `prefix-key` naming the MSRV to
   `Swatinem/rust-cache`, whose key otherwise derived from the runner's stable
   `rustc` while the job compiles under 1.88.0, so the cache never hit.

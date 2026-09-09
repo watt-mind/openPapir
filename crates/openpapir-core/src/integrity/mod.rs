@@ -86,6 +86,12 @@ pub struct Report {
     pub problems: Vec<Problem>,
     /// How many record documents were examined, readable or not.
     pub records_checked: u64,
+    /// How many record directories could not be listed. The records they may
+    /// hold were not read, so nothing is concluded from their absence: no
+    /// object is called an orphan when a directory that could reference one
+    /// is unread, and no reference into an unread directory is called
+    /// dangling. A directory that is simply not there is not counted here.
+    pub records_unchecked: u64,
     /// How many leftover staging files the incoming directory holds. They are
     /// counted and left where they are; the check deletes nothing.
     pub staging_files: u64,
@@ -209,7 +215,9 @@ impl Report {
 ///
 /// The archive is opened read-only: no missing layout directory is created,
 /// nothing is flushed, and a root the user cannot write to is checked exactly
-/// like any other. A layout directory that is absent is read as empty.
+/// like any other. A layout directory that is absent is read as empty; one
+/// that is present and could not be listed is counted as unchecked instead,
+/// and leaves what it may hold unjudged.
 ///
 /// # Errors
 ///
@@ -249,6 +257,7 @@ fn run(root: &Path) -> Report {
         objects_unchecked: store.objects_unchecked,
         problems: problems(&counts),
         records_checked: found.records_checked,
+        records_unchecked: found.records_unchecked(),
         staging_files: store.staging_files,
         counts,
         malformed_kind,

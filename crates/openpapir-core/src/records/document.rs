@@ -13,6 +13,7 @@
 //! skipped, or guessed at.
 
 use std::fs;
+use std::io;
 use std::path::Path;
 
 use serde::Serialize;
@@ -195,6 +196,23 @@ pub fn list_records<R: Record>(root: &Path) -> Result<Vec<R>, Diagnostic> {
     Ok(records)
 }
 
+/// What reading one record directory yielded.
+///
+/// The two answers are kept apart on purpose. `unreadable` counts documents
+/// that were found and could not be read as a record of this kind, which is
+/// `record.malformed`. `unchecked` says the directory itself could not be
+/// listed, which asserts nothing about any record: the reader looked and was
+/// refused, rather than looking and finding nothing.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct Visited {
+    /// How many documents could not be read as a record of this kind.
+    pub unreadable: u64,
+    /// Whether the directory could not be listed at all. A directory that is
+    /// not there reads as empty and leaves this `false`; any other failure to
+    /// list it sets it, because the records it may hold were not read.
+    pub unchecked: bool,
+}
+
 /// Read every record of one kind, one at a time, and count the unreadable.
 ///
 /// The reader is the bounded, no-follow one [`list_records`] uses, and it
@@ -203,10 +221,33 @@ pub fn list_records<R: Record>(root: &Path) -> Result<Vec<R>, Diagnostic> {
 /// documents themselves. The return value is the number of documents that
 /// could not be read as a record of this kind; a staging file is openPapir's
 /// own transient artefact and is passed over rather than counted.
-pub fn visit_records<R: Record, F: FnMut(R)>(root: &Path, mut visit: F) -> u64 {
+///
+/// A directory that could not be listed reads as empty here, which is what a
+/// listing wants: a record command asks for the records that are there. A
+/// caller that must tell an absent directory from an unreadable one uses
+/// [`visit_records_checked`] instead.
+pub fn visit_records<R: Record, F: FnMut(R)>(root: &Path, visit: F) -> u64 {
+    visit_records_checked::<R, F>(root, visit).unreadable
+}
+
+/// Read every record of one kind, telling an absent directory from one that
+/// could not be listed.
+///
+/// The distinction is taken from the failure itself rather than from a second
+/// look at the path, because a directory the process cannot search reports as
+/// missing when it is asked whether it exists. Only `NotFound` means the
+/// archive holds no records of this kind; every other failure means the
+/// records were not read, and nothing may be concluded from their absence.
+pub fn visit_records_checked<R: Record, F: FnMut(R)>(root: &Path, mut visit: F) -> Visited {
     let directory = root.join(R::DIRECTORY);
-    let Ok(entries) = fs::read_dir(&directory) else {
-        return 0;
+    let entries = match fs::read_dir(&directory) {
+        Ok(entries) => entries,
+        Err(error) => {
+            return Visited {
+                unreadable: 0,
+                unchecked: error.kind() != io::ErrorKind::NotFound,
+            };
+        }
     };
     let mut unreadable = 0_u64;
     for entry in entries.flatten() {
@@ -231,7 +272,10 @@ pub fn visit_records<R: Record, F: FnMut(R)>(root: &Path, mut visit: F) -> u64 {
             None => unreadable += 1,
         }
     }
-    unreadable
+    Visited {
+        unreadable,
+        unchecked: false,
+    }
 }
 
 /// Whether a directory entry may be read at all: a regular file, not a
@@ -413,6 +457,44 @@ mod tests {
     fn a_missing_directory_lists_nothing_rather_than_failing() {
         let root = tempfile::tempdir().unwrap();
         assert!(list_records::<Sample>(root.path()).unwrap().is_empty());
+        let visited = visit_records_checked::<Sample, _>(root.path(), |_| unreachable!());
+        assert_eq!(visited, Visited::default());
+        assert!(
+            !visited.unchecked,
+            "a directory that is not there genuinely holds no records"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_directory_that_cannot_be_listed_is_unchecked_rather_than_empty() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join(Sample::DIRECTORY);
+        fs::create_dir_all(&directory).unwrap();
+        write_record(root.path(), &sample(ID)).unwrap();
+        fs::set_permissions(&directory, fs::Permissions::from_mode(0o000)).unwrap();
+        if fs::read_dir(&directory).is_ok() {
+            // The process reads the directory anyway, which happens when the
+            // tests run with privileges that ignore the permission bits.
+            fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
+            return;
+        }
+        let visited = visit_records_checked::<Sample, _>(root.path(), |_| unreachable!());
+        let listed = list_records::<Sample>(root.path());
+        fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(
+            visited,
+            Visited {
+                unreadable: 0,
+                unchecked: true
+            }
+        );
+        assert!(
+            listed.unwrap().is_empty(),
+            "a listing still reads an unreadable directory as no records"
+        );
     }
 
     #[test]
