@@ -182,6 +182,10 @@ impl Fixture {
     }
 
     /// One stored object's path inside the archive.
+    ///
+    /// Only the tests that damage a stored object need it, and those need a
+    /// mode change, so they run on Unix alone.
+    #[cfg(unix)]
     fn stored_object(&self, digest: &str) -> PathBuf {
         self.root
             .join("objects/sha256")
