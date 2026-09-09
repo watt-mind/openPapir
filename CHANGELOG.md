@@ -282,6 +282,20 @@ envelope.
 
 ### Changed
 
+- `AGENTS.md` and `SECURITY.md` describe the scope the binary actually has.
+  The agent boundaries name the fifteen implemented operations, point at
+  architecture as the implemented contract and the specification index as the
+  index of everything else, and list what remains unimplemented, including
+  receipt parsing, automatic matching, derived metadata, delegated
+  verification, migration, KRX and `.es3` handling, and any government
+  integration or delivery. The repository layout table gains the embedded
+  agent skill and the golden outputs, and names the core modules. The security
+  policy's current scope states that the tool ingests files, persists records,
+  checks integrity, exports, and deletes with an explicit purge, and still
+  contacts no service, verifies no signature, and delivers nothing. Its
+  requirements are split into those already enforced, with pointers to the
+  archive layout and the error contract, and those still ahead. No policy,
+  reporting channel, or behaviour changes.
 - The `archive check` report counts the leftover staging files the record
   directories hold, in a new additive `records_staging_files` field beside the
   existing `staging_files`, which keeps its meaning and still counts

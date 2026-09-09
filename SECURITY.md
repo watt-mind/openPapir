@@ -12,10 +12,36 @@ credentials, private keys, personal information, or real receipt identifiers.
 
 ## Current scope
 
-This repository is a scaffold with no released versions. Only help, version,
-and capabilities reporting are implemented. It does not yet ingest files,
-persist correspondence, contact government services, or verify signatures.
-Security fixes currently target the `develop` branch.
+This repository has no released versions. The tool ingests local files into a
+content-addressed archive, persists cases, submissions, receipts, and
+associations as local records, checks the stored bytes against what is
+recorded, exports a copy of one case, and deletes one case with an explicit
+purge flag. It contacts no service, sends no telemetry, verifies no signature,
+and delivers nothing to anyone. Security fixes currently target the `develop`
+branch.
+
+## Requirements already enforced
+
+Imported documents and receipt metadata are treated as untrusted input. Import
+bounds resource use before allocation and expansion, refuses path traversal
+and symlink escape, and never replaces a stored object. Imported originals are
+preserved byte for byte and anything derived from them is a separate record.
+Stored files and directories are created with restrictive permissions. The
+layout, the caps, and the permissions are in
+[local archive layout and storage design](docs/archive-layout.md); the
+refusals, their codes, and their exit statuses are in the
+[import and association error contract](docs/error-contract.md).
+
+Importing and matching a receipt are not authenticity verification, and no
+code in this repository performs one. Report cryptographic results only for
+checks actually performed, with their scope and trust context. Never infer
+legal effect or delivery from an association.
+
+Public fixtures must be synthetic. Real files, their names, paths, metadata,
+payloads, hashes, and signer information must not enter logs, fixtures, issues,
+or commits. Never commit secrets, `.env` files, private keys, or a complete PEM
+private-key armour line. Generate test keys at runtime if they become necessary;
+do not exempt keys from secret scanning.
 
 ## Requirements for future features
 
@@ -24,18 +50,5 @@ Local-first operation must not silently introduce uploads, telemetry, network
 requests, or an automatic delivery path. Each external integration needs an
 explicit interface, documented service contract, and user-controlled action.
 
-Treat imported documents and receipt metadata as untrusted input. Bound resource
-use before allocation and expansion; prevent path traversal, symlink escape,
-and unintended replacement of stored files. Preserve imported originals and
-record derived data separately. Review storage permissions, backup, migration,
-and deletion semantics before implementing persistent cases.
-
-Importing and matching a receipt are not authenticity verification. Report
-cryptographic results only for checks actually performed, with their scope and
-trust context. Never infer legal effect or delivery from an association.
-
-Public fixtures must be synthetic. Real files, their names, paths, metadata,
-payloads, hashes, and signer information must not enter logs, fixtures, issues,
-or commits. Never commit secrets, `.env` files, private keys, or a complete PEM
-private-key armour line. Generate test keys at runtime if they become necessary;
-do not exempt keys from secret scanning.
+Backup and migration are not implemented. Review their semantics, and any
+change to storage permissions or deletion, before writing the code.
