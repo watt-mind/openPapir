@@ -8,10 +8,11 @@ output is unchanged and still reports `"operations": []` and
 `"verified": false` ([architecture](architecture.md)). Every command name,
 flag, field name, error code, and exit code below is **proposed**.
 
-It is follow-up 5 of
-[local archive layout and storage design](archive-layout.md), which decides the
-archive design and deliberately defers every wire name, JSON shape, and exit
-code to this document. Artefact import must not print anything
+It is follow-up 5 of the
+[receipt evidence and local case model note](receipt-discovery.md), and the
+[local archive layout and storage design](archive-layout.md) that decides the
+archive design deliberately defers every wire name, JSON shape, and exit code
+to this document. Artefact import must not print anything
 machine-readable until this contract is agreed, so it sits ahead of the first
 import code.
 
@@ -392,8 +393,8 @@ storage medium and no message may claim that it does.
 The exit code carries the bucket and nothing else. It **never** encodes a
 count, an identifier, a digest, a cap value, or the number of failed inputs.
 
-- `0` — success. `ok` is `true`. Warnings, duplicate imports, and every
-  association outcome exit `0`.
+- `0` — success. `ok` is `true`. Duplicate imports and every association
+  outcome exit `0`, and a warning alone never raises the exit code above `0`.
 - `2` — usage error. Bucket `usage`.
 - `3` — refused input. Buckets `input` and `path`.
 - `4` — archive state. Buckets `archive`, `lock`, `write`, `record`,
@@ -418,8 +419,8 @@ buckets, never as an expanded per-input list of names.
 [archive-layout](archive-layout.md) names three weakenings and requires that
 each be reported at the point of the write and in archive health output, never
 silently accepted and never described as equivalent. Each is a **warning
-inside a successful envelope**: `ok` stays `true`, the exit code stays `0`,
-and the operation is not retried or downgraded. A degradation observed before
+inside the envelope**: on its own it leaves `ok` at `true` and the exit code
+at `0`, and the operation is not retried or downgraded. A degradation observed before
 a later step fails is still reported, in the `warnings` array of the failing
 envelope; it is never dropped because the command ended badly.
 
@@ -616,8 +617,9 @@ verification code is specified here for that reason.
 It fixes wire names, not behaviour, and no capability follows from it. It
 assumes the archive design as written; if a review changes an adoption rule, a
 cap, a lock semantic, or the deletion rule, the affected codes change with it.
-`lock.stale`, `path.traversal`, and `integrity.orphan_object` are reserved
-against conditions the design has not fully decided. Command names and flags
+`lock.stale`, `path.traversal`, `integrity.orphan_object`,
+`archive.marker_malformed`, `write.incomplete`, and `record.malformed` are
+reserved against conditions the design has not fully decided. Command names and flags
 are proposals only. It fixes no field, identifier, or format of any government
 artefact, and assumes nothing about what a receipt contains, because nothing
 is yet established about that ([receipt-discovery](receipt-discovery.md)).
