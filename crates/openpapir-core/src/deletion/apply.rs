@@ -7,11 +7,13 @@
 //! `objects/sha256/` is touched (`docs/archive-layout.md`).
 //!
 //! Records go first, so that an object is only ever unlinked once nothing in
-//! the archive names it. The record pass stops at the first unlink the
-//! filesystem refuses and takes the object pass with it, because a record
-//! that is still there still names its artefacts. An object that cannot be
-//! unlinked leaves the store exactly as it was and is counted; the deletion
-//! completes what it safely can and reports what it did not remove.
+//! the archive names it. The record pass is all or nothing: every directory
+//! it would remove an entry from, and every document it would unlink, is
+//! probed before the first unlink, and a probe that says one of them will not
+//! go refuses the whole deletion while the archive is still exactly as it
+//! was. An object that cannot be unlinked leaves the store exactly as it was
+//! and is counted; the deletion completes what it safely can and reports what
+//! it did not remove.
 
 use std::fs;
 use std::io;
@@ -67,19 +69,28 @@ impl Removed {
 /// keeps its import event and stays a referenced object rather than becoming
 /// an orphan.
 ///
-/// The record pass stops at the first refusal and takes the object pass with
-/// it. The order it runs in is the order of the references between the kinds:
-/// an association names a receipt and a submission, a submission names the
-/// case, so each kind goes only once everything that could name it has gone.
-/// Carrying on past a refusal would remove a record something still there
-/// names, and purging afterwards would remove bytes a surviving record still
-/// names. Both are the dangling references the integrity check reports, so
-/// neither is attempted: the deletion keeps what it had already removed,
+/// The record pass runs only once the probe below has said the whole of it
+/// can run, and it still stops at the first refusal and takes the object pass
+/// with it, because the probe cannot promise what the filesystem will do a
+/// moment later. The order it runs in is the order of the references between
+/// the kinds: an association names a receipt and a submission, a submission
+/// names the case, so each kind goes only once everything that could name it
+/// has gone. Carrying on past a refusal would remove a record something still
+/// there names, and purging afterwards would remove bytes a surviving record
+/// still names. Both are the dangling references the integrity check reports,
+/// so neither is attempted: the deletion keeps what it had already removed,
 /// touches no object at all, and reports how much it did not remove.
 pub fn run(root: &Path, plan: &Plan, warnings: &mut Vec<Warning>) -> Removed {
     let mut removed = Removed::default();
     let planned =
         (plan.associations.len() + plan.receipts.len() + plan.submissions.len()) as u64 + 1;
+
+    if !removable(root, plan) {
+        // Nothing has been unlinked and nothing will be, so every planned
+        // document is retained and no directory needs flushing.
+        removed.records_retained = planned;
+        return removed;
+    }
 
     let associations = unlink_records::<Association>(root, &plan.associations);
     removed.associations = associations.removed;
@@ -116,6 +127,124 @@ pub fn run(root: &Path, plan: &Plan, warnings: &mut Vec<Warning>) -> Removed {
     }
     flush_record_directories(root, plan, removed.import_events > 0, warnings);
     removed
+}
+
+/// Whether every record document this plan names can be unlinked.
+///
+/// A deletion that unlinks part of its record pass and then stops leaves the
+/// archive in a state the user cannot get out of by retrying: the records it
+/// did remove are gone, so the next run plans a smaller deletion, and an
+/// object whose last referencing record went in the interrupted pass is no
+/// longer a purge candidate at all. It stays in the store with the import
+/// event that describes it, which is a state `archive check` calls clean,
+/// and nothing tells the user. The record pass is therefore all or nothing
+/// per case: this probe runs first, and a `false` here refuses the deletion
+/// with `delete.records_retained` before a single document is unlinked.
+///
+/// The probe attempts nothing destructive. It opens each record directory
+/// the plan would remove an entry from, without following a link, and reads
+/// the mode of the opened handle; then it looks at each planned document,
+/// which must be either absent or a regular file. Nothing is created, moved,
+/// or removed.
+///
+/// # What it cannot promise
+///
+/// The probe is a check that precedes the use, so the window between them is
+/// a time-of-check-to-time-of-use gap: a mode changed, a filesystem remounted
+/// read only, or a quota reached after the probe and before the unlink still
+/// refuses, and the record pass still stops at that first refusal. The
+/// writer lock is held across both, so no other openPapir writer can move in
+/// the meantime, and nothing outside openPapir is under its control. The
+/// probe reads permission bits rather than asking the kernel whether this
+/// process may write, so a refusal expressed some other way — an
+/// access-control list, an immutable flag, a mandatory lock — is not seen
+/// here either. It narrows the window that stranded a purge candidate; it
+/// does not close it, and the stop-at-first-refusal rule is what still holds
+/// when it is wrong.
+fn removable(root: &Path, plan: &Plan) -> bool {
+    let events: Vec<String> = plan.import_events.values().flatten().cloned().collect();
+    kind_removable::<Association>(root, &plan.associations)
+        && kind_removable::<Receipt>(root, &plan.receipts)
+        && kind_removable::<Submission>(root, &plan.submissions)
+        && kind_removable::<Case>(root, std::slice::from_ref(&plan.case))
+        && kind_removable::<ImportEvent>(root, &events)
+}
+
+/// Whether one kind's directory and every document the plan names in it can
+/// be unlinked. A kind the plan removes nothing from is not probed, because
+/// its directory is not touched.
+fn kind_removable<R: Record>(root: &Path, ids: &[String]) -> bool {
+    if ids.is_empty() {
+        return true;
+    }
+    let directory = root.join(R::DIRECTORY);
+    directory_writable(&directory)
+        && ids
+            .iter()
+            .all(|id| unlinkable(&directory.join(format!("{id}.json"))))
+}
+
+/// Whether a record directory can have an entry removed from it.
+///
+/// The handle is opened without following a link, so the directory probed is
+/// the one the unlink will reach rather than whatever a link points at, and
+/// the mode is read from that handle rather than from the path a second time.
+/// Owner write and search are the whole test: the archive is owner-only by
+/// design, and a process that could not read the directory would have failed
+/// in the scan pass long before this.
+#[cfg(unix)]
+fn directory_writable(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    paths::open_no_follow(path).is_ok_and(|handle| {
+        handle.metadata().is_ok_and(|metadata| {
+            metadata.is_dir() && metadata.permissions().mode() & 0o300 == 0o300
+        })
+    })
+}
+
+/// Whether a record directory can have an entry removed from it.
+///
+/// Here the permission is an access-control list rather than a mode, and
+/// openPapir does not read one, so the probe confirms only that the path is
+/// a directory openPapir created rather than a reparse point. A refusal the
+/// list expresses is still caught by the stop-at-first-refusal rule.
+#[cfg(not(unix))]
+fn directory_writable(path: &Path) -> bool {
+    !paths::is_symlink(path) && fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_dir())
+}
+
+/// Whether one planned document is in a state the unlink can remove.
+///
+/// A document that is already absent answers `true`: there is nothing left to
+/// remove, which the unlink pass does not count as a refusal either. Anything
+/// at the path that is not a regular file is not a record openPapir wrote and
+/// is never unlinked, so it refuses the deletion here rather than part way
+/// through it.
+fn unlinkable(path: &Path) -> bool {
+    match fs::symlink_metadata(path) {
+        Err(error) => error.kind() == io::ErrorKind::NotFound,
+        Ok(metadata) => metadata.is_file() && !read_only(&metadata),
+    }
+}
+
+/// Whether a file's own attribute stops it from being unlinked.
+///
+/// On Unix it never does: the unlink needs the permission of the directory
+/// holding the entry, and the file's own mode has no say in it.
+#[cfg(unix)]
+const fn read_only(_metadata: &fs::Metadata) -> bool {
+    false
+}
+
+/// Whether a file's own attribute stops it from being unlinked.
+///
+/// Where a read-only file cannot be unlinked at all, the attribute is part of
+/// the answer. openPapir never marks a record document read-only, so one that
+/// is marked was marked from outside.
+#[cfg(not(unix))]
+fn read_only(metadata: &fs::Metadata) -> bool {
+    metadata.permissions().readonly()
 }
 
 /// How one kind's unlink pass went: what went, and what would not go.
@@ -415,6 +544,62 @@ mod tests {
             None,
             "a warning with no such flag reads as none"
         );
+    }
+
+    /// The probe is the whole of the all-or-nothing rule, so each of its
+    /// answers is asserted directly: a directory that cannot have an entry
+    /// removed from it, a path holding something openPapir did not write,
+    /// and a document that is simply not there any more.
+    #[test]
+    fn a_record_that_cannot_be_unlinked_refuses_the_pass_before_it_starts() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join(Case::DIRECTORY);
+        fs::create_dir_all(&directory).unwrap();
+        let case = "0123456789abcdef0123456789abcdef".to_owned();
+        fs::write(directory.join(format!("{case}.json")), "{}\n").unwrap();
+        let plan = Plan {
+            case: case.clone(),
+            ..Plan::default()
+        };
+        assert!(removable(root.path(), &plan), "an ordinary case may go");
+
+        assert!(
+            unlinkable(&directory.join("absent.json")),
+            "a document that is already gone is not a refusal"
+        );
+        assert!(
+            !unlinkable(&directory),
+            "a directory at a record's path is never unlinked"
+        );
+        assert!(
+            !directory_writable(&root.path().join("records/nowhere")),
+            "a directory that is not there cannot have an entry removed"
+        );
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+
+            let mut warnings = Vec::new();
+            fs::set_permissions(&directory, fs::Permissions::from_mode(0o500)).unwrap();
+            assert!(
+                !directory_writable(&directory),
+                "search alone is not enough"
+            );
+            assert!(!removable(root.path(), &plan));
+            let removed = run(root.path(), &plan, &mut warnings);
+            fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
+            assert_eq!(removed.records_retained, 1);
+            assert_eq!(removed.records(), 0);
+            assert!(
+                warnings.is_empty(),
+                "nothing was touched, so nothing synced"
+            );
+            assert!(
+                directory.join(format!("{case}.json")).is_file(),
+                "the document the deletion could not finish is still there"
+            );
+        }
     }
 
     #[test]
