@@ -1,0 +1,36 @@
+{
+  "command": "archive.repair_permissions",
+  "data": {
+    "changed": [
+      {
+        "count": 0,
+        "kind": "cache"
+      },
+      {
+        "count": 1,
+        "kind": "directory"
+      },
+      {
+        "count": 0,
+        "kind": "marker"
+      },
+      {
+        "count": 0,
+        "kind": "object"
+      },
+      {
+        "count": 0,
+        "kind": "record"
+      },
+      {
+        "count": 0,
+        "kind": "root"
+      }
+    ],
+    "paths_changed": 1,
+    "paths_checked": 29
+  },
+  "ok": true,
+  "schema_version": 1,
+  "verified": false
+}

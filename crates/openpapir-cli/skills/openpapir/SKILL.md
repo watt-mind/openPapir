@@ -1,0 +1,415 @@
+---
+name: openpapir
+description: >-
+  Keep Hungarian government correspondence in one local, offline archive with
+  the openpapir CLI: create the archive, import files with their bytes
+  preserved, record cases, submissions, receipts and the user's own assertions
+  about them, check the archive against its records, copy one case out, delete
+  one case, and narrow a restored archive back to owner-only. Use whenever a
+  task involves organising what was sent to an authority and what came back,
+  without uploading anything.
+license: MIT
+compatibility: Requires the openpapir CLI, 0.1.0-dev.0 or later, on PATH.
+metadata:
+  author: watt-mind
+  version: "1.0"
+  source: https://github.com/watt-mind/openPapir
+---
+
+openpapir is a command-line tool for a local-first correspondence archive. It
+creates an archive in a directory the user names, stores files in a
+content-addressed object store that preserves their bytes exactly, and records
+the user's own cases, submissions, receipts, and assertions about them as
+plain JSON documents. It re-digests what it holds on request, copies one case
+out as plain files, and narrows a restored archive's permissions back to
+owner-only.
+
+It is an independent project. It is not the government's e-Papir service, it
+submits nothing, and it opens no socket at all.
+
+## When to use it, and when not
+
+Use it to build or inspect a local archive of correspondence: importing files,
+recording what the user says they sent, recording an artefact the user
+believes to be a receipt, recording the user's own link between the two,
+checking storage integrity, exporting one case, and deleting one case when
+the user asks for that by name.
+
+Do not use it to send anything, to decide whether a document is genuine, to
+read what a receipt says, or to match a receipt to a submission
+automatically. None of that is implemented, and nothing in this tool may be
+reported as if it were.
+
+## Rules that always apply
+
+1. **Always pass `--json`** and read the envelope. The human text is for
+   people; only the JSON is a contract. Exactly one compact object reaches
+   stdout in the `--json` form, and stderr stays empty.
+2. **Branch on the exit code first, then on `error.code`.** Never parse
+   messages: codes are stable within a `schema_version`, wording is not.
+3. **Every record is the user's own statement.** openpapir sends nothing and
+   reads no artefact bytes to form an opinion, so a submission is what the
+   user says they sent, a receipt is a file the user believes to be one, and
+   an association is what the user asserts. Report them in those words.
+4. **`verified` is `false` in every envelope this build emits.** A SHA-256
+   digest here identifies bytes. It says nothing about authenticity, origin,
+   delivery, or legal effect.
+5. **Private material stays private.** Output carries no original filename,
+   no user-supplied path, and no payload byte, and neither may your report.
+   The one path any output carries is the export destination in human mode,
+   because the user typed it in the same command.
+6. **The archive root is always explicit.** openpapir never searches for an
+   archive, never adopts a directory that has no marker, and never creates
+   one as a side effect of another command.
+
+## The boundary, stated once
+
+Imported, matched, and authenticity-verified are three separate states, and
+only the first two exist here.
+
+- **Imported** means bytes were accepted into the local store. It says
+  nothing about what they are.
+- **Matched** means the user recorded an association between a receipt and a
+  submission. It is their assertion, it changes nothing about the artefact,
+  and it creates no verification result.
+- **Authenticity verified** has no code behind it at all. Nothing openpapir
+  prints may be reported as authenticity, successful delivery, receipt by an
+  authority, or legal effect.
+
+`archive check` re-digests stored bytes. A passing check is storage
+integrity: the bytes are the bytes their paths name. It is never the third
+state. `.es3` dossier verification belongs to openSzigno and KRX container
+processing to openKRX; neither is part of this tool.
+
+## Check the tool, and install this skill
+
+Run `openpapir --version`. The binary carries this document, so installing
+the skill needs no checkout.
+
+```sh
+mkdir -p .claude/skills/openpapir
+openpapir skill > .claude/skills/openpapir/SKILL.md
+```
+
+Use `.codex/skills/openpapir/` for Codex, or `~/.claude/skills/openpapir/` to
+install it for every project instead of one. `openpapir skill` takes no file
+and no `--json`, writes the document and nothing else, and exits `0`.
+
+## The envelope and the exit codes
+
+```json
+{ "schema_version": 1, "ok": true, "command": "case.create",
+  "data": { "...": "command specific" },
+  "verified": false }
+```
+
+| Key | Meaning |
+| --- | --- |
+| `schema_version` | The envelope's version, currently `1`. |
+| `ok` | `true` only when the command completed its stated work. |
+| `command` | The stable command name, for example `association.create`. |
+| `data` | The result. `{}` when `ok` is `false`, except `archive.check` and `case.delete`, whose counts are the work they completed. |
+| `verified` | Always `false` in this build. |
+| `error` | Present exactly when `ok` is `false`: `code`, `message`, `details`. |
+| `warnings` | Present only when a platform guarantee was weaker than designed. |
+
+`error.details` always carries `bucket`, and the exit code carries that
+bucket and nothing else.
+
+| Exit | Bucket | Meaning |
+| --- | --- | --- |
+| `0` | Success, a duplicate import and a warning included. | Read `data`. |
+| `2` | `usage` | The command line is wrong. Fix it. |
+| `3` | `input`, `path` | A cap was exceeded, or a path was a link or would be overwritten. |
+| `4` | `archive`, `lock`, `write`, `record`, `integrity`, `export`, `delete` | The archive or a record refused the work. |
+| `5` | `platform` | The filesystem cannot host an archive. |
+| `6` | `internal` | An unexpected failure. Report it. |
+
+`1` is never emitted. An invocation the argument parser rejects is the same
+contract: with `--json` it is one `usage.arguments` envelope on stdout, and
+without it the parser's own usage text on stderr. Both exit `2`. `--help` and
+`--version` exit `0`.
+
+`warnings` never changes `ok` and never changes the exit code. The codes are
+`platform.no_directory_fsync`, `platform.owner_only_via_acl`, and
+`platform.no_follow_after_open`; the last two are reported on Windows, where
+owner-only access is an access-control list and a no-follow open opens the
+link itself.
+
+## The archive lifecycle
+
+### 1. Create the archive
+
+```sh
+openpapir archive init ./archive --json
+```
+
+The directory must already exist and be empty. `data` holds `archive_id` and
+`archive_schema_version`. Creation narrows the root to owner-only; nothing
+here ever widens a permission. A directory that is not empty is
+`archive.adopt_refused`, and one that already holds a marker is
+`path.overwrite`.
+
+### 2. Import files
+
+```sh
+openpapir import --archive ./archive ./letter.pdf ./receipt.es3 --json
+```
+
+Each file's bytes are stored unchanged under their digest, and one import
+event is recorded per input. `data` holds `imported`, `duplicates`, and
+`artefacts[]`, each with `digest` (`sha256:<64 hex>`), `byte_length`,
+`import_event`, and `created_object`. Re-importing the same bytes is not an
+error: the entry adds `previous_import_count` and `first_imported_at`, the
+object is left untouched, and the run still exits `0`. An import-event count
+is history, not an anomaly.
+
+Read `artefacts[].digest`: it is the handle every later command uses. The
+original filename is stored as an attribute of the import event and appears
+in no output.
+
+### 3. Record a case
+
+```sh
+openpapir case create --archive ./archive --title "Tax matter" \
+  --notes "First contact." --json
+openpapir case list --archive ./archive --json
+openpapir case show --archive ./archive <case-id> --json
+```
+
+A case is the user's own folder. It corresponds to nothing any authority
+issues. `case create` returns `data.case` with `id`, `title`, optional
+`notes`, `created_at`, `record_kind`, and `archive_schema_version`.
+`case list` returns `cases[]` ordered by identifier and `count`; an empty
+archive is `count` `0` and exit `0`. `case show` returns `case`,
+`submissions[]` ordered by identifier, and `submission_count`. An identifier
+that names no case is `record.not_found`.
+
+### 4. Record a submission
+
+```sh
+openpapir submission add --archive ./archive --case <case-id> \
+  --description "Posted the completed form." --date 2026-01-13 \
+  --artefact 'sha256:<digest>:cover letter' --json
+```
+
+`--artefact` is repeatable and is `sha256:<64 hex>` or
+`sha256:<64 hex>:<role>`. `--date` is `YYYY-MM-DD`, is stored verbatim, and
+is never compared, interpreted, or read as a delivery or receipt date.
+`data.submission` holds `case_id`, `description`, optional `stated_date`, and
+`artefacts[]` of `{digest, role?}`. A digest that names no stored object is
+`record.not_found` with `record_kind` `artefact`.
+
+### 5. Record a receipt
+
+```sh
+openpapir receipt add --archive ./archive --artefact sha256:<digest> \
+  --label "Envelope from the post" --json
+openpapir receipt list --archive ./archive --json
+```
+
+This records that the user believes one stored artefact to be a receipt. The
+bytes are never opened and never parsed. `data.receipt` holds
+`artefact_digest`, `import_event_id`, and an optional `label`. With no
+`--import-event` the earliest import event for that digest is recorded; one
+that records another artefact is `record.inconsistent` with rule
+`import_event_digest_mismatch`.
+
+### 6. Record what the user asserts
+
+```sh
+openpapir association create --archive ./archive --receipt <receipt-id> \
+  --outcome candidate \
+  --candidate '<submission-id>:moderate:The reference matches.' --json
+openpapir association list --archive ./archive --receipt <receipt-id> --json
+```
+
+`--outcome` is `unassociated`, `candidate`, `associated`, or
+`contradictory`. All four are results, none is an error, and all four exit
+`0`; `contradictory` least of all, because keeping conflicting evidence is
+the designed behaviour. `--candidate` is repeatable and is
+`<submission-id>:<confidence>:<statement>`, split on the first two colons
+only. `confidence` is the ordinal set `weak`, `moderate`, `strong` and is
+never a number, because no calibration data exists.
+
+| Rule broken (`record.inconsistent`) | What it means |
+| --- | --- |
+| `unassociated_has_candidates` | `unassociated` was given a candidate. |
+| `candidate_requires_candidates` | `candidate` was given none. |
+| `associated_requires_one_candidate` | `associated` needs exactly one. |
+| `contradictory_requires_two_candidates` | `contradictory` needs at least two. |
+| `duplicate_candidate_submission` | A submission was named twice. |
+| `supersedes_other_receipt` | The superseded record is another receipt's. |
+
+`data.association` holds `outcome`, `candidates[]` with their `evidence[]`,
+`created_by` (always `user`), `submission_id` (the confirmed submission, set
+only for `associated`, otherwise `null`), and `supersedes`. Records are
+append-only: `--supersedes` names an earlier association for the same
+receipt, and the superseded record is never modified or removed.
+`association list` returns the whole history newest first, superseded records
+included, with `associations[]`, `count`, and `receipt_id`.
+
+### 7. Check the archive
+
+```sh
+openpapir archive check --archive ./archive --json
+```
+
+Read-only in the strongest sense: no lock is taken, every file is opened with
+the platform's no-follow flag, and nothing is created, renamed, removed, or
+repaired. `data` holds `bytes_digested`, `objects_checked`,
+`objects_unchecked`, `orphan_objects`, `records_checked`, `records_unchecked`,
+`staging_files`, and `problems[]`, one entry per code with a `count`,
+including the codes it did not see, ordered by code.
+
+A clean archive exits `0`. When something is found, `ok` is `false`, the
+report stays in `data`, and `error` names the first problem in this fixed
+precedence: `path.symlink`, `record.malformed`, `integrity.digest_mismatch`,
+`integrity.length_mismatch`, `integrity.dangling_reference`,
+`integrity.orphan_object`. The report carries counts only: never the path,
+the name, or the digest of a damaged object. Report the counts and the code,
+and never invent which file it was.
+
+### 8. Export one case
+
+```sh
+openpapir case export --archive ./archive --case <case-id> --to ./out --json
+```
+
+A plain copy outward: the objects are the original bytes named by their
+digest, the records are the archive's own JSON, and `manifest.json` lists
+both. Nothing is converted, compressed, or encrypted, no hard link is made,
+and the archive is not changed. The destination must be an empty directory or
+one the export creates, and it is never inside the archive root. `data` holds
+`case_id`, `object_count`, `record_count`, `bytes_copied`, and `records[]`
+per kind; it never holds the destination. An export that fails removes
+exactly what it created.
+
+`export.destination_conflict` means the destination already held something,
+and `export.copy_mismatch` means a copy re-digested to something else and was
+removed. Importing an export back into an archive is not implemented.
+
+### 9. Delete one case
+
+```sh
+openpapir case delete --archive ./archive --case <case-id> --json
+openpapir case delete --archive ./archive --case <case-id> --purge --json
+```
+
+This is the only destructive invocation openpapir has, and the only one that
+can remove an object, which it does only when `--purge` says so in as many
+words. Never add `--purge` on your own initiative: without it no object is
+touched at all, and the objects that would become unreferenced are counted as
+retained instead. Confirm with the user before either form, and say plainly
+that nothing here can bring an object's bytes back.
+
+What goes with the case: every submission recorded against it; every
+association whose named submissions are all going; every receipt an association
+tied to a departing submission that no remaining association still names. An
+import event is history and is kept, unless `--purge` removed the object it
+describes. The whole archive is read first, under the writer lock, and the
+removal set is decided before a single file is unlinked.
+
+`data` holds `purge`, `records_removed[]` per kind with
+`records_removed_total`, `objects_removed`, `objects_retained[]` per reason
+with `objects_retained_total`, and `records_retained`. The reasons are
+`purge_not_requested`, `referenced_elsewhere`, `records_retained`, and
+`unremovable`. No digest, path, or filename appears anywhere: recording the
+fingerprint of content the user asked to purge would defeat the purge, which
+is why no deletion record is written and no audit log is kept.
+
+| Code | Meaning |
+| --- | --- |
+| `delete.record_entangled` | An association names submissions in this case and in another. Nothing was touched. Ask the user to resolve the association; until they do, neither case can be deleted. |
+| `delete.records_retained` | A record unlink was refused, so the object pass never ran. `data` keeps the counts, `ok` is `false`, and the exit code is `4`. |
+| `delete.objects_retained` | Only the purge fell short. The same shape. |
+
+Deletion unlinks files. It does not erase data from the storage medium, and a
+backup already taken is outside openpapir's reach. Say both when you report a
+deletion.
+
+### 10. Repair permissions after a restore
+
+```sh
+openpapir archive repair-permissions --archive ./archive --json
+```
+
+Ordinary copy tooling widens permissions when a backup or an export is
+restored, and the owner-only rule then refuses the archive. This narrows the
+root, the marker, every layout directory, every record, and every object back
+to owner-only and reports `paths_checked`, `paths_changed`, and `changed[]`
+per kind. It only ever narrows, it reads no file content, and it refuses a
+symbolic link inside the archive rather than narrowing it.
+
+## Hard limits
+
+No flag, environment variable, or configuration relaxes any of these.
+
+| Cap | Value | Code |
+| --- | --- | --- |
+| Single file | 64 MiB | `input.cap.file_size` |
+| Total bytes per import | 512 MiB | `input.cap.import_bytes` |
+| Files per import | 1000 | `input.cap.import_files` |
+| Record document | 1 MiB | `input.cap.record_size` |
+| Original filename | 255 bytes | `input.cap.filename_length` |
+| Case title | 200 bytes | `input.cap.field_length` |
+| Case notes | 4096 bytes | `input.cap.field_length` |
+| Submission description | 1024 bytes | `input.cap.field_length` |
+| Artefact role | 64 bytes | `input.cap.field_length` |
+| Receipt label | 200 bytes | `input.cap.field_length` |
+| Evidence statement | 512 bytes | `input.cap.field_length` |
+
+One writer at a time: a second writer refuses with `lock.held` rather than
+waiting, and there is no takeover. Symbolic links inside the archive are
+refused as `path.symlink`, on Windows together with every other reparse
+point. An archive lives on one filesystem, and a filesystem that cannot
+create a hard link cannot host one (`platform.filesystem_unsupported`).
+
+## What this tool never does
+
+- It opens no socket. There is no network access and no background work.
+- It submits nothing and delivers nothing. No government integration exists.
+- It verifies no signature and asserts no authenticity or legal effect.
+- It parses no receipt, derives no metadata, and matches nothing on its own.
+- It never edits or migrates a stored record, never deletes a single
+  submission, receipt, or archive, and never imports an export back into an
+  archive. `case delete` is the one removal it performs, and only when asked
+  for by name.
+
+## Reporting to the user
+
+Say, in this order: what the archive now holds (counts, identifiers, digests);
+which of those facts are the user's own statements rather than findings; what
+a check or an export actually proved, which is that bytes are the bytes their
+paths name; and any refusal by its code and bucket, with the count the report
+gave and no invented detail. Never call a receipt genuine, a submission
+delivered, or a match a verification.
+
+## Quick reference
+
+```sh
+openpapir capabilities --json
+openpapir archive init ROOT --json
+openpapir archive check --archive ROOT --json
+openpapir archive repair-permissions --archive ROOT --json
+openpapir import --archive ROOT FILE... --json
+openpapir case create --archive ROOT --title T [--notes N] --json
+openpapir case list --archive ROOT --json
+openpapir case show --archive ROOT CASE_ID --json
+openpapir case export --archive ROOT --case CASE_ID --to DIR --json
+openpapir case delete --archive ROOT --case CASE_ID [--purge] --json
+openpapir submission add --archive ROOT --case CASE_ID --description D \
+  [--date YYYY-MM-DD] [--artefact 'sha256:HEX[:ROLE]']... --json
+openpapir receipt add --archive ROOT --artefact sha256:HEX \
+  [--import-event ID] [--label L] --json
+openpapir receipt list --archive ROOT --json
+openpapir association create --archive ROOT --receipt RECEIPT_ID \
+  --outcome unassociated|candidate|associated|contradictory \
+  [--candidate 'SUBMISSION_ID:weak|moderate|strong:STATEMENT']... \
+  [--supersedes ASSOCIATION_ID] --json
+openpapir association list --archive ROOT --receipt RECEIPT_ID --json
+openpapir skill
+```
+
+The full contract, including every error code and the privacy rule, is
+`docs/architecture.md` in the openPapir repository.

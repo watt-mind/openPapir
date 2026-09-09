@@ -1,0 +1,1 @@
+error integrity.digest_mismatch: A stored object's bytes no longer digest to its own path.

@@ -1,0 +1,5 @@
+Receipt <id>, recorded <time>.
+Artefact: sha256:<digest>
+Import event: <id>
+Label: Envelope from the post
+These are the user's own assertions. openPapir checked nothing about the file and reports no delivery, authenticity, or legal effect.

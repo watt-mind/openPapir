@@ -1,0 +1,30 @@
+{
+  "command": "import",
+  "data": {
+    "artefacts": [
+      {
+        "byte_length": 27,
+        "created_object": true,
+        "digest": "sha256:<digest>",
+        "import_event": "<id>"
+      },
+      {
+        "byte_length": 23,
+        "created_object": true,
+        "digest": "sha256:<digest>",
+        "import_event": "<id>"
+      },
+      {
+        "byte_length": 27,
+        "created_object": true,
+        "digest": "sha256:<digest>",
+        "import_event": "<id>"
+      }
+    ],
+    "duplicates": 0,
+    "imported": 3
+  },
+  "ok": true,
+  "schema_version": 1,
+  "verified": false
+}

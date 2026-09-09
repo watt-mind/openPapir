@@ -37,13 +37,14 @@ openpapir receipt add --archive <root> --artefact <digest> [--import-event <id>]
 openpapir receipt list --archive <root> [--json]
 openpapir association create --archive <root> --receipt <receipt-id> --outcome <outcome> [--candidate <submission-id>:<confidence>:<statement>]... [--supersedes <association-id>] [--json]
 openpapir association list --archive <root> --receipt <receipt-id> [--json]
+openpapir skill
 ```
 
-Fourteen operations are implemented, `archive.init`, `import`, `case.create`,
+Fifteen operations are implemented, `archive.init`, `import`, `case.create`,
 `case.list`, `case.show`, `submission.add`, `receipt.add`, `receipt.list`,
 `association.create`, `association.list`, `archive.check`, `case.export`,
-`archive.repair_permissions`, and `case.delete`, and those are the fourteen
-names `capabilities` reports. Everything else in
+`archive.repair_permissions`, `case.delete`, and `skill`, and those are the
+fifteen names `capabilities` reports. Everything else in
 [local archive layout and storage design](archive-layout.md) and
 [import error, JSON, and exit-code contract](error-contract.md) remains a
 design: no derived-metadata or verification records; no automatic matching, no
@@ -76,7 +77,7 @@ within a `schema_version`. `details` carries at most 16 keys, whose values are
 strings, integers, booleans, or arrays of at most 16 such scalars, and always
 carries `bucket`. Changes within `schema_version` are additive only.
 
-The capabilities response is unchanged in shape and now lists the eleven
+The capabilities response is unchanged in shape and now lists the fifteen
 implemented operations:
 
 ```json
@@ -100,7 +101,9 @@ implemented operations:
       "association.list",
       "archive.check",
       "case.export",
-      "archive.repair_permissions"
+      "archive.repair_permissions",
+      "case.delete",
+      "skill"
     ]
   },
   "verified": false
@@ -977,6 +980,36 @@ supersedes, then by identifier, all descending. The middle key matters because
 openPapir records whole seconds: two records written in the same second would
 otherwise order arbitrarily, and a record that supersedes another is by
 construction the later of the two.
+
+## `skill`
+
+`openpapir skill` writes the agent skill document the binary carries to
+stdout, byte for byte, and nothing else. It takes no file, no `--archive`, and
+no `--json`: the document is the whole output, so there is no envelope to
+render and no result to report in two forms. It always exits `0`. A stdout a
+pager or `head` closed is not a failure of the command and does not change
+that.
+
+The document is embedded with `include_str!` from
+`crates/openpapir-cli/skills/openpapir/SKILL.md`, so the bytes the binary
+writes and the bytes this repository holds are the same bytes, and installing
+the skill needs no checkout. It is the agent-facing description of everything
+above: when to reach for openPapir, each command's exact invocation and the
+`data` fields to read, the envelope, the exit codes by bucket, the privacy
+rule, the caps, and the separation of imported, matched, and
+authenticity-verified. It states no behaviour this document does not state as
+implemented.
+
+`skill` is the one operation `capabilities` reports that touches no archive.
+It is reported there so that a machine caller learns of it from the same list
+as every other operation.
+
+```console
+$ openpapir skill | head -3
+---
+name: openpapir
+description: >-
+```
 
 ## Storage guarantees
 

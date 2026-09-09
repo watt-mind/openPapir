@@ -13,11 +13,15 @@
 //!
 //! # Status
 //!
-//! Fourteen operations are implemented, `archive.init`, `import`,
+//! Fifteen operations are implemented, `archive.init`, `import`,
 //! `case.create`, `case.list`, `case.show`, `submission.add`, `receipt.add`,
 //! `receipt.list`, `association.create`, `association.list`,
-//! `archive.check`, `case.export`, `archive.repair_permissions`, and
-//! `case.delete`, and they are the fourteen [`capabilities`] reports.
+//! `archive.check`, `case.export`, `archive.repair_permissions`,
+//! `case.delete`, and `skill`, and they are the fifteen [`capabilities`]
+//! reports. `skill` is the one that touches no archive: it belongs to the
+//! CLI, which writes the agent skill document it carries, and is reported
+//! here so that a machine caller learns of it from the same list as every
+//! other operation.
 //! Everything else in the design stays a plan: no editing of a stored
 //! record, no deletion of a single submission or receipt, no deletion of an
 //! archive, no import from an export, no automatic matching, no derived
@@ -91,6 +95,7 @@ const OPERATIONS: &[&str] = &[
     "case.export",
     "archive.repair_permissions",
     "case.delete",
+    "skill",
 ];
 
 /// Machine-readable implementation status; never a verification verdict.
@@ -137,7 +142,8 @@ mod tests {
                 "archive.check",
                 "case.export",
                 "archive.repair_permissions",
-                "case.delete"
+                "case.delete",
+                "skill"
             ]
         );
         assert_eq!(reported.project, "openPapir");

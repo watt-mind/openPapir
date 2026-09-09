@@ -1,0 +1,17 @@
+{
+  "command": "receipt.add",
+  "data": {
+    "receipt": {
+      "archive_schema_version": 1,
+      "artefact_digest": "sha256:<digest>",
+      "created_at": "<time>",
+      "id": "<id>",
+      "import_event_id": "<id>",
+      "label": "Envelope from the post",
+      "record_kind": "receipt"
+    }
+  },
+  "ok": true,
+  "schema_version": 1,
+  "verified": false
+}

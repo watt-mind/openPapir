@@ -1,0 +1,10 @@
+{
+  "command": "archive.init",
+  "data": {
+    "archive_id": "<id>",
+    "archive_schema_version": 1
+  },
+  "ok": true,
+  "schema_version": 1,
+  "verified": false
+}

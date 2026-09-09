@@ -7,8 +7,8 @@ implemented behaviour, decided designs, and deferred contracts.
 The implementation is early: help, version, capabilities reporting, archive
 creation, artefact import, the case, submission, receipt, and user-asserted
 association records, the read-only whole-archive integrity check, the export
-of one case, the permission repair, and deleting a case with an explicit
-purge exist.
+of one case, the permission repair, deleting a case with an explicit purge,
+and the embedded agent skill exist.
 Every document below separates implemented behaviour from plans, and the
 remaining correspondence workflows, including automatic matching and any
 receipt parsing, are not available yet.
@@ -46,3 +46,13 @@ are in the Documentation section of [contributing](../CONTRIBUTING.md).
 | [LICENSE](../LICENSE) | The MIT licence covering the source; fixtures are covered separately under CC0. |
 | [CLAUDE.md](../CLAUDE.md) | Pointer file directing Claude to `AGENTS.md` and the orchestrator instructions. |
 | [GEMINI.md](../GEMINI.md) | Pointer file directing Gemini to `AGENTS.md`. |
+
+## Documents outside `docs/`
+
+Two documents describe the contract from the outside and are kept correct by
+the same rules.
+
+| File | Purpose |
+| --- | --- |
+| [Agent skill](../crates/openpapir-cli/skills/openpapir/SKILL.md) | The document `openpapir skill` writes byte for byte: how an AI agent should drive the CLI, the envelope, the exit codes, the privacy rule, and the boundary between imported, matched, and authenticity-verified. |
+| [Golden output contract](../tests/golden/README.md) | The pinned CLI output under `tests/golden/`, the placeholders it normalises, and how to regenerate it deliberately. |

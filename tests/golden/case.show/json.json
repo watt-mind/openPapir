@@ -1,0 +1,34 @@
+{
+  "command": "case.show",
+  "data": {
+    "case": {
+      "archive_schema_version": 1,
+      "created_at": "<time>",
+      "id": "<id>",
+      "notes": "First contact with the office.",
+      "record_kind": "case",
+      "title": "Tax matter"
+    },
+    "submission_count": 1,
+    "submissions": [
+      {
+        "archive_schema_version": 1,
+        "artefacts": [
+          {
+            "digest": "sha256:<digest>",
+            "role": "cover letter"
+          }
+        ],
+        "case_id": "<id>",
+        "created_at": "<time>",
+        "description": "Posted the completed form.",
+        "id": "<id>",
+        "record_kind": "submission",
+        "stated_date": "2026-01-13"
+      }
+    ]
+  },
+  "ok": true,
+  "schema_version": 1,
+  "verified": false
+}

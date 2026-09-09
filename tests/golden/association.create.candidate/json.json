@@ -1,0 +1,32 @@
+{
+  "command": "association.create",
+  "data": {
+    "association": {
+      "archive_schema_version": 1,
+      "candidates": [
+        {
+          "confidence": "moderate",
+          "evidence": [
+            {
+              "kind": "user_assertion",
+              "source": "user",
+              "statement": "The reference matches."
+            }
+          ],
+          "submission_id": "<id>"
+        }
+      ],
+      "created_at": "<time>",
+      "created_by": "user",
+      "id": "<id>",
+      "outcome": "candidate",
+      "receipt_id": "<id>",
+      "record_kind": "association",
+      "submission_id": null,
+      "supersedes": null
+    }
+  },
+  "ok": true,
+  "schema_version": 1,
+  "verified": false
+}

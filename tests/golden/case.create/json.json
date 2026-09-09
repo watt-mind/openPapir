@@ -1,0 +1,16 @@
+{
+  "command": "case.create",
+  "data": {
+    "case": {
+      "archive_schema_version": 1,
+      "created_at": "<time>",
+      "id": "<id>",
+      "notes": "First contact with the office.",
+      "record_kind": "case",
+      "title": "Tax matter"
+    }
+  },
+  "ok": true,
+  "schema_version": 1,
+  "verified": false
+}

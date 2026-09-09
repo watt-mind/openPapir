@@ -30,6 +30,8 @@
 //!   to be a receipt.
 //! - `openpapir association create|list ... [--json]`, what the user asserts
 //!   about whether a receipt relates to a submission.
+//! - `openpapir skill`, the embedded agent skill document, written to stdout
+//!   byte for byte. It takes no file, no `--json`, and always exits `0`.
 //!
 //! There is no automatic matching, no derived metadata, no receipt parsing,
 //! no import from an export, no editing of a stored record, no deletion of a
@@ -67,6 +69,7 @@
 mod delete;
 mod envelope;
 mod report;
+mod skill;
 mod usage;
 
 use std::path::PathBuf;
@@ -121,6 +124,8 @@ enum Command {
         #[command(subcommand)]
         command: AssociationCommand,
     },
+    /// Write the embedded agent skill document to stdout and nothing else.
+    Skill,
     /// Import local files into the archive's artefact store.
     Import {
         /// The archive root, which is always supplied explicitly.
@@ -375,6 +380,7 @@ fn run(command: Command) -> i32 {
             json,
             report::imported,
         ),
+        Command::Skill => skill::emit(),
         Command::Case { command } => run_case(command),
         Command::Submission {
             command:

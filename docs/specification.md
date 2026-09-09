@@ -45,8 +45,8 @@ The executable creates a local archive, imports files into it, organises what
 it holds into cases and submissions, records receipts and the user's own
 assertions about them, checks the whole archive against what its records
 claim, copies one case out of the archive, narrows a restored archive's
-permissions back to owner-only, and deletes a case on request. These
-invocations exist and nothing else:
+permissions back to owner-only, deletes a case on request, and writes the
+agent skill document it carries. These invocations exist and nothing else:
 
 | Invocation | Result |
 | --- | --- |
@@ -67,6 +67,7 @@ invocations exist and nothing else:
 | `openpapir case export --archive <root> --case <case-id> --to <dir> [--json]` | Copies one case's objects byte for byte, writes its records as JSON, and writes a manifest, into a destination outside the archive. It changes nothing in the archive. |
 | `openpapir archive repair-permissions --archive <root> [--json]` | Narrows every path in the archive back to owner-only and reports the counts it changed. It only ever narrows. |
 | `openpapir case delete --archive <root> --case <case-id> [--purge] [--json]` | Deletes one case and its submissions, with the receipts and associations tied only to them. Objects go only with `--purge`, and only when nothing that remains references them. |
+| `openpapir skill` | Writes the embedded agent skill document to stdout, byte for byte and with nothing added. It takes no file and no `--json`, touches no archive, and exits `0`. |
 
 The exact envelope, the storage guarantees, the input caps, the implemented
 error codes, the exit-code mapping, and the privacy rule that binds all output

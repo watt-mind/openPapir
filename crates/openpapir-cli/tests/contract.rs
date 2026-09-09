@@ -27,7 +27,8 @@ fn capabilities_are_honest_and_machine_readable() {
                     "case.create", "case.list", "case.show", "submission.add",
                     "receipt.add", "receipt.list",
                     "association.create", "association.list", "archive.check",
-                    "case.export", "archive.repair_permissions", "case.delete"
+                    "case.export", "archive.repair_permissions", "case.delete",
+                    "skill"
                 ]
             },
             "verified": false
@@ -44,7 +45,7 @@ fn human_status_names_only_what_is_implemented() {
     assert!(text.contains(concat!(
         "archive.init, import, case.create, case.list, case.show, submission.add, ",
         "receipt.add, receipt.list, association.create, association.list, archive.check, ",
-        "case.export, archive.repair_permissions, case.delete"
+        "case.export, archive.repair_permissions, case.delete, skill"
     )));
     assert!(text.contains("Nothing is verified"));
 }
@@ -147,4 +148,42 @@ fn a_positional_that_looks_like_the_json_flag_does_not_ask_for_json() {
     assert_eq!(output.status.code(), Some(2));
     assert!(output.stdout.is_empty(), "no envelope was asked for");
     assert!(!output.stderr.is_empty());
+}
+
+/// The embedded skill is written byte for byte, alone, and always succeeds.
+///
+/// The document is what an agent installs to learn how to drive this CLI, so
+/// the bytes the binary carries and the bytes the repository holds have to be
+/// the same bytes, with nothing added around them.
+#[test]
+fn the_skill_is_written_byte_for_byte_and_nothing_else() {
+    let output = run(&["skill"]);
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stderr.is_empty(), "the document is the whole output");
+    let embedded = std::fs::read(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("skills/openpapir/SKILL.md"),
+    )
+    .expect("read the committed skill document");
+    assert_eq!(output.stdout, embedded, "the binary carries these bytes");
+    let text = String::from_utf8(output.stdout).expect("the skill is UTF-8");
+    assert!(text.starts_with("---\nname: openpapir\n"));
+    assert!(text.contains("openpapir skill"));
+}
+
+/// `skill` takes no file and no `--json`, and says so through the usual
+/// usage refusal rather than by ignoring the token.
+#[test]
+fn the_skill_command_takes_no_file_and_no_json_flag() {
+    let flagged = run(&["skill", "--json"]);
+    assert_eq!(flagged.status.code(), Some(2));
+    assert!(flagged.stderr.is_empty(), "a JSON caller reads an envelope");
+    let envelope: serde_json::Value =
+        serde_json::from_str(String::from_utf8(flagged.stdout).unwrap().trim()).unwrap();
+    assert_eq!(envelope["command"], "skill");
+    assert_eq!(envelope["error"]["code"], "usage.arguments");
+
+    let extra = run(&["skill", "somefile"]);
+    assert_eq!(extra.status.code(), Some(2));
+    assert!(extra.stdout.is_empty(), "the document is not written");
+    assert!(!extra.stderr.is_empty(), "the parser explains itself");
 }

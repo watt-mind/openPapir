@@ -1,0 +1,9 @@
+Association <id>, recorded <time> by user.
+Receipt: <id>
+Outcome: candidate
+Confirmed submission: none
+Supersedes: nothing
+Candidates: 1.
+<id> confidence moderate
+user_assertion from user: The reference matches.
+These are the user's own assertions. openPapir checked nothing about the file and reports no delivery, authenticity, or legal effect.

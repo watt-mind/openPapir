@@ -1,0 +1,3 @@
+Stored 0 artefact(s); 1 already present.
+sha256:<digest> (27 bytes), import event <id>, already present since <time> after 1 earlier import(s).
+A digest identifies bytes only. Nothing here is verified, matched, or delivered.

@@ -1,0 +1,27 @@
+{
+  "command": "capabilities",
+  "data": {
+    "operations": [
+      "archive.init",
+      "import",
+      "case.create",
+      "case.list",
+      "case.show",
+      "submission.add",
+      "receipt.add",
+      "receipt.list",
+      "association.create",
+      "association.list",
+      "archive.check",
+      "case.export",
+      "archive.repair_permissions",
+      "case.delete",
+      "skill"
+    ],
+    "project": "openPapir",
+    "stage": "scaffold"
+  },
+  "ok": true,
+  "schema_version": 1,
+  "verified": false
+}

@@ -1027,7 +1027,8 @@ fn capabilities_report_exactly_the_implemented_operations() {
             "archive.check",
             "case.export",
             "archive.repair_permissions",
-            "case.delete"
+            "case.delete",
+            "skill"
         ])
     );
     assert_eq!(output.status.code(), Some(0));

@@ -1,0 +1,34 @@
+{
+  "command": "case.export",
+  "data": {
+    "bytes_copied": 50,
+    "case_id": "<id>",
+    "object_count": 2,
+    "record_count": 6,
+    "records": [
+      {
+        "count": 1,
+        "kind": "case"
+      },
+      {
+        "count": 1,
+        "kind": "submission"
+      },
+      {
+        "count": 1,
+        "kind": "receipt"
+      },
+      {
+        "count": 1,
+        "kind": "association"
+      },
+      {
+        "count": 2,
+        "kind": "import_event"
+      }
+    ]
+  },
+  "ok": true,
+  "schema_version": 1,
+  "verified": false
+}
