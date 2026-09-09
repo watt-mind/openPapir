@@ -79,8 +79,10 @@ pub mod codes {
     /// A stored object is referenced by no record in this archive.
     pub const INTEGRITY_ORPHAN_OBJECT: &str = "integrity.orphan_object";
 
-    /// The filesystem cannot express owner-only access.
+    /// The filesystem cannot provide a guarantee the archive requires.
     pub const PLATFORM_FILESYSTEM_UNSUPPORTED: &str = "platform.filesystem_unsupported";
+    /// A no-follow open refuses the link after opening it, not at the call.
+    pub const PLATFORM_NO_FOLLOW_AFTER_OPEN: &str = "platform.no_follow_after_open";
     /// The directory entry a rename created may not be durable.
     pub const PLATFORM_NO_DIRECTORY_FSYNC: &str = "platform.no_directory_fsync";
     /// Owner-only access is expressed as an access-control list.
@@ -397,6 +399,7 @@ mod tests {
             (codes::INTEGRITY_ORPHAN_OBJECT, Bucket::Integrity, 4),
             (codes::PLATFORM_FILESYSTEM_UNSUPPORTED, Bucket::Platform, 5),
             (codes::PLATFORM_NO_DIRECTORY_FSYNC, Bucket::Platform, 5),
+            (codes::PLATFORM_NO_FOLLOW_AFTER_OPEN, Bucket::Platform, 5),
             (codes::PLATFORM_OWNER_ONLY_VIA_ACL, Bucket::Platform, 5),
             (codes::INTERNAL_UNEXPECTED, Bucket::Internal, 6),
         ] {

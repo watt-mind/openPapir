@@ -13,13 +13,34 @@ use std::path::Path;
 
 use crate::error::{Details, Diagnostic, Warning, codes};
 
+/// Open the reparse point itself instead of whatever it points at.
+#[cfg(windows)]
+const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+/// Permit a directory handle, so that a junction is opened and then refused
+/// rather than failing as an unreadable path.
+#[cfg(windows)]
+const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+/// The attribute every reparse point carries, an NTFS junction included.
+#[cfg(windows)]
+const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
+/// The attribute a directory carries.
+#[cfg(windows)]
+const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x0000_0010;
+
 /// Open a file for reading without following a symbolic link.
+///
+/// On Unix the open carries `O_NOFOLLOW`, so a symbolic link fails at the
+/// system call itself. On Windows the open carries
+/// `FILE_FLAG_OPEN_REPARSE_POINT`, so the reparse point itself is opened and
+/// never its target; the handle is then refused when it names a reparse
+/// point, which covers an NTFS junction as well as a symbolic link. Neither
+/// platform stats the path first, because a pre-check is a
+/// time-of-check-to-time-of-use bug rather than a defence.
 ///
 /// # Errors
 ///
-/// Returns the underlying I/O error. On Unix a symbolic link fails at the
-/// system call itself; on Windows, which has no portable no-follow flag, the
-/// link state is checked first and the weaker guarantee is documented.
+/// Returns the underlying I/O error. A refusal of the path because it is a
+/// link answers [`is_no_follow_refusal`].
 pub fn open_no_follow(path: &Path) -> io::Result<File> {
     #[cfg(unix)]
     {
@@ -29,7 +50,29 @@ pub fn open_no_follow(path: &Path) -> io::Result<File> {
             .custom_flags(libc::O_NOFOLLOW)
             .open(path)
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::{MetadataExt as _, OpenOptionsExt as _};
+        let file = OpenOptions::new()
+            .read(true)
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS)
+            .open(path)?;
+        let attributes = file.metadata()?.file_attributes();
+        if attributes & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "path is a reparse point",
+            ));
+        }
+        if attributes & FILE_ATTRIBUTE_DIRECTORY != 0 {
+            // The backup flag above is what let the directory open at all; it
+            // is there for the junction case, and a directory is still not a
+            // file this archive reads.
+            return Err(io::Error::from(io::ErrorKind::IsADirectory));
+        }
+        Ok(file)
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         if is_symlink(path) {
             return Err(io::Error::new(
@@ -41,10 +84,41 @@ pub fn open_no_follow(path: &Path) -> io::Result<File> {
     }
 }
 
-/// Whether the path itself is a symbolic link, without following it.
+/// Whether an open refused the path because it is a link rather than for any
+/// other reason, so that the caller reports `path.symlink` without a second
+/// look at the path.
+#[must_use]
+pub fn is_no_follow_refusal(error: &io::Error) -> bool {
+    #[cfg(unix)]
+    {
+        error.raw_os_error() == Some(libc::ELOOP)
+    }
+    #[cfg(not(unix))]
+    {
+        error.kind() == io::ErrorKind::InvalidInput
+    }
+}
+
+/// Whether the path itself is a link, without following it.
+///
+/// On Windows every reparse point counts, so an NTFS junction is a link here
+/// even though the standard library's own symbolic-link test does not report
+/// one. A reparse point of any other tag is refused too: the archive holds no
+/// reparse point of its own, so refusing one it did not create is correct.
 #[must_use]
 pub fn is_symlink(path: &Path) -> bool {
-    fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_symlink())
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt as _;
+        fs::symlink_metadata(path).is_ok_and(|metadata| {
+            metadata.file_type().is_symlink()
+                || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+        })
+    }
+    #[cfg(not(windows))]
+    {
+        fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_symlink())
+    }
 }
 
 /// Create a directory owner-only, ignoring the case where it already exists.
@@ -197,6 +271,21 @@ pub fn no_directory_fsync_warning(stage: &'static str) -> Warning {
     )
 }
 
+/// The warning reported where the no-follow rule is enforced after the open.
+///
+/// It is the degradation left after the platform's no-follow flag is used:
+/// the reparse point itself is opened and the handle is then refused, rather
+/// than the open failing, and the reparse tag is not distinguished, so a
+/// junction is reported as `path.symlink` like a symbolic link.
+#[must_use]
+pub fn no_follow_after_open_warning() -> Warning {
+    Diagnostic::new(
+        codes::PLATFORM_NO_FOLLOW_AFTER_OPEN,
+        "A no-follow open refuses the link it opened rather than failing at the system call.",
+        Details::new(),
+    )
+}
+
 /// The warning reported where owner-only access is an access-control list.
 #[must_use]
 pub fn owner_only_via_acl_warning() -> Warning {
@@ -216,21 +305,25 @@ pub fn owner_only_via_acl_warning() -> Warning {
 /// Returns `archive.permissions_wide`, naming the archive-relative path.
 pub fn refuse_if_wide(path: &Path, archive_path: &str) -> Result<(), Diagnostic> {
     if is_wider_than_owner_only(path) {
-        return Err(wide_permissions_refusal(vec![archive_path.to_owned()]));
+        return Err(wide_permissions_refusal(archive_path, &[]));
     }
     Ok(())
 }
 
 /// The refusal reported for archive permissions wider than owner-only.
+///
+/// The refused set is non-empty by the signature: `first` is the path the
+/// refusal names and `others` are the further paths it only counts. A caller
+/// that found nothing wide has nothing to refuse and never calls this, so no
+/// refusal can name `.` with a count of zero.
 #[must_use]
-pub fn wide_permissions_refusal(wide: Vec<String>) -> Diagnostic {
-    let first = wide.first().cloned().unwrap_or_else(|| ".".to_owned());
+pub fn wide_permissions_refusal(first: &str, others: &[String]) -> Diagnostic {
     Diagnostic::new(
         codes::ARCHIVE_PERMISSIONS_WIDE,
         "The archive's permissions are wider than owner-only.",
         Details::new()
             .text("archive_path", first)
-            .int("path_count", wide.len() as u64),
+            .int("path_count", others.len() as u64 + 1),
     )
 }
 
@@ -272,6 +365,52 @@ pub fn publish_refusal(error: &io::Error, archive_path: &str, stage: &'static st
         Details::new().text("stage", stage),
     )
     .retryable()
+}
+
+/// Map an I/O error raised by the hard-link publish step into the contract.
+///
+/// A filesystem that cannot create a hard link at all, FAT32 and exFAT among
+/// them, cannot host an archive whose publish step is a hard link. That is
+/// reported as `platform.filesystem_unsupported`, because retrying never
+/// succeeds and `write.interrupted` invites the caller to retry. Every other
+/// failure of the same call keeps the mapping of [`publish_refusal`].
+#[must_use]
+pub fn link_refusal(error: &io::Error, archive_path: &str, stage: &'static str) -> Diagnostic {
+    if is_link_unsupported(error) {
+        return Diagnostic::new(
+            codes::PLATFORM_FILESYSTEM_UNSUPPORTED,
+            "The filesystem cannot create the hard link the archive's write procedure needs.",
+            Details::new()
+                .text("capability", "hard_link")
+                .text("stage", stage),
+        );
+    }
+    publish_refusal(error, archive_path, stage)
+}
+
+/// Whether an I/O error says the filesystem has no hard links.
+///
+/// The mapped codes are: any error the standard library classifies as
+/// `Unsupported`; on Unix `EPERM`, which `link(2)` documents as "the
+/// filesystem containing oldpath and newpath does not support the creation of
+/// hard links", and `EOPNOTSUPP`; on Windows `ERROR_INVALID_FUNCTION` (1) and
+/// `ERROR_NOT_SUPPORTED` (50), which a FAT32 or exFAT volume reports for
+/// `CreateHardLinkW`. `EPERM` also covers a hardened kernel refusing a link to
+/// a file the caller does not own, which cannot arise here: the source is the
+/// staging file openPapir just created and owns.
+#[must_use]
+pub fn is_link_unsupported(error: &io::Error) -> bool {
+    if error.kind() == io::ErrorKind::Unsupported {
+        return true;
+    }
+    #[cfg(unix)]
+    {
+        matches!(error.raw_os_error(), Some(libc::EPERM | libc::EOPNOTSUPP))
+    }
+    #[cfg(not(unix))]
+    {
+        matches!(error.raw_os_error(), Some(1 | 50))
+    }
 }
 
 /// Whether an I/O error reports a cross-device operation.
@@ -324,19 +463,81 @@ mod tests {
 
     #[test]
     fn a_wide_path_is_refused_and_names_itself_relative_to_the_archive() {
-        let refusal = wide_permissions_refusal(vec![
-            "objects/sha256/ab/cd".to_owned(),
-            "records/imports".to_owned(),
-        ]);
+        let refusal =
+            wide_permissions_refusal("objects/sha256/ab/cd", &["records/imports".to_owned()]);
         assert_eq!(refusal.code, codes::ARCHIVE_PERMISSIONS_WIDE);
         assert_eq!(refusal.exit_code(), 4);
         let json = serde_json::to_value(&refusal).unwrap();
         assert_eq!(json["details"]["archive_path"], "objects/sha256/ab/cd");
         assert_eq!(json["details"]["path_count"], 2);
-        assert_eq!(
-            serde_json::to_value(wide_permissions_refusal(Vec::new())).unwrap()["details"]["archive_path"],
-            "."
+        // The set is non-empty by the signature, so the smallest refusal names
+        // its one path and counts one, never `.` with a count of zero.
+        let single = serde_json::to_value(wide_permissions_refusal("records", &[])).unwrap();
+        assert_eq!(single["details"]["archive_path"], "records");
+        assert_eq!(single["details"]["path_count"], 1);
+    }
+
+    #[test]
+    fn a_filesystem_without_hard_links_is_a_platform_refusal_not_a_retry() {
+        #[cfg(unix)]
+        let unsupported = io::Error::from_raw_os_error(libc::EPERM);
+        #[cfg(not(unix))]
+        let unsupported = io::Error::from_raw_os_error(50);
+        assert!(is_link_unsupported(&unsupported));
+        assert!(is_link_unsupported(&io::Error::from(
+            io::ErrorKind::Unsupported
+        )));
+        let refusal = link_refusal(&unsupported, "objects/sha256/ab/cd/digest", "object");
+        assert_eq!(refusal.code, codes::PLATFORM_FILESYSTEM_UNSUPPORTED);
+        assert_eq!(refusal.exit_code(), 5);
+        assert!(
+            !refusal.is_retryable(),
+            "a filesystem without hard links never succeeds on a retry"
         );
+        let json = serde_json::to_value(&refusal).unwrap();
+        assert_eq!(json["details"]["capability"], "hard_link");
+        assert_eq!(json["details"]["stage"], "object");
+        assert_eq!(json["details"]["bucket"], "platform");
+
+        // Every other failure of the same call keeps its own mapping.
+        let existing = io::Error::new(io::ErrorKind::AlreadyExists, "exists");
+        assert!(!is_link_unsupported(&existing));
+        assert_eq!(
+            link_refusal(&existing, "records/imports/id.json", "record").code,
+            codes::PATH_OVERWRITE
+        );
+        let denied = io::Error::new(io::ErrorKind::PermissionDenied, "denied");
+        assert_eq!(
+            link_refusal(&denied, "records/imports/id.json", "record").code,
+            codes::WRITE_INTERRUPTED
+        );
+    }
+
+    #[test]
+    fn a_link_refused_by_the_open_is_told_apart_from_any_other_failure() {
+        #[cfg(unix)]
+        let link = io::Error::from_raw_os_error(libc::ELOOP);
+        #[cfg(not(unix))]
+        let link = io::Error::new(io::ErrorKind::InvalidInput, "path is a reparse point");
+        assert!(is_no_follow_refusal(&link));
+        assert!(!is_no_follow_refusal(&io::Error::from(
+            io::ErrorKind::NotFound
+        )));
+        let directory = tempfile::tempdir().unwrap();
+        let file = directory.path().join("note.txt");
+        fs::write(&file, b"synthetic").unwrap();
+        assert!(open_no_follow(&file).is_ok(), "a regular file opens");
+        let absent = open_no_follow(&directory.path().join("absent.txt")).unwrap_err();
+        assert!(!is_no_follow_refusal(&absent));
+        #[cfg(unix)]
+        {
+            let linked = directory.path().join("linked.txt");
+            std::os::unix::fs::symlink(&file, &linked).unwrap();
+            let refused = open_no_follow(&linked).unwrap_err();
+            assert!(is_no_follow_refusal(&refused), "the open refused the link");
+            assert!(is_symlink(&linked));
+            assert!(!is_symlink(&file));
+        }
     }
 
     #[test]
@@ -373,6 +574,9 @@ mod tests {
             owner_only_via_acl_warning().code,
             codes::PLATFORM_OWNER_ONLY_VIA_ACL
         );
+        let residual = no_follow_after_open_warning();
+        assert_eq!(residual.code, codes::PLATFORM_NO_FOLLOW_AFTER_OPEN);
+        assert_eq!(residual.bucket(), crate::error::Bucket::Platform);
         assert_eq!(
             symlink_refusal(Details::new().text("scope", "archive")).code,
             codes::PATH_SYMLINK

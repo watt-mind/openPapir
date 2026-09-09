@@ -168,6 +168,10 @@ fn plan(inputs: &[PathBuf], names: Vec<String>) -> std::result::Result<Vec<Plann
     let mut declared_total = 0_u64;
     for ((index, path), original_filename) in inputs.iter().enumerate().zip(names) {
         let index = index as u64;
+        // An early refusal, so that a link named third does not stop the
+        // operation after the first two inputs were already stored. It is not
+        // the defence: the no-follow open in `store_one` is, and it refuses
+        // the same path again without a stat of its own.
         if paths::is_symlink(path) {
             return Err(input_symlink_refusal());
         }
@@ -196,13 +200,13 @@ fn original_filename(path: &Path, index: u64) -> std::result::Result<String, Dia
 
 /// The refusal for an input that is a symbolic link.
 ///
-/// The error contract fixes `scope` as `archive` or `export_destination` and
-/// names no value for an input outside the archive, so this refusal carries
-/// its bucket alone rather than inventing one. Which input it was is
-/// deliberately not reported, because no key the contract lists for this code
-/// covers it.
+/// `scope` is `input`: the path is outside the archive, so no `archive_path`
+/// exists for it, and the contract's value set names `input` for exactly this
+/// case. Which input it was is deliberately not reported, because the path
+/// itself is user-supplied and no key the contract lists for this code
+/// carries one.
 fn input_symlink_refusal() -> Diagnostic {
-    paths::symlink_refusal(Details::new())
+    paths::symlink_refusal(Details::new().text("scope", "input"))
 }
 
 /// The refusal for an input that is not a readable regular file.
@@ -224,8 +228,8 @@ fn store_one(
     read_total: &mut u64,
     warnings: &mut Vec<Warning>,
 ) -> std::result::Result<Artefact, Diagnostic> {
-    let mut source = paths::open_no_follow(&input.path).map_err(|_| {
-        if paths::is_symlink(&input.path) {
+    let mut source = paths::open_no_follow(&input.path).map_err(|error| {
+        if paths::is_no_follow_refusal(&error) {
             input_symlink_refusal()
         } else {
             unusable_input(index)

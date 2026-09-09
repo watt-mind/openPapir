@@ -124,7 +124,10 @@ fn place(
     }
     check_object_permissions(root, digest)?;
     if let Ok(metadata) = fs::symlink_metadata(&destination) {
-        paths::refuse_if_wide(&destination, &relative)?;
+        // Shape before permissions: a directory at an object's path is not an
+        // object whose permissions could be wide, it is something openPapir
+        // did not create, so it reports `path.overwrite` rather than
+        // `archive.permissions_wide`.
         if !metadata.is_file() {
             return Err(Diagnostic::new(
                 codes::PATH_OVERWRITE,
@@ -132,6 +135,7 @@ fn place(
                 Details::new().text("archive_path", relative),
             ));
         }
+        paths::refuse_if_wide(&destination, &relative)?;
         if metadata.len() != byte_length {
             return Err(Diagnostic::new(
                 codes::INTEGRITY_LENGTH_MISMATCH,
