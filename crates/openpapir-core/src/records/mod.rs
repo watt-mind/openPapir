@@ -1,10 +1,12 @@
-//! Case and submission records: the user's own organisation of an archive.
+//! The record kinds: the user's own organisation of an archive.
 //!
 //! A case is a user-created folder of related correspondence. It corresponds
 //! to nothing any government service issues. A submission is something the
 //! user states they sent, recorded from what the user has locally: openPapir
 //! sends nothing, so a submission is always user-asserted
-//! (`docs/archive-layout.md`).
+//! (`docs/archive-layout.md`). A receipt is an artefact the user believes to
+//! be a receipt, and an association is the user's own statement about whether
+//! a receipt relates to a submission.
 //!
 //! Records reference each other, and reference stored artefacts, by identifier
 //! only. Nothing here asserts that anything was received anywhere, and no
@@ -23,17 +25,29 @@
 //! | `notes` | 4096 bytes | Optional, newlines allowed |
 //! | `description` | 1024 bytes | Required, newlines allowed |
 //! | `role` | 64 bytes | Optional, single line |
+//! | `label` | 200 bytes | Optional, single line |
+//! | `statement` | 512 bytes | Required, single line |
 
+pub mod association;
 pub mod case;
 pub mod document;
+pub mod receipt;
 pub mod submission;
 
+use std::fs;
+use std::path::Path;
+
+use crate::archive::{objects, paths};
 use crate::error::{Details, Diagnostic, codes};
 
 /// The directory holding case records, relative to the archive root.
 pub const CASES_DIR: &str = "records/cases";
 /// The directory holding submission records, relative to the archive root.
 pub const SUBMISSIONS_DIR: &str = "records/submissions";
+/// The directory holding receipt records, relative to the archive root.
+pub const RECEIPTS_DIR: &str = "records/receipts";
+/// The directory holding association records, relative to the archive root.
+pub const ASSOCIATIONS_DIR: &str = "records/associations";
 
 /// The largest case title, in bytes.
 pub const MAX_TITLE_BYTES: u64 = 200;
@@ -43,6 +57,15 @@ pub const MAX_NOTES_BYTES: u64 = 4 * 1024;
 pub const MAX_DESCRIPTION_BYTES: u64 = 1024;
 /// The largest artefact role label, in bytes.
 pub const MAX_ROLE_BYTES: u64 = 64;
+/// The largest receipt label, in bytes.
+pub const MAX_LABEL_BYTES: u64 = 200;
+/// The largest evidence statement, in bytes.
+pub const MAX_STATEMENT_BYTES: u64 = 512;
+
+/// The digest form a record may reference.
+pub const DIGEST_PREFIX: &str = "sha256:";
+/// The number of hexadecimal characters a SHA-256 digest renders as.
+const DIGEST_LENGTH: usize = 64;
 
 /// Whether a field may carry a line break.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -173,6 +196,100 @@ pub fn checked_description(value: &str) -> Result<String, Diagnostic> {
 /// Returns `input.cap.field_length` or `usage.arguments`.
 pub fn checked_role(value: Option<&str>) -> Result<Option<String>, Diagnostic> {
     optional("role", value, MAX_ROLE_BYTES, Shape::SingleLine)
+}
+
+/// Check a receipt label: optional, single line, at most 200 bytes.
+///
+/// # Errors
+///
+/// Returns `input.cap.field_length` or `usage.arguments`.
+pub fn checked_label(value: Option<&str>) -> Result<Option<String>, Diagnostic> {
+    optional("label", value, MAX_LABEL_BYTES, Shape::SingleLine)
+}
+
+/// Check an evidence statement: required, single line, at most 512 bytes.
+///
+/// # Errors
+///
+/// Returns `input.cap.field_length` or `usage.arguments`.
+pub fn checked_statement(value: &str) -> Result<String, Diagnostic> {
+    required("statement", value, MAX_STATEMENT_BYTES, Shape::SingleLine)
+}
+
+/// Whether a value is 64 lowercase hexadecimal characters.
+#[must_use]
+pub fn is_digest(value: &str) -> bool {
+    value.len() == DIGEST_LENGTH
+        && value
+            .chars()
+            .all(|character| character.is_ascii_digit() || ('a'..='f').contains(&character))
+}
+
+/// Read `sha256:<64 lowercase hex>` from a user-supplied reference.
+///
+/// The supplied value is never echoed: it is user text, and the argument name
+/// is enough to say which part of the invocation was unusable.
+///
+/// # Errors
+///
+/// Returns `usage.arguments` naming `argument`, and never the value.
+pub fn checked_digest(argument: &'static str, value: &str) -> Result<String, Diagnostic> {
+    let hex = value
+        .strip_prefix(DIGEST_PREFIX)
+        .filter(|hex| is_digest(hex));
+    match hex {
+        Some(hex) => Ok(format!("{DIGEST_PREFIX}{hex}")),
+        None => Err(Diagnostic::new(
+            codes::USAGE_ARGUMENTS,
+            "An artefact reference is not a sha256 digest of the documented form.",
+            Details::new().text("argument", argument),
+        )),
+    }
+}
+
+/// Refuse a digest that names no object stored in this archive.
+///
+/// The object's bytes are never opened here: only its presence, its link
+/// state, and the permissions of its fan-out directories are checked, exactly
+/// as import checks them before it publishes.
+///
+/// # Errors
+///
+/// Returns `record.not_found` when no such object is stored, `path.symlink`
+/// when the object path is a symbolic link, and `archive.permissions_wide`
+/// when a path it touches is wider than owner-only.
+pub fn refuse_absent_object(root: &Path, digest: &str) -> Result<(), Diagnostic> {
+    let hex = digest.strip_prefix(DIGEST_PREFIX).unwrap_or(digest);
+    let path = objects::absolute_path(root, hex);
+    let relative = objects::archive_path(hex);
+    if paths::is_symlink(&path) {
+        return Err(paths::symlink_refusal(
+            Details::new()
+                .text("scope", "archive")
+                .text("archive_path", relative),
+        ));
+    }
+    objects::check_object_permissions(root, hex)?;
+    if !fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.is_file()) {
+        return Err(document::not_found("artefact", "artefact_digest"));
+    }
+    paths::refuse_if_wide(&path, &relative)
+}
+
+/// Refuse a record whose fields break a consistency rule of the design.
+///
+/// `details` carry the record kind that was refused and the short, stable
+/// name of the rule, and nothing else: no identifier the user supplied, no
+/// statement they wrote, and no path.
+#[must_use]
+pub fn inconsistent(record_kind: &'static str, rule: &'static str) -> Diagnostic {
+    Diagnostic::new(
+        codes::RECORD_INCONSISTENT,
+        "A record's fields break a consistency rule of the archive design.",
+        Details::new()
+            .text("record_kind", record_kind)
+            .text("rule", rule),
+    )
 }
 
 #[cfg(test)]
