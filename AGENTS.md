@@ -1,8 +1,33 @@
 # openPapir
 
 A local-first correspondence toolkit scaffold. Read [README.md](README.md),
+the [specification index](docs/specification.md),
 [architecture](docs/architecture.md), [roadmap](docs/roadmap.md),
 [contributing](CONTRIBUTING.md), and [security](SECURITY.md) before changes.
+
+## Repository layout
+
+| Path | What lives there | Who may change it |
+| --- | --- | --- |
+| `crates/openpapir-core/` | The library: the capabilities value and, later, the local case model. | Any contributor, with tests. |
+| `crates/openpapir-cli/` | The `openpapir` binary: argument parsing and output. | Any contributor, with tests. |
+| `crates/*/tests/` | Contract tests over observable behaviour. | Any contributor. |
+| `tests/fixtures/` | Synthetic, CC0 fixtures with recorded provenance. | Any contributor; never derived from real correspondence. |
+| `docs/` | Specification index, implemented contract, designs, plans, policies. | Any contributor, in the same pull request as the change described. |
+| `scripts/` | The local baseline checks and commit-subject validation. | Any contributor; never weakened to land a change. |
+| `.github/workflows/` | CI and security workflows, with actions pinned to a commit SHA. | A maintainer; every pin keeps its `# vX.Y.Z` comment. |
+| `.github/ISSUE_TEMPLATE/`, `.github/pull_request_template.md` | Issue and pull request forms. | A maintainer. |
+| `Cargo.toml`, `Cargo.lock`, `deny.toml`, `clippy.toml`, `rust-toolchain.toml` | Workspace, dependency policy, lint, and toolchain configuration. | A maintainer; a dependency change is its own pull request. |
+| `AGENTS.md`, `CLAUDE.md`, `GEMINI.md` | Agent instructions and the pointer files to them. | A maintainer. |
+| `tmp/` | Ignored local orchestrator state. | Never committed. |
+
+## Documentation
+
+Documentation is part of the product. A change to behaviour, a contract, a
+code, a flag, a field, or an exit status updates the affected documents,
+including `CHANGELOG.md`, in the same pull request. The rules, the fixed home
+of each kind of content, and the style are in the Documentation section of
+[contributing](CONTRIBUTING.md).
 
 ## Boundaries
 
