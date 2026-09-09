@@ -35,23 +35,121 @@ use crate::archive::{CACHE_DIR, MARKER_FILE};
 use crate::error::{Details, Diagnostic, codes};
 use crate::export::KindCount;
 
-/// The kinds of path the repair reports, in the order it reports them.
-pub const KINDS: [&str; 6] = ["cache", "directory", "marker", "object", "record", "root"];
-
-/// The stage a refusal reports for the kind of path it was inspecting.
+/// A stage of the write bucket, the three the error contract names.
 ///
-/// The write bucket names three stages, and the repair walks paths of all
-/// three: a stored object or a leftover staging file is `object_write`, the
-/// marker is `marker_write`, and everything else openPapir wrote, a record
-/// document, a cached file, a layout directory, or the root, is
-/// `record_write` (`docs/error-contract.md`).
-fn stage_for(kind: &str) -> &'static str {
-    match kind {
-        "object" | "staging" => "object_write",
-        "marker" => "marker_write",
-        _ => "record_write",
+/// The stage names what was being written, never which module reported it
+/// (`docs/error-contract.md`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Stage {
+    /// A stored object, or a leftover staging file inside the object store.
+    ObjectWrite,
+    /// A record document, a cached file, a layout directory, or the root.
+    RecordWrite,
+    /// The archive marker.
+    MarkerWrite,
+}
+
+impl Stage {
+    /// Every stage, in the order the error contract's table lists them.
+    pub const ALL: [Self; 3] = [Self::ObjectWrite, Self::RecordWrite, Self::MarkerWrite];
+
+    /// The name the `stage` detail carries.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ObjectWrite => "object_write",
+            Self::RecordWrite => "record_write",
+            Self::MarkerWrite => "marker_write",
+        }
     }
 }
+
+/// A kind of path the repair inspects.
+///
+/// The set is closed, so a new kind cannot reach a stage by falling through a
+/// catch-all: [`Kind::stage`] matches every variant by name. Six of the
+/// variants are reported by name in [`KINDS`]; `Staging` is not, because a
+/// leftover staging file is openPapir's own transient artefact inside the
+/// object store and counts as an object.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Kind {
+    /// A cached file.
+    Cache,
+    /// A layout directory, or a directory inside one.
+    Directory,
+    /// The archive marker.
+    Marker,
+    /// A stored object.
+    Object,
+    /// A record document.
+    Record,
+    /// The archive root.
+    Root,
+    /// A leftover staging file inside the object store.
+    Staging,
+}
+
+impl Kind {
+    /// The name the report uses for this kind.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Cache => "cache",
+            Self::Directory => "directory",
+            Self::Marker => "marker",
+            Self::Object => "object",
+            Self::Record => "record",
+            Self::Root => "root",
+            Self::Staging => "staging",
+        }
+    }
+
+    /// The stage a refusal reports while this kind of path is inspected.
+    ///
+    /// The match is exhaustive by variant, so adding a kind is a compile
+    /// error until its stage is decided.
+    #[must_use]
+    pub const fn stage(self) -> Stage {
+        match self {
+            Self::Object | Self::Staging => Stage::ObjectWrite,
+            Self::Marker => Stage::MarkerWrite,
+            Self::Cache | Self::Directory | Self::Record | Self::Root => Stage::RecordWrite,
+        }
+    }
+
+    /// The kind this one is counted under in the report.
+    ///
+    /// A leftover staging file counts as an object, so `Staging` never
+    /// reaches the report.
+    #[must_use]
+    pub const fn reported(self) -> Self {
+        match self {
+            Self::Staging => Self::Object,
+            other => other,
+        }
+    }
+}
+
+/// The kinds of path the repair reports, in the order it reports them.
+pub const REPORTED: [Kind; 6] = [
+    Kind::Cache,
+    Kind::Directory,
+    Kind::Marker,
+    Kind::Object,
+    Kind::Record,
+    Kind::Root,
+];
+
+/// The names of [`REPORTED`], in the same order: the report's kind column.
+pub const KINDS: [&str; REPORTED.len()] = {
+    let mut names = [""; REPORTED.len()];
+    let mut index = 0;
+    while index < REPORTED.len() {
+        names[index] = REPORTED[index].name();
+        index += 1;
+    }
+    names
+};
 
 /// The mode a directory keeps: owner read, write, and search.
 const DIRECTORY_MASK: u32 = 0o700;
@@ -76,26 +174,26 @@ pub struct Repaired {
 /// A running count of what the walk examined and what it narrowed.
 #[derive(Debug, Default)]
 struct Counts {
-    changed: BTreeMap<&'static str, u64>,
+    changed: BTreeMap<Kind, u64>,
     paths_changed: u64,
     paths_checked: u64,
 }
 
 impl Counts {
-    fn note(&mut self, kind: &'static str, changed: bool) {
+    fn note(&mut self, kind: Kind, changed: bool) {
         self.paths_checked += 1;
         if changed {
             self.paths_changed += 1;
-            *self.changed.entry(kind).or_default() += 1;
+            *self.changed.entry(kind.reported()).or_default() += 1;
         }
     }
 
     fn finish(self) -> Repaired {
-        let mut changed = Vec::with_capacity(KINDS.len());
-        for kind in KINDS {
+        let mut changed = Vec::with_capacity(REPORTED.len());
+        for kind in REPORTED {
             changed.push(KindCount {
-                count: self.changed.get(kind).copied().unwrap_or_default(),
-                kind,
+                count: self.changed.get(&kind).copied().unwrap_or_default(),
+                kind: kind.name(),
             });
         }
         Repaired {
@@ -120,20 +218,26 @@ impl Counts {
 /// be set.
 pub fn narrow_archive(root: &Path, layout_dirs: &[&str]) -> Result<Repaired, Diagnostic> {
     let mut counts = Counts::default();
-    narrow(root, ".", DIRECTORY_MASK, "root", &mut counts)?;
+    narrow(root, ".", DIRECTORY_MASK, Kind::Root, &mut counts)?;
     if root.join(MARKER_FILE).exists() {
         narrow(
             &root.join(MARKER_FILE),
             MARKER_FILE,
             FILE_MASK,
-            "marker",
+            Kind::Marker,
             &mut counts,
         )?;
     }
     for relative in layout_dirs {
         let path = root.join(relative);
         if path.exists() {
-            narrow(&path, relative, DIRECTORY_MASK, "directory", &mut counts)?;
+            narrow(
+                &path,
+                relative,
+                DIRECTORY_MASK,
+                Kind::Directory,
+                &mut counts,
+            )?;
         }
         if let Some(kind) = contents_kind(relative) {
             walk(&path, relative, kind, MAX_DEPTH, &mut counts)?;
@@ -148,42 +252,40 @@ pub fn narrow_archive(root: &Path, layout_dirs: &[&str]) -> Result<Repaired, Dia
 /// themselves, which are write-once and keep owner read alone. `objects` and
 /// `records` hold only further layout directories, which the list already
 /// names, so they are not walked twice.
-fn contents_kind(relative: &str) -> Option<&'static str> {
+fn contents_kind(relative: &str) -> Option<Kind> {
     if relative == format!("{OBJECTS_DIR}/{ALGORITHM}") {
-        return Some("object");
+        return Some(Kind::Object);
     }
     if relative == INCOMING_DIR {
-        return Some("staging");
+        return Some(Kind::Staging);
     }
     if relative == CACHE_DIR {
-        return Some("cache");
+        return Some(Kind::Cache);
     }
     relative
         .strip_prefix("records/")
         .filter(|kind| !kind.is_empty())
-        .map(|_| "record")
+        .map(|_| Kind::Record)
 }
 
 /// The mode a file of this kind keeps.
-fn mask_for(kind: &str) -> u32 {
-    if kind == "object" {
-        OBJECT_MASK
-    } else {
-        FILE_MASK
+const fn mask_for(kind: Kind) -> u32 {
+    match kind {
+        Kind::Object => OBJECT_MASK,
+        Kind::Cache
+        | Kind::Directory
+        | Kind::Marker
+        | Kind::Record
+        | Kind::Root
+        | Kind::Staging => FILE_MASK,
     }
-}
-
-/// The kind a file is counted under. A leftover staging file is openPapir's
-/// own transient artefact inside the object store, so it counts as an object.
-fn file_kind(kind: &'static str) -> &'static str {
-    if kind == "staging" { "object" } else { kind }
 }
 
 /// Narrow every entry of a directory, and every entry below it.
 fn walk(
     directory: &Path,
     relative: &str,
-    kind: &'static str,
+    kind: Kind,
     depth: u32,
     counts: &mut Counts,
 ) -> Result<(), Diagnostic> {
@@ -193,11 +295,11 @@ fn walk(
     let entries = match fs::read_dir(directory) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(_) => return Err(unreadable(relative, stage_for(kind))),
+        Err(_) => return Err(unreadable(relative, kind.stage())),
     };
     let mut names: Vec<String> = Vec::new();
     for entry in entries {
-        let entry = entry.map_err(|_| unreadable(relative, stage_for(kind)))?;
+        let entry = entry.map_err(|_| unreadable(relative, kind.stage()))?;
         names.push(entry.file_name().to_string_lossy().into_owned());
     }
     names.sort();
@@ -205,15 +307,15 @@ fn walk(
         let path = directory.join(&name);
         let child = format!("{relative}/{name}");
         let metadata =
-            fs::symlink_metadata(&path).map_err(|_| unreadable(relative, stage_for(kind)))?;
+            fs::symlink_metadata(&path).map_err(|_| unreadable(relative, kind.stage()))?;
         if metadata.file_type().is_symlink() {
             return Err(linked(&child));
         }
         if metadata.is_dir() {
-            narrow(&path, &child, DIRECTORY_MASK, "directory", counts)?;
+            narrow(&path, &child, DIRECTORY_MASK, Kind::Directory, counts)?;
             walk(&path, &child, kind, depth - 1, counts)?;
         } else {
-            narrow(&path, &child, mask_for(kind), file_kind(kind), counts)?;
+            narrow(&path, &child, mask_for(kind), kind, counts)?;
         }
     }
     Ok(())
@@ -224,13 +326,13 @@ fn narrow(
     path: &Path,
     relative: &str,
     mask: u32,
-    kind: &'static str,
+    kind: Kind,
     counts: &mut Counts,
 ) -> Result<(), Diagnostic> {
     if paths::is_symlink(path) {
         return Err(linked(relative));
     }
-    counts.note(kind, apply(path, mask, relative, stage_for(kind))?);
+    counts.note(kind, apply(path, mask, relative, kind.stage())?);
     Ok(())
 }
 
@@ -239,7 +341,7 @@ fn narrow(
 /// On a platform without permission bits nothing is changed and nothing is
 /// reported as changed: the caller reports `platform.owner_only_via_acl`
 /// instead, because owner-only access there is an access-control list.
-fn apply(path: &Path, mask: u32, relative: &str, stage: &'static str) -> Result<bool, Diagnostic> {
+fn apply(path: &Path, mask: u32, relative: &str, stage: Stage) -> Result<bool, Diagnostic> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt as _;
@@ -274,12 +376,12 @@ fn linked(relative: &str) -> Diagnostic {
 /// The stage is the kind of path the repair was inspecting, so a stored
 /// object it could not narrow is reported as an object write rather than as a
 /// record write.
-fn unreadable(relative: &str, stage: &'static str) -> Diagnostic {
+fn unreadable(relative: &str, stage: Stage) -> Diagnostic {
     Diagnostic::new(
         codes::WRITE_INTERRUPTED,
         "A path in the archive could not be read or narrowed.",
         Details::new()
-            .text("stage", stage)
+            .text("stage", stage.as_str())
             .text("archive_path", relative.to_owned()),
     )
     .retryable()
@@ -292,7 +394,12 @@ mod tests {
     #[test]
     fn every_kind_is_reported_even_when_nothing_of_it_changed() {
         let repaired = Counts::default().finish();
-        assert_eq!(repaired.changed.len(), KINDS.len());
+        assert_eq!(repaired.changed.len(), REPORTED.len());
+        assert_eq!(
+            KINDS,
+            ["cache", "directory", "marker", "object", "record", "root"],
+            "the report's kind names and their order are the contract"
+        );
         assert!(
             !KINDS.contains(&"lock"),
             "the lock is never inspected, so it is never reported"
@@ -307,16 +414,34 @@ mod tests {
 
     #[test]
     fn a_layout_directory_names_the_kind_of_file_it_holds() {
-        assert_eq!(contents_kind("objects/sha256"), Some("object"));
-        assert_eq!(contents_kind("objects/incoming"), Some("staging"));
-        assert_eq!(contents_kind("records/cases"), Some("record"));
-        assert_eq!(contents_kind("cache"), Some("cache"));
+        assert_eq!(contents_kind("objects/sha256"), Some(Kind::Object));
+        assert_eq!(contents_kind("objects/incoming"), Some(Kind::Staging));
+        assert_eq!(contents_kind("records/cases"), Some(Kind::Record));
+        assert_eq!(contents_kind("cache"), Some(Kind::Cache));
         assert_eq!(contents_kind("objects"), None);
         assert_eq!(contents_kind("records"), None);
-        assert_eq!(mask_for("object"), OBJECT_MASK);
-        assert_eq!(mask_for("record"), FILE_MASK);
-        assert_eq!(file_kind("staging"), "object");
-        assert_eq!(file_kind("record"), "record");
+        assert_eq!(mask_for(Kind::Object), OBJECT_MASK);
+        assert_eq!(mask_for(Kind::Record), FILE_MASK);
+        assert_eq!(mask_for(Kind::Staging), FILE_MASK);
+        assert_eq!(Kind::Staging.reported(), Kind::Object);
+        assert_eq!(Kind::Record.reported(), Kind::Record);
+    }
+
+    #[test]
+    fn a_staging_file_is_counted_as_an_object_and_never_reported_by_its_own_name() {
+        let mut counts = Counts::default();
+        counts.note(Kind::Staging, true);
+        let repaired = counts.finish();
+        let object = repaired
+            .changed
+            .iter()
+            .find(|entry| entry.kind == "object")
+            .expect("object is reported");
+        assert_eq!(object.count, 1);
+        assert!(
+            !KINDS.contains(&Kind::Staging.name()),
+            "staging is a walk kind, never a reported one"
+        );
     }
 
     #[cfg(unix)]
@@ -327,20 +452,28 @@ mod tests {
         let file = home.path().join("wide");
         fs::write(&file, b"x").unwrap();
         fs::set_permissions(&file, fs::Permissions::from_mode(0o4777)).unwrap();
-        assert!(apply(&file, FILE_MASK, "wide", "record_write").unwrap());
+        assert!(apply(&file, FILE_MASK, "wide", Stage::RecordWrite).unwrap());
         assert_eq!(
             fs::metadata(&file).unwrap().permissions().mode() & 0o7777,
             0o600
         );
         assert!(
-            !apply(&file, FILE_MASK, "wide", "record_write").unwrap(),
+            !apply(&file, FILE_MASK, "wide", Stage::RecordWrite).unwrap(),
             "already narrow"
         );
 
         let unreadable_by_choice = home.path().join("closed");
         fs::write(&unreadable_by_choice, b"x").unwrap();
         fs::set_permissions(&unreadable_by_choice, fs::Permissions::from_mode(0o000)).unwrap();
-        assert!(!apply(&unreadable_by_choice, FILE_MASK, "closed", "record_write").unwrap());
+        assert!(
+            !apply(
+                &unreadable_by_choice,
+                FILE_MASK,
+                "closed",
+                Stage::RecordWrite
+            )
+            .unwrap()
+        );
         assert_eq!(
             fs::metadata(&unreadable_by_choice)
                 .unwrap()
@@ -354,7 +487,7 @@ mod tests {
         let object = home.path().join("object");
         fs::write(&object, b"x").unwrap();
         fs::set_permissions(&object, fs::Permissions::from_mode(0o600)).unwrap();
-        assert!(apply(&object, OBJECT_MASK, "object", "object_write").unwrap());
+        assert!(apply(&object, OBJECT_MASK, "object", Stage::ObjectWrite).unwrap());
         assert_eq!(
             fs::metadata(&object).unwrap().permissions().mode() & 0o7777,
             0o400,
@@ -375,7 +508,7 @@ mod tests {
             &link,
             "records/cases/link",
             FILE_MASK,
-            "record",
+            Kind::Record,
             &mut counts,
         )
         .unwrap_err();
@@ -385,7 +518,7 @@ mod tests {
 
     #[test]
     fn an_unreadable_path_is_an_interrupted_write() {
-        let refusal = unreadable("records/cases", "record_write");
+        let refusal = unreadable("records/cases", Stage::RecordWrite);
         assert_eq!(refusal.code, codes::WRITE_INTERRUPTED);
         assert!(refusal.is_retryable());
         assert_eq!(refusal.exit_code(), 4);
@@ -393,18 +526,38 @@ mod tests {
 
     #[test]
     fn a_refusal_reports_the_kind_of_path_the_repair_was_inspecting() {
-        assert_eq!(stage_for("object"), "object_write");
-        assert_eq!(stage_for("staging"), "object_write");
-        assert_eq!(stage_for("marker"), "marker_write");
-        for kind in ["cache", "directory", "record", "root"] {
-            assert_eq!(stage_for(kind), "record_write");
+        assert_eq!(Kind::Object.stage(), Stage::ObjectWrite);
+        assert_eq!(Kind::Staging.stage(), Stage::ObjectWrite);
+        assert_eq!(Kind::Marker.stage(), Stage::MarkerWrite);
+        for kind in [Kind::Cache, Kind::Directory, Kind::Record, Kind::Root] {
+            assert_eq!(kind.stage(), Stage::RecordWrite);
         }
-        for kind in KINDS {
+        // The set of kinds is closed, so listing every one of them here is
+        // the whole mapping: a kind added without a stage is a compile
+        // error, and a kind added without a line here fails this assertion.
+        let all = [
+            Kind::Cache,
+            Kind::Directory,
+            Kind::Marker,
+            Kind::Object,
+            Kind::Record,
+            Kind::Root,
+            Kind::Staging,
+        ];
+        for kind in all {
             assert!(
-                ["object_write", "record_write", "marker_write"].contains(&stage_for(kind)),
-                "every reported kind maps to a stage the write bucket names"
+                Stage::ALL.contains(&kind.stage()),
+                "{} maps to a stage the write bucket names",
+                kind.name()
             );
         }
+        for kind in REPORTED {
+            assert!(all.contains(&kind), "{} is one of the kinds", kind.name());
+        }
+        assert_eq!(
+            Stage::ALL.map(Stage::as_str),
+            ["object_write", "record_write", "marker_write"]
+        );
     }
 
     #[test]
@@ -418,7 +571,7 @@ mod tests {
         let refusal = walk(
             &fan_out,
             "objects/sha256/ab",
-            "object",
+            Kind::Object,
             MAX_DEPTH,
             &mut counts,
         )
@@ -429,8 +582,14 @@ mod tests {
         assert_eq!(json["details"]["archive_path"], "objects/sha256/ab");
 
         let mut counts = Counts::default();
-        let refusal =
-            walk(&fan_out, "records/cases", "record", MAX_DEPTH, &mut counts).unwrap_err();
+        let refusal = walk(
+            &fan_out,
+            "records/cases",
+            Kind::Record,
+            MAX_DEPTH,
+            &mut counts,
+        )
+        .unwrap_err();
         assert_eq!(
             serde_json::to_value(&refusal).unwrap()["details"]["stage"],
             "record_write"

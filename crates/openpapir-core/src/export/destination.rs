@@ -213,11 +213,7 @@ fn remove_created_file(path: &Path) {
         return;
     }
     #[cfg(not(unix))]
-    if let Ok(metadata) = fs::metadata(path) {
-        let mut permissions = metadata.permissions();
-        permissions.set_readonly(false);
-        let _ = fs::set_permissions(path, permissions);
-    }
+    let _ = paths::clear_read_only(path);
     let _ = fs::remove_file(path);
 }
 

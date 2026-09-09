@@ -302,6 +302,17 @@ envelope.
   for the operations `capabilities` reports rather than describing the project
   as an unimplemented design. The stale pointers to closed issues for the
   stale-lock recovery flow and the degradation wire shapes go with it.
+- `capabilities` reports `alpha` where it reported `scaffold`, in both the
+  JSON and the human form, because the fifteen operations it lists are
+  implemented and no document calls the repository a scaffold any more.
+  [architecture](docs/architecture.md) now documents `stage` beside the
+  capabilities contract: a plain string from the closed set `scaffold`,
+  `alpha`, `beta`, `stable`, which is not a version and not a support promise,
+  which moves only by a release decision recorded here, and which a caller
+  never reads in place of `operations` to learn what the binary can do. The
+  field's name, type, and meaning are unchanged, so `schema_version` stays
+  `1`, and no other envelope field changed. The `capabilities` golden case is
+  regenerated for that one value.
 - The `archive check` report counts the leftover staging files the record
   directories hold, in a new additive `records_staging_files` field beside the
   existing `staging_files`, which keeps its meaning and still counts
@@ -443,6 +454,18 @@ envelope.
   read-only attribute, and so carries no `read_only_restored` flag, is
   replaced by a later one that cleared it and put it back; an object left
   writable, which reports the flag as `false`, still outranks both.
+- `archive repair-permissions` no longer decides a refusal's `stage` from a
+  catch-all. The kinds of path the repair walks are a closed enum, and each
+  one names its stage in a match the compiler checks for exhaustiveness, so a
+  kind added or renamed without a decided stage does not build instead of
+  silently reporting `record_write`. The reported kind names, their order, the
+  counts, and every stage a refusal can carry are unchanged; the human and
+  JSON output of the command is byte for byte what it was. The write-stage
+  table now appears once in each of `docs/error-contract.md` and
+  `docs/architecture.md`, naming the same paths per stage, with the prose that
+  used to repeat a slightly different list replaced by a link to it. A test
+  parses both tables and fails when they drift apart or when they stop naming
+  exactly the stages the implementation can report.
 - `case delete` no longer unlinks part of its records before refusing. The
   record pass is now all or nothing per case: before the first unlink, every
   record directory the deletion would remove an entry from is opened without
