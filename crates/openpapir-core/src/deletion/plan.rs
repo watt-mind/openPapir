@@ -65,9 +65,15 @@ pub struct Plan {
     /// for.
     pub purge_not_requested: u64,
     /// How many references on records this deletion keeps are not digests at
-    /// all. Any at all retains every candidate object, because such a
-    /// reference names something unknown and the unknown may be any of them.
+    /// all. Any at all retains every candidate object a purge would otherwise
+    /// have unlinked, because such a reference names something unknown and
+    /// the unknown may be any of them.
     pub malformed_references: u64,
+    /// How many candidate objects those references alone held back. It is
+    /// above zero only when `--purge` was given and this case had a candidate
+    /// the purge would otherwise have unlinked, which is exactly when a
+    /// malformed reference changed what this deletion did.
+    pub malformed_withheld: u64,
 }
 
 /// The bare hexadecimal digest of a reference, when it is one at all.
@@ -267,6 +273,14 @@ fn doomed_receipts<'a>(
 /// It survives when a remaining submission or receipt still names it, and it
 /// survives without a purge whatever else is true, because objects go only by
 /// an explicit purge (`docs/archive-layout.md`).
+///
+/// The reasons are tested in that order, so each candidate is reported under
+/// the reason that actually decided it. A reference no remaining record
+/// resolves and no purge asked about is `purge_not_requested`, whatever else
+/// the archive holds; `referenced_elsewhere` is reserved for a candidate a
+/// purge would otherwise have removed, either because a surviving record
+/// names it or because a surviving record names something the archive cannot
+/// identify and that unknown may be this one.
 fn plan_objects<'a>(
     plan: &mut Plan,
     submissions: &'a [Submission],
@@ -288,15 +302,18 @@ fn plan_objects<'a>(
     }
     // A reference that is not a digest names something this archive cannot
     // resolve, and the deletion cannot tell which object it meant. Every
-    // candidate may be the one, so every candidate is retained.
+    // candidate may be the one, so a purge unlinks none of them.
     let unknown = plan.malformed_references > 0;
     for digest in references.candidates {
-        if unknown || references.remaining.contains(digest) {
+        if references.remaining.contains(digest) {
             plan.referenced_elsewhere += 1;
-        } else if purge {
-            plan.objects.push(digest.to_owned());
-        } else {
+        } else if !purge {
             plan.purge_not_requested += 1;
+        } else if unknown {
+            plan.referenced_elsewhere += 1;
+            plan.malformed_withheld += 1;
+        } else {
+            plan.objects.push(digest.to_owned());
         }
     }
 }
@@ -342,11 +359,17 @@ impl<'a> References<'a> {
 /// would say which surviving record points at content the user asked to
 /// purge, and naming the value would echo a stored field
 /// (`docs/error-contract.md`).
+///
+/// The scan reads the whole archive, so such a reference may sit on a record
+/// that has nothing to do with this case. It is reported only when it held an
+/// object of this deletion back, and its text says so, because a warning on
+/// every later deletion would describe the archive rather than the command
+/// the user ran. Finding one wherever it sits is `archive check`'s work.
 #[must_use]
 pub fn malformed_references(malformed_count: u64) -> Warning {
     Diagnostic::new(
         codes::RECORD_MALFORMED,
-        "A record this deletion keeps references an artefact by something that is not a digest, so no object was purged.",
+        "A record this deletion keeps references an artefact by something that is not a digest, so no object was purged for this case.",
         Details::new()
             .text("stage", "delete")
             .int("malformed_count", malformed_count),
@@ -458,6 +481,10 @@ mod tests {
         );
         assert_eq!(plan.referenced_elsewhere, 2, "every candidate is retained");
         assert_eq!(plan.purge_not_requested, 0);
+        assert_eq!(
+            plan.malformed_withheld, 2,
+            "both are held back by the reference alone"
+        );
     }
 
     /// The same reference on a record that is going says nothing: the record
@@ -475,21 +502,72 @@ mod tests {
         assert_eq!(plan.referenced_elsewhere, 0);
     }
 
-    /// A surviving receipt reaches the same rule as a surviving submission,
-    /// and it holds without a purge too: an object that may be referenced is
-    /// retained for that reason rather than for the absent purge.
+    /// A surviving receipt reaches the same rule as a surviving submission.
     #[test]
-    fn a_surviving_receipt_reaches_the_same_rule_with_or_without_a_purge() {
+    fn a_surviving_receipt_reaches_the_same_rule_as_a_surviving_submission() {
         let qualified = format!("sha256:{DIGEST}");
         let submissions = vec![submission(1, 9, &[&qualified]), submission(2, 8, &[])];
         let receipts = vec![receipt(0x30, "sha256:not a digest")];
+        let plan = objects(&submissions, &receipts, true);
+        assert_eq!(plan.malformed_references, 1);
+        assert!(plan.objects.is_empty());
+        assert_eq!(plan.referenced_elsewhere, 1);
+        assert_eq!(plan.purge_not_requested, 0);
+        assert_eq!(plan.malformed_withheld, 1);
+    }
+
+    /// Without a purge no object was going to be unlinked, so the reference
+    /// the archive cannot resolve decided nothing. The candidate keeps
+    /// `purge_not_requested`, the reason that actually held it, and nothing
+    /// is withheld for the warning to report.
+    #[test]
+    fn without_a_purge_a_malformed_reference_leaves_the_reason_unchanged() {
+        let qualified = format!("sha256:{DIGEST}");
+        let submissions = vec![submission(1, 9, &[&qualified]), submission(2, 8, &[])];
+        let receipts = vec![receipt(0x30, "sha256:not a digest")];
+        let plan = objects(&submissions, &receipts, false);
+        assert_eq!(plan.malformed_references, 1);
+        assert!(plan.objects.is_empty(), "no purge unlinks nothing");
+        assert_eq!(plan.referenced_elsewhere, 0);
+        assert_eq!(plan.purge_not_requested, 1);
+        assert_eq!(plan.malformed_withheld, 0, "nothing was held back");
+        let clean = objects(&submissions, &[], false);
+        assert_eq!(
+            clean.purge_not_requested, plan.purge_not_requested,
+            "the same archive without the malformed reference reads the same"
+        );
+    }
+
+    /// A candidate a surviving record names outright is `referenced_elsewhere`
+    /// with or without a purge: that record, not the absent purge, is why the
+    /// object stays.
+    #[test]
+    fn a_candidate_a_surviving_record_names_stays_referenced_elsewhere() {
+        let qualified = format!("sha256:{DIGEST}");
+        let submissions = vec![
+            submission(1, 9, &[&qualified]),
+            submission(2, 8, &[&qualified]),
+        ];
         for purge in [true, false] {
-            let plan = objects(&submissions, &receipts, purge);
-            assert_eq!(plan.malformed_references, 1);
+            let plan = objects(&submissions, &[], purge);
+            assert_eq!(plan.malformed_references, 0);
             assert!(plan.objects.is_empty());
             assert_eq!(plan.referenced_elsewhere, 1);
             assert_eq!(plan.purge_not_requested, 0);
+            assert_eq!(plan.malformed_withheld, 0);
         }
+    }
+
+    /// A malformed reference with no candidate to hold back changed nothing,
+    /// so there is nothing for the warning to report.
+    #[test]
+    fn a_malformed_reference_with_no_candidate_withholds_nothing() {
+        let submissions = vec![submission(1, 9, &[]), submission(2, 8, &["not-a-digest"])];
+        let plan = objects(&submissions, &[], true);
+        assert_eq!(plan.malformed_references, 1);
+        assert_eq!(plan.malformed_withheld, 0);
+        assert_eq!(plan.referenced_elsewhere, 0);
+        assert_eq!(plan.purge_not_requested, 0);
     }
 
     #[test]

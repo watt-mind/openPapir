@@ -39,7 +39,7 @@ are in the Documentation section of [contributing](../CONTRIBUTING.md).
 
 | File | Purpose |
 | --- | --- |
-| [README.md](../README.md) | Front door: what openPapir is, its honest status, how to build and run the scaffold, and its intended responsibilities. |
+| [README.md](../README.md) | Front door: what openPapir is, its honest status, how to build and run it, and its intended responsibilities. |
 | [CONTRIBUTING.md](../CONTRIBUTING.md) | How to propose and land a change: branch model, required checks, review expectations, and the documentation policy. |
 | [SECURITY.md](../SECURITY.md) | How to report a vulnerability privately, the current security scope, and the requirements future features must meet. |
 | [CHANGELOG.md](../CHANGELOG.md) | Keep a Changelog record of user-visible and contributor-visible change, with an entry added by every pull request. |

@@ -1,6 +1,6 @@
 # Contributing
 
-openPapir is at the scaffold stage: the local archive exists as far as the
+openPapir is at the alpha stage: the local archive exists as far as the
 operations `capabilities` reports, and everything else is a plan.
 Start with the [specification index](docs/specification.md) for what is
 implemented and the [roadmap](docs/roadmap.md) for what comes next, and agree
@@ -16,7 +16,7 @@ maintainer-local paths, credentials, or real correspondence.
 ## Setup and checks
 
 Use Rust 1.88 or newer and the checked-in lockfile. The workspace uses edition
-2024 and `publish = false`; no package publication is part of the scaffold.
+2024 and `publish = false`; no crate here is published to a registry.
 
 ```sh
 cargo build --workspace --locked
