@@ -304,7 +304,8 @@ envelope.
   stale-lock recovery flow and the degradation wire shapes go with it.
 - `capabilities` reports `alpha` where it reported `scaffold`, in both the
   JSON and the human form, because the fifteen operations it lists are
-  implemented and no document calls the repository a scaffold any more.
+  implemented, and the documents that still called the repository a scaffold
+  when this landed were corrected afterwards.
   [architecture](docs/architecture.md) now documents `stage` beside the
   capabilities contract: a plain string from the closed set `scaffold`,
   `alpha`, `beta`, `stable`, which is not a version and not a support promise,
