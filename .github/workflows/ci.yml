@@ -82,7 +82,21 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@688313b0823df1393bcebb1b4add0438a6d36884 # 1.88 @ 2026-09-03
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      - run: cargo check --workspace --all-targets --locked
+      # rust-toolchain.toml pins the channel to stable and overrides `rustup
+      # default`, so the MSRV steps below select 1.88.0 through RUSTUP_TOOLCHAIN.
+      - name: Show the toolchain the MSRV check runs on
+        env:
+          RUSTUP_TOOLCHAIN: 1.88.0
+        run: |
+          cargo --version
+          rustc --version
+          rustc --version | grep -q '^rustc 1\.88\.'
+      - name: Check that Cargo.toml still declares 1.88 as the MSRV
+        run: grep -qx 'rust-version = "1.88"' Cargo.toml
+      - name: Check the workspace on the MSRV toolchain
+        env:
+          RUSTUP_TOOLCHAIN: 1.88.0
+        run: cargo check --workspace --all-targets --locked
   deny:
     name: Dependencies
     runs-on: ubuntu-latest

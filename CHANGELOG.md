@@ -146,3 +146,9 @@ matches the observable difference. See the Documentation section of
 
 - The pinned minimum-supported-Rust action no longer receives an unsupported
   toolchain input, which had failed the MSRV job (#3).
+- The minimum-supported-Rust CI job now compiles on Rust 1.88 rather than on
+  the runner's stable toolchain. `rust-toolchain.toml` pins the channel to
+  stable and overrides `rustup default`, so the job sets `RUSTUP_TOOLCHAIN`
+  on its steps, prints the resolved `cargo` and `rustc` versions, and fails
+  if the banner is not 1.88 or if `Cargo.toml` stops declaring
+  `rust-version = "1.88"`.
