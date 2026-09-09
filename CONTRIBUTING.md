@@ -1,9 +1,12 @@
 # Contributing
 
-openPapir is at the scaffold stage. Start with the
-[roadmap](docs/roadmap.md) and agree a bounded issue before implementing a new
-workflow. Describe the problem, scope, acceptance criteria, synthetic evidence,
-and required checks. Record unresolved format or service contracts explicitly.
+openPapir is at the scaffold stage: the local archive exists as far as the
+fourteen operations `capabilities` reports, and everything else is a plan.
+Start with the [specification index](docs/specification.md) for what is
+implemented and the [roadmap](docs/roadmap.md) for what comes next, and agree
+a bounded issue before implementing a new workflow. Describe the problem,
+scope, acceptance criteria, synthetic evidence, and required checks. Record
+unresolved format or service contracts explicitly.
 
 Use one issue per `codex/` branch and open pull requests against `develop`.
 `master` is the stable branch. Keep changes focused and link the public issue
@@ -38,16 +41,16 @@ The repository supplies `scripts/commit-msg.sh` for subject validation.
 | Tests | `cargo test --workspace --locked` | Local script, CI on Linux, macOS, and Windows |
 | Rustdoc | `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked` | Local script, CI |
 | Unused dependencies | `cargo machete` | Local script, CI |
-| Licences and advisories | `cargo deny --all-features check` | Local script, CI |
+| Licences and advisories | `cargo deny --all-features check` | Local script; CI runs the same arguments through the pinned `cargo-deny` action |
 | Relative Markdown links and anchors | `python3 scripts/check-doc-links.py` | Local script, CI |
 | Source file length | `python3 scripts/check-file-length.py` | Local script, CI |
 | Prose style, no em-dashes | `python3 scripts/check-prose.py` | Local script, CI |
 | Markdown lint | `npx --yes markdownlint-cli2@0.18.1 "**/*.md" "#target" "#samples" "#refs" "#tmp" "#node_modules"` | Local script, CI |
 | Workflow lint | `actionlint` | Local script, CI |
-| Release build and CLI smoke | `cargo build --release --locked`, then `capabilities --json` | CI, and the baseline below |
+| Release build and CLI smoke | `cargo build --release --locked`, then `--help`, `--version`, and `capabilities --json` | CI on Linux, macOS, and Windows, and the baseline below |
 | Minimum supported Rust | `cargo check --workspace --all-targets --locked` on Rust 1.88.0 | CI |
 | Coverage threshold | `cargo llvm-cov --workspace --locked --fail-under-lines 90` | CI |
-| Commit subject shape | `scripts/commit-msg.sh` | CI, commit-msg hook |
+| Commit subject shape | `scripts/commit-msg.sh` | CI on every pull request commit, commit-msg hook |
 | Secret scan, advisories, CodeQL | The `Security` workflow | CI |
 
 The full local baseline is:
@@ -86,6 +89,8 @@ such a pull request updates all of:
 | Test layout, fixtures, coverage | `docs/testing.md` |
 | Sources, evidence rules, related projects | `docs/references.md` |
 | Release position and its checklist | `docs/releasing.md` |
+| The purpose of every document and root policy file | `docs/index.md` |
+| Runner setup and orchestration procedure for an explicitly launched run | `docs/factory.md`, `docs/orchestrator.md` |
 | Every user-visible or contributor-visible change | `CHANGELOG.md`, under Unreleased |
 
 Every file under `docs/` is listed in [docs/index.md](docs/index.md) with a
