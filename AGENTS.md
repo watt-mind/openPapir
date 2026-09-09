@@ -33,7 +33,7 @@ of each kind of content, and the style are in the Documentation section of
 
 ## Boundaries
 
-- Help, version, and fifteen operations exist today: `capabilities`, archive
+- Help, version, `capabilities`, and fifteen operations exist today: archive
   creation, the read-only integrity check, permission repair, artefact import
   with the original bytes preserved, the case, submission, receipt, and
   association records, the export of one case, the deletion of one case with
