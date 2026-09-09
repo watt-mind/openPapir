@@ -18,8 +18,8 @@ repository; no third-party schema or document content is redistributed here.
 - Candidate receipt type in focus: the **e-Papír "Feladási igazolás"**
   (submission receipt) that the service states a submitter receives in their
   personal delivery storage after a successful submission.
-- Secondary terms observed in the same ecosystem, recorded but not adopted as a
-  target: *Letöltési igazolás*, *Meghiúsulási igazolás*, *Átvételi értesítő*.
+- Secondary terms seen only in unverified search snippets (see F4), recorded
+  but not adopted as a target: *Letöltési igazolás*, *Átvételi értesítő*.
 - Each claim below is labelled **normative** (a legal or operator requirement),
   **descriptive** (an operator's own account of behaviour), or **unknown**.
 - Where a source could not be retrieved, that is recorded as a finding. No gap
@@ -29,7 +29,7 @@ repository; no third-party schema or document content is redistributed here.
 
 | # | Issuing organisation | Source title | Version / date | URL and section | Retrieved | Redistribution terms | Claim supported | Kind |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| E1 | Operator of the e-Papír service (imprint names IdomSoft Zrt. as the electronic identification service provider) | e-Papír — Súgó, "Általános tájékoztató" section | Page footer shows `verzió: 1.1.6 (2025-11-04)` | <https://epapir.gov.hu/sugo> (accordion section "Általános tájékoztató"; "Impresszum" for the operator statement) | 2026-09-09, retrieved | Not established | A submitter receives a *Feladási igazolás* in their personal delivery storage after a successful submission; the storage retains incoming documents, *igazolások* and *nyugták* for 30 days, with an option to move items to permanent storage; a letter may carry attachments up to 25 MB; the accepted attachment format list includes `.pdf` | Descriptive |
+| E1 | Operator of the e-Papír service (imprint names IdomSoft Zrt. as the service provider) | e-Papír — Súgó, "Általános tájékoztató" section | Page footer shows `verzió: 1.1.6 (2025-11-04)` | <https://epapir.gov.hu/sugo> (accordion section "Általános tájékoztató"; "Impresszum" for the operator statement) | 2026-09-09, retrieved | Not established | A submitter receives a *Feladási igazolás* in their personal delivery storage after a successful submission; the storage retains incoming documents, *igazolások* and *nyugták* for 30 days, with an option to move items to permanent storage; a letter may carry attachments up to 25 MB; the accepted attachment format list includes `.pdf` | Descriptive |
 | E2 | Nemzeti Jogszabálytár (national consolidated law database) | 451/2016. (XII. 19.) Korm. rendelet az elektronikus ügyintézés részletszabályairól | Consolidated text dated 2024-07-01 | <https://njt.jog.gov.hu/jogszabaly/2016-451-20-22> (§ 6(10); § 30(3)) | 2026-09-09, partially retrieved | Not established | § 6(10) states that the secure delivery service provider sends the sender authentic confirmations (`hiteles igazolásokat`) about delivery; § 30(3) requires certain confirmations to be transmitted via the secure delivery service | Normative |
 | E3 | Operator of the magyarorszag.hu SZÜF portal | "Tárhely szolgáltatások — Személyes tárhely, Cégkapu, Hivatali kapu" service description | No version or date shown on the page | <https://magyarorszag.hu/szuf_ugyleiras?id=2b96c3a5-d636-4a82-8a4e-ee4a13fbdc5b> | 2026-09-09, retrieved | Not established | A single "Hiteles Elektronikus Postafiók" surface provides storage for citizens, Hivatali kapu and Cégkapu holders — i.e. the receipt destination is a storage mailbox, not a per-application inbox | Descriptive |
 | E4 | e-Papír content management group; copy published by Emberi Erőforrás Támogatáskezelő (EMET) | e-Papír Felhasználói Kézikönyv | `v1.0`, `2018.02.21.` (read from the document's own title page text) | <https://emet.gov.hu/app/uploads/sites/2/2020/11/epapir_felhasznaloi_kezikonyv.pdf> | 2026-09-09, retrieved but not usable | Not established | Establishes only that a manual with this title, version and date exists; see the finding in F2 | Unknown |
@@ -56,7 +56,9 @@ repository; no third-party schema or document content is redistributed here.
 - **F4 — E6 returned HTTP 403.** Search-engine surfaced snippets describing a
   *Letöltési igazolás* and an *Átvételi értesítő* were seen, but they could not
   be verified against the page itself. They are recorded here as unverified
-  hearsay and support no design decision.
+  hearsay and support no design decision. Those snippets suggest "receipt" may
+  be a family of artefacts rather than one type; that remains unverified, and
+  no design decision rests on it.
 - **F5 — redistribution terms are unestablished everywhere.** No consulted
   source stated licence terms permitting redistribution of its text, schemas,
   or sample documents. Link only; vendor nothing.
@@ -76,9 +78,6 @@ Established (with the labels above):
   normative).
 - The mailbox retains such items for 30 days unless moved to permanent storage
   (E1, descriptive) — so a local archive is the durable copy, not the mailbox.
-- At least three receipt names coexist in this ecosystem (*Feladási*,
-  *Letöltési*, *Meghiúsulási igazolás*), meaning "receipt" is a family of
-  artefacts, not one type (E1 plus unverified E6 material).
 
 Not established, and must not be assumed:
 
