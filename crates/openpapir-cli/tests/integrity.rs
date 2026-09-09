@@ -199,6 +199,7 @@ fn a_clean_archive_passes_and_reports_only_counts() {
     assert_eq!(data["bytes_digested"], PAYLOAD.len() as u64);
     assert_eq!(data["orphan_objects"], 0);
     assert_eq!(data["staging_files"], 0);
+    assert_eq!(data["records_staging_files"], 0);
     assert_eq!(data["objects_unchecked"], 0);
     assert_eq!(data["records_unchecked"], 0);
     assert!(problems(data).values().all(|count| *count == 0));
@@ -390,6 +391,31 @@ fn a_document_that_is_not_a_record_is_reported_as_malformed() {
     assert_eq!(envelope["error"]["details"]["record_kind"], "case");
     assert_eq!(envelope["error"]["details"]["path_count"], 1);
     assert_private(&output, &[ABSENT_ID, "records/cases"]);
+}
+
+#[test]
+fn a_leftover_staging_file_in_a_record_directory_is_counted_and_left_alone() {
+    let (_home, root) = archive();
+    let staging = root.join("records/cases").join(".papir-staging-abc");
+    fs::write(&staging, b"partial").expect("write the leftover staging file");
+    let output = check(&root);
+    let envelope = assert_report(&output, true, None, 0);
+    let data = &envelope["data"];
+    assert_eq!(data["records_staging_files"], 1);
+    assert_eq!(data["staging_files"], 0, "the incoming count is its own");
+    assert_eq!(
+        problems(data)["record.malformed"],
+        0,
+        "openPapir's own transient artefact is not a malformed record"
+    );
+    assert_eq!(data["records_checked"], 1);
+    assert!(staging.exists(), "the check deletes nothing");
+    assert_private(&output, &[".papir-staging-abc", "records/cases"]);
+
+    let human = run(&["archive", "check", "--archive", &root.to_string_lossy()]);
+    let text = String::from_utf8(human.stdout).expect("stdout is UTF-8");
+    assert!(text.contains("0 incoming, 1 in record directories"));
+    assert!(!text.contains('/'), "no path reaches a human");
 }
 
 /// A symbolic link inside the store is refused rather than followed. The test
