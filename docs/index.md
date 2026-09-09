@@ -6,7 +6,8 @@ implemented behaviour, decided designs, and deferred contracts.
 
 The implementation is early: help, version, capabilities reporting, archive
 creation, artefact import, the case, submission, receipt, and user-asserted
-association records, and the read-only whole-archive integrity check exist.
+association records, the read-only whole-archive integrity check, the export
+of one case, and the permission repair exist.
 Every document below separates implemented behaviour from plans, and the
 remaining correspondence workflows, including automatic matching and any
 receipt parsing, are not available yet.

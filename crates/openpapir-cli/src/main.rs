@@ -16,8 +16,12 @@
 //! - `openpapir archive init <root> [--json]`, archive creation.
 //! - `openpapir archive check --archive <root> [--json]`, the read-only
 //!   whole-archive integrity check.
+//! - `openpapir archive repair-permissions --archive <root> [--json]`, the
+//!   only action besides `archive init` that narrows permissions.
 //! - `openpapir import --archive <root> <file>... [--json]`, artefact import.
 //! - `openpapir case create|list|show ... [--json]`, the user's own cases.
+//! - `openpapir case export --archive <root> --case <id> --to <dir> [--json]`,
+//!   a plain copy of one case out of the archive.
 //! - `openpapir submission add ... [--json]`, what the user states they sent.
 //! - `openpapir receipt add|list ... [--json]`, an artefact the user believes
 //!   to be a receipt.
@@ -25,7 +29,7 @@
 //!   about whether a receipt relates to a submission.
 //!
 //! There is no automatic matching, no derived metadata, no receipt parsing,
-//! no export, no deletion, no editing of a stored record, no repair, no
+//! no import from an export, no deletion, no editing of a stored record, no
 //! signature verification, and no government delivery. The integrity check
 //! re-digests stored bytes, which is a storage-layer identity check and never
 //! a cryptographic verification.
@@ -47,7 +51,9 @@
 //! # Boundaries
 //!
 //! No network access and no background work. Output never carries a
-//! user-supplied path, an original filename, or a payload byte. It does carry
+//! user-supplied path, an original filename, or a payload byte. The one
+//! exception is the export destination, which human output echoes back
+//! because the user just typed it; no JSON field ever carries it. It does carry
 //! the titles, descriptions, roles, and dates the user typed into their own
 //! records, and the identifiers and digests openPapir minted. KRX and
 //! `.es3` handling belong to openKRX and openSzigno respectively; neither is
@@ -135,6 +141,15 @@ enum ArchiveCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Narrow every path in the archive back to owner-only.
+    RepairPermissions {
+        /// The archive root, which is always supplied explicitly.
+        #[arg(long, value_name = "ROOT")]
+        archive: PathBuf,
+        /// Emit one JSON object instead of human-readable text.
+        #[arg(long)]
+        json: bool,
+    },
     /// Create an archive in an existing, empty directory.
     Init {
         /// The archive root, which must exist and be empty.
@@ -168,6 +183,21 @@ enum CaseCommand {
         /// The archive root, which is always supplied explicitly.
         #[arg(long, value_name = "ROOT")]
         archive: PathBuf,
+        /// Emit one JSON object instead of human-readable text.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Copy one case, its records, and its objects out of the archive.
+    Export {
+        /// The archive root, which is always supplied explicitly.
+        #[arg(long, value_name = "ROOT")]
+        archive: PathBuf,
+        /// The case to export, as `case create` reported it.
+        #[arg(long = "case", value_name = "CASE_ID")]
+        case_id: String,
+        /// The destination directory, empty or not yet created.
+        #[arg(long = "to", value_name = "DIR")]
+        destination: PathBuf,
         /// Emit one JSON object instead of human-readable text.
         #[arg(long)]
         json: bool,
@@ -320,6 +350,14 @@ fn run(command: Command) -> i32 {
             report::integrity,
             integrity_problem,
         ),
+        Command::Archive {
+            command: ArchiveCommand::RepairPermissions { archive, json },
+        } => emit(
+            "archive.repair_permissions",
+            openpapir_core::repair_permissions(&archive),
+            json,
+            report::repaired,
+        ),
         Command::Import {
             archive,
             json,
@@ -377,6 +415,17 @@ fn run_case(command: CaseCommand) -> i32 {
             records::case::list(&archive),
             json,
             report::case_list,
+        ),
+        CaseCommand::Export {
+            archive,
+            case_id,
+            destination,
+            json,
+        } => emit(
+            "case.export",
+            openpapir_core::export_case(&archive, &case_id, &destination),
+            json,
+            report::exported,
         ),
         CaseCommand::Show {
             archive,

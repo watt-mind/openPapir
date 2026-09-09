@@ -436,12 +436,17 @@ followed ([archive-layout](archive-layout.md)).
 - **`export.destination_conflict`**: archive, not retryable. The export
   destination already holds a file openPapir would have to replace. Export
   never overwrites and refuses instead ([archive-layout](archive-layout.md)).
-  Details: `bucket`, `scope` (`export_destination`), `conflict_count`. The
-  destination path is user-supplied and outside the archive, so it is not
-  echoed.
+  Details: `bucket`, `scope` (`export_destination`), `conflict_count`, and
+  the additive `export_path`, the path relative to the destination, which is
+  built from openPapir's own directory names plus a digest or an identifier.
+  The destination path itself is user-supplied and outside the archive, so it
+  is not echoed.
 - **`export.copy_mismatch`**: archive, not retryable. An exported copy
   re-digested to something other than the original. Details: `bucket`,
   `digest`, `conflict_count`.
+
+Both are implemented; [architecture](architecture.md) is authoritative for
+what emits them.
 
 ### `delete`: deletion and purge
 
@@ -728,8 +733,11 @@ Allowed, and only where the design already permits it:
 Never, by default and with no flag to enable it:
 
 - Original filenames, or any sanitised or truncated form of one.
-- User-supplied paths outside the archive, including the archive root itself
-  and any export destination.
+- User-supplied paths outside the archive, including the archive root itself.
+  The one exception is the export destination in human-readable output, which
+  repeats the `--to` argument the user typed in the same invocation back to
+  them; it never enters `data`, `message`, `details`, or stderr, and no other
+  user-supplied path is echoed anywhere.
 - Payload bytes, excerpts, extracted text, or parsed field values.
 - Signer information, certificate data, subject or issuer names.
 - Any government identifier, or any receipt identifier issued by an
@@ -764,10 +772,15 @@ derived metadata, and any extractor stay unimplemented: every evidence entry
 this build writes carries `kind` `user_assertion` and `source` `user`, and
 every association carries `created_by` `user`.
 
-Everything else here is still a proposal, including every `export` and
-`delete` code, `lock.stale`, `path.traversal`, and `write.incomplete`.
-Agreeing a code here creates no capability and no obligation on a user's
-archive.
+Case export and the permission repair are implemented, so
+`export.destination_conflict` and `export.copy_mismatch` are contract rather
+than proposal, and `archive.permissions_wide` now has a documented remedy
+rather than only a refusal.
+
+Everything else here is still a proposal, including every `delete` code,
+`lock.stale`, `path.traversal`, `platform.replace_while_open`, and
+`write.incomplete`. Agreeing a code here creates no capability and no
+obligation on a user's archive.
 
 ## Origin and unblocked work
 
@@ -786,9 +799,10 @@ written and reviewed:
   counts-and-buckets report shape above.
 - **Derived-metadata staleness and recompute-on-request**: has the record
   and cap codes it needs.
-- **Export, backup, and the permission-repair action**: has
+- **Export, backup, and the permission-repair action**: implemented as
+  `case export` and `archive repair-permissions`, using
   `export.destination_conflict`, `export.copy_mismatch`, and
-  `archive.permissions_wide`.
+  `archive.permissions_wide` ([architecture](architecture.md)).
 
 Unchanged blockers: receipt parsing still needs the format gap closed, and the
 delegated verification boundary still needs published, versioned contracts

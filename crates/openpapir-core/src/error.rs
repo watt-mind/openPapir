@@ -79,6 +79,11 @@ pub mod codes {
     /// A stored object is referenced by no record in this archive.
     pub const INTEGRITY_ORPHAN_OBJECT: &str = "integrity.orphan_object";
 
+    /// The export destination already holds a file export would replace.
+    pub const EXPORT_DESTINATION_CONFLICT: &str = "export.destination_conflict";
+    /// An exported copy re-digested to something other than the original.
+    pub const EXPORT_COPY_MISMATCH: &str = "export.copy_mismatch";
+
     /// The filesystem cannot provide a guarantee the archive requires.
     pub const PLATFORM_FILESYSTEM_UNSUPPORTED: &str = "platform.filesystem_unsupported";
     /// A no-follow open refuses the link after opening it, not at the call.
@@ -397,6 +402,8 @@ mod tests {
             (codes::INTEGRITY_LENGTH_MISMATCH, Bucket::Integrity, 4),
             (codes::INTEGRITY_DANGLING_REFERENCE, Bucket::Integrity, 4),
             (codes::INTEGRITY_ORPHAN_OBJECT, Bucket::Integrity, 4),
+            (codes::EXPORT_DESTINATION_CONFLICT, Bucket::Export, 4),
+            (codes::EXPORT_COPY_MISMATCH, Bucket::Export, 4),
             (codes::PLATFORM_FILESYSTEM_UNSUPPORTED, Bucket::Platform, 5),
             (codes::PLATFORM_NO_DIRECTORY_FSYNC, Bucket::Platform, 5),
             (codes::PLATFORM_NO_FOLLOW_AFTER_OPEN, Bucket::Platform, 5),

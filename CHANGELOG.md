@@ -18,6 +18,40 @@ matches the observable difference. See the Documentation section of
 
 ### Added
 
+- `openpapir case export --archive <root> --case <case-id> --to <dir>` copies
+  one case out of the archive as plain files. Every object the case's
+  submissions and receipts reference is copied byte for byte to
+  `objects/<digest>`, every case, submission, receipt, association, and
+  import-event record that belongs to the case is written to
+  `records/<kind>/<id>.json` exactly as the archive stores it, and
+  `manifest.json`, with sorted keys, lists every copied object with its digest
+  and byte length and every record with its kind and identifier. The archive
+  is opened read-only and is not modified: no lock is taken and nothing inside
+  the root is written. The destination is an existing empty directory or one
+  the export creates, is never inside the archive root, and may be on any
+  filesystem, because a copy is a plain copy and never a hard link. A
+  symbolic link in the destination is refused rather than followed, and a file
+  already at a target path is refused rather than replaced. Every copy is
+  re-digested as it is written and its partial file removed when it differs.
+  An exported object is named by its digest alone: no original filename is a
+  file name, a directory name, or a manifest field. Human output repeats the
+  destination the user supplied; no JSON field carries it.
+- `openpapir archive repair-permissions --archive <root>` narrows the root,
+  the marker, the lock, every layout directory, every record, and every
+  object back to the owner-only modes of the design, and reports the count of
+  paths it changed per kind. It only ever narrows: a path already narrower
+  than the design's mode is left as it is, and nothing is ever widened. It
+  refuses a root without a marker, takes the writer lock, reads no file
+  content, and refuses a symbolic link inside the archive rather than
+  narrowing it. It is the documented remedy for copy tooling that widens
+  permissions when a backup or an export is restored.
+- `export.destination_conflict` and `export.copy_mismatch` are now emitted
+  rather than reserved. Both are `export` refusals that exit `4`, and both
+  report counts, a digest, or a destination-relative path, never the
+  destination the user supplied.
+- `capabilities` now lists `case.export` and `archive.repair_permissions` as
+  the twelfth and thirteenth operations.
+
 - `openpapir archive check --archive <root>` re-digests every stored object
   and compares the artefact store with what the records claim. It is
   read-only: it takes no writer lock, so a held lock never stops it, opens

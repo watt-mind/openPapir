@@ -14,7 +14,7 @@ The Rust edition 2024 workspace has an MSRV of 1.88 and two unpublished crates:
 
 | Crate | Current responsibility |
 | --- | --- |
-| `openpapir-core` | The local archive: marker, artefact store, atomic writes, single-writer lock, input caps, path safety, import-event records, the case, submission, receipt, and association records, and the read-only whole-archive integrity check. |
+| `openpapir-core` | The local archive: marker, artefact store, atomic writes, single-writer lock, input caps, path safety, import-event records, the case, submission, receipt, and association records, the read-only whole-archive integrity check, the export of one case, and the permission repair. |
 | `openpapir-cli` | Argument parsing, the response envelope, and the exit-code mapping. |
 
 Only these invocations are supported:
@@ -25,10 +25,12 @@ openpapir --version
 openpapir capabilities [--json]
 openpapir archive init <root> [--json]
 openpapir archive check --archive <root> [--json]
+openpapir archive repair-permissions --archive <root> [--json]
 openpapir import --archive <root> <file>... [--json]
 openpapir case create --archive <root> --title <t> [--notes <n>] [--json]
 openpapir case list --archive <root> [--json]
 openpapir case show --archive <root> <case-id> [--json]
+openpapir case export --archive <root> --case <case-id> --to <dir> [--json]
 openpapir submission add --archive <root> --case <case-id> --description <d> [--date <yyyy-mm-dd>] [--artefact <digest>[:<role>]]... [--json]
 openpapir receipt add --archive <root> --artefact <digest> [--import-event <id>] [--label <l>] [--json]
 openpapir receipt list --archive <root> [--json]
@@ -36,17 +38,19 @@ openpapir association create --archive <root> --receipt <receipt-id> --outcome <
 openpapir association list --archive <root> --receipt <receipt-id> [--json]
 ```
 
-Eleven operations are implemented, `archive.init`, `import`, `case.create`,
+Thirteen operations are implemented, `archive.init`, `import`, `case.create`,
 `case.list`, `case.show`, `submission.add`, `receipt.add`, `receipt.list`,
-`association.create`, `association.list`, and `archive.check`, and those are
-the eleven names `capabilities` reports. Everything else in
+`association.create`, `association.list`, `archive.check`, `case.export`, and
+`archive.repair_permissions`, and those are the thirteen names `capabilities`
+reports. Everything else in
 [local archive layout and storage design](archive-layout.md) and
 [import error, JSON, and exit-code contract](error-contract.md) remains a
 design: no derived-metadata or verification records; no automatic matching, no
-receipt parsing, and no export, deletion, editing, repair, or migration.
-openPapir reads artefact bytes only to re-digest a stored object during the
-integrity check, and never to form an opinion about what an artefact says, so
-an association is only ever the user's own assertion.
+receipt parsing, no import from an export, and no deletion, editing, or
+migration. openPapir reads artefact bytes only to re-digest a stored object
+during the integrity check and to copy one out during an export, and never to
+form an opinion about what an artefact says, so an association is only ever
+the user's own assertion.
 
 ## The response envelope
 
@@ -92,7 +96,9 @@ implemented operations:
       "receipt.list",
       "association.create",
       "association.list",
-      "archive.check"
+      "archive.check",
+      "case.export",
+      "archive.repair_permissions"
     ]
   },
   "verified": false
@@ -306,6 +312,84 @@ An archive that cannot be opened at all is a refusal rather than a report,
 with the codes `archive init` and `import` already use, and `data` is then
 `{}` like any other refusal.
 
+## `archive repair-permissions`
+
+`openpapir archive repair-permissions --archive <root>` narrows every path in
+the archive back to the owner-only modes of the design. It is the only action
+besides `archive init` that changes permissions, and it exists because
+ordinary copy tooling widens them when a backup or an export is restored,
+which the owner-only rule would then refuse
+([archive-layout](archive-layout.md)).
+
+It only ever narrows. The new mode is the old mode with every group bit, every
+other bit, and every set-user, set-group, and sticky bit cleared, and for a
+stored object with owner write cleared as well, so a path can lose access and
+never gain it. A path that is already narrower than the design's mode, an
+unreadable file the user closed deliberately for instance, is left exactly as
+it is rather than raised to `0o600`.
+
+| Path | Mode it is narrowed to |
+| --- | --- |
+| The root, every layout directory, and every object fan-out directory | `0o700` |
+| The marker, the lock, and every record document | `0o600` |
+| Every stored object and every leftover staging file | `0o400` for a stored object, `0o600` for a staging file |
+
+The repair refuses a root with no marker, so it never adopts a directory, and
+it refuses an archive whose schema version this build does not support. It
+takes the writer lock, because it writes modes, and refuses with `lock.held`
+when another writer holds it. It deliberately does not run the archive's
+permission check first: the wide permissions that check refuses are exactly
+what it repairs. It reads no file content, and it changes no byte of any
+record or object.
+
+A symbolic link inside the archive is refused as `path.symlink` rather than
+narrowed. Changing a link's permissions changes its target's, and a link out
+of the archive would be a file the archive does not own.
+
+`data` reports counts by kind, in a fixed order, including the kinds nothing
+changed for, so a caller reads a count rather than testing for a key.
+
+```json
+{
+  "schema_version": 1,
+  "ok": true,
+  "command": "archive.repair_permissions",
+  "data": {
+    "changed": [
+      { "count": 0, "kind": "cache" },
+      { "count": 0, "kind": "directory" },
+      { "count": 0, "kind": "lock" },
+      { "count": 0, "kind": "marker" },
+      { "count": 0, "kind": "object" },
+      { "count": 0, "kind": "record" },
+      { "count": 0, "kind": "root" }
+    ],
+    "paths_changed": 0,
+    "paths_checked": 30
+  },
+  "verified": false
+}
+```
+
+Human output prints the same counts and no path.
+
+```text
+Narrowed 0 of 30 archive path(s) to owner-only.
+cache 0
+directory 0
+lock 0
+marker 0
+object 0
+record 0
+root 0
+Permissions are only ever narrowed here; nothing was widened and no content was read or changed.
+```
+
+On a platform without permission bits nothing is changed and every count is
+`0`. Owner-only access there is an access-control list, which the envelope
+reports as the `platform.owner_only_via_acl` warning, exactly as every other
+command reports it.
+
 ## Records
 
 A case, a submission, a receipt, and an association are the user's own local
@@ -441,6 +525,131 @@ identifier, and `submission_count`. An identifier that names no case is
   "verified": false
 }
 ```
+
+## `case export`
+
+`openpapir case export --archive <root> --case <case-id> --to <dir>` copies
+one case out of the archive. It is a plain copy: the objects are the original
+bytes, the records are readable JSON, and the result is usable without
+openPapir ([archive-layout](archive-layout.md)). Nothing is converted,
+re-encoded, normalised, compressed, or encrypted, and no hard link is made, so
+the destination may be on any filesystem.
+
+The archive is opened read-only, exactly as `archive check` opens it. No lock
+is taken, no layout directory is created, and nothing inside the root is
+written, renamed, or removed. Reading a case therefore never modifies it.
+
+The destination holds:
+
+| Path | Content |
+| --- | --- |
+| `objects/<digest>` | One copied object, named by its lowercase hexadecimal digest and nothing else. |
+| `records/<kind>/<id>.json` | One record document, exactly as the archive stores it. `<kind>` is `case`, `submission`, `receipt`, `association`, or `import_event`. |
+| `manifest.json` | One JSON document with sorted keys listing every copied object and every written record. |
+
+What belongs to the case is fixed: the case record; every submission recorded
+against it; every association naming one of those submissions, as the
+confirmed submission or as a candidate, superseded records included; every
+receipt those associations name; and every import event that introduced one of
+the artefacts those records reference. Objects are the artefacts the
+submissions and receipts reference. An association is the user's own
+statement, so a receipt reaches an export only because the user tied it to the
+case themselves.
+
+The destination must be an existing empty directory or one the export creates,
+and it is never inside the archive root. The path rules apply outward: a
+symbolic link in the destination is refused rather than followed, and a file
+already at a target path is refused rather than replaced.
+
+Every copy is streamed in 64 KiB chunks and digested as it is written, then
+compared with the digest its source path names. A copy that differs is
+`export.copy_mismatch` and its partial file is removed, so the destination
+never holds a file whose name does not describe its content. The comparison is
+a storage-layer identity check and never a cryptographic verification, so
+`verified` stays `false`.
+
+| Condition | Code |
+| --- | --- |
+| The case identifier names no case, or a record names an object the archive does not hold. | `record.not_found` |
+| A stored document cannot be read as a record of its kind. | `record.malformed` |
+| The destination lies inside the archive root, or is not a usable directory. | `usage.arguments` |
+| The destination, or a path in it, is a symbolic link. | `path.symlink` |
+| The destination is not empty, or a target path is already there. | `export.destination_conflict` |
+| A copy re-digested to something other than its source. | `export.copy_mismatch` |
+| A stored object exceeds the single-file cap. | `input.cap.file_size` |
+| A copy could not be read or published. | `write.interrupted` |
+
+The manifest is authoritative for what the export contains. Its keys are
+sorted, it records the archive's schema version, its own format version, the
+case, and the time openPapir wrote it, and it lists nothing the destination
+does not hold.
+
+```json
+{
+  "archive_schema_version": 1,
+  "case_id": "e19fb6367693c26aadf609565ec6b8d8",
+  "exported_at": "2026-09-09T15:15:49Z",
+  "objects": [
+    {
+      "algorithm": "sha256",
+      "byte_length": 14,
+      "digest": "aa8c28cf0c0bbf1af78fc8613d8e052dd42475fe937af1016f2f6067f127b37f"
+    }
+  ],
+  "records": [
+    { "id": "e19fb6367693c26aadf609565ec6b8d8", "kind": "case" }
+  ],
+  "schema_version": 1
+}
+```
+
+An exported object is named by its digest alone. No original filename is a
+file name, a directory name, or a manifest field: it stays where it has always
+been, an attribute inside the exported import-event record that the user's own
+import wrote.
+
+`data` reports counts and the case, and never the destination.
+
+```json
+{
+  "schema_version": 1,
+  "ok": true,
+  "command": "case.export",
+  "data": {
+    "bytes_copied": 34,
+    "case_id": "e19fb6367693c26aadf609565ec6b8d8",
+    "object_count": 3,
+    "record_count": 8,
+    "records": [
+      { "count": 1, "kind": "case" },
+      { "count": 2, "kind": "submission" },
+      { "count": 1, "kind": "receipt" },
+      { "count": 1, "kind": "association" },
+      { "count": 3, "kind": "import_event" }
+    ]
+  },
+  "verified": false
+}
+```
+
+Human output adds one thing the JSON does not carry, the destination the user
+supplied, because the line repeats the argument they just typed.
+
+```text
+Exported case e19fb6367693c26aadf609565ec6b8d8 to /tmp/example-export.
+Copied 3 object(s), 34 byte(s), and wrote 8 record(s).
+case 1
+submission 2
+receipt 1
+association 1
+import_event 3
+The archive was not changed. Every copy was re-digested: a digest identifies bytes only, never authenticity, delivery, or legal effect.
+```
+
+Importing an export back into an archive is not implemented, and neither is
+exporting a whole archive: a backup is a plain copy of the archive root taken
+while no openPapir process holds the lock, and `archive repair-permissions` is
+what makes a restored copy usable again.
 
 ## `submission add`
 
@@ -622,7 +831,8 @@ construction the later of the two.
 | Never overwrite | The publish step is a hard link, which fails rather than replacing an existing file, so a destination openPapir did not create is refused as `path.overwrite`. A filesystem that cannot create a hard link at all, FAT32 and exFAT among them, cannot host an archive and is refused as `platform.filesystem_unsupported` rather than as the retryable `write.interrupted`. |
 | Interrupted write | A leftover staging file is never adopted, so the archive holds the complete file or nothing. |
 | One filesystem | The root and its layout directories must share one device. A cross-device publish is refused as `path.cross_device`. |
-| Owner-only | Directories are created `0o700`, files `0o600`, and stored objects become `0o400`. The root, the marker, the lock file, every layout directory, and each stored object and fan-out directory the operation touches are checked before anything is published; a wider one is refused as `archive.permissions_wide`, naming the archive-relative path. There is no override flag, and nothing is ever narrowed implicitly: an existing path is refused, not repaired. |
+| Owner-only | Directories are created `0o700`, files `0o600`, and stored objects become `0o400`. The root, the marker, the lock file, every layout directory, and each stored object and fan-out directory the operation touches are checked before anything is published; a wider one is refused as `archive.permissions_wide`, naming the archive-relative path. There is no override flag, and nothing is ever narrowed implicitly: an existing path is refused, not repaired. `archive repair-permissions` is the one explicit action that narrows an existing archive, and it never widens. |
+| Copies outward | An export writes only into a destination outside the archive root, creates every file there with create-new semantics, follows no symbolic link, replaces nothing, and re-digests every copy before it is published. A destination the export itself created is removed again when the export fails. |
 | Path safety | Input files are opened with the platform's no-follow flag, `O_NOFOLLOW` on Unix and `FILE_FLAG_OPEN_REPARSE_POINT` on Windows, and no path is stat-ed before it is opened. Symbolic links inside the archive are refused, on Windows together with NTFS junctions and every other reparse point, and a user-supplied filename is never joined into a path. |
 | Single writer | A `lock` file recording the holder's process identifier, host, and start time admits one writer. A second writer refuses with `lock.held` rather than waiting. |
 
@@ -662,7 +872,7 @@ emitted.
 | `0` | Success, including a duplicate import and a warning | |
 | `2` | `usage` | `usage.arguments`, `usage.archive_root_missing` |
 | `3` | `input`, `path` | the six cap codes above, `path.symlink`, `path.overwrite`, `path.cross_device` |
-| `4` | `archive`, `lock`, `write`, `record`, `integrity` | `record.not_found`, `record.malformed`, `record.inconsistent`, `archive.marker_missing`, `archive.marker_malformed`, `archive.adopt_refused`, `archive.schema_newer`, `archive.schema_older`, `archive.permissions_wide`, `archive.multiple_filesystems`, `lock.held`, `write.interrupted`, `integrity.digest_mismatch`, `integrity.length_mismatch`, `integrity.dangling_reference`, `integrity.orphan_object` |
+| `4` | `archive`, `lock`, `write`, `record`, `integrity`, `export` | `record.not_found`, `record.malformed`, `record.inconsistent`, `archive.marker_missing`, `archive.marker_malformed`, `archive.adopt_refused`, `archive.schema_newer`, `archive.schema_older`, `archive.permissions_wide`, `archive.multiple_filesystems`, `lock.held`, `write.interrupted`, `integrity.digest_mismatch`, `integrity.length_mismatch`, `integrity.dangling_reference`, `integrity.orphan_object`, `export.destination_conflict`, `export.copy_mismatch` |
 | `5` | `platform` | `platform.filesystem_unsupported`, for a filesystem that cannot create the hard link the publish step needs. The named degradations are warnings, and the owner-only condition of the same code is not detected yet. |
 | `6` | `internal` | `internal.unexpected` |
 
@@ -679,8 +889,8 @@ subcommand path that was recognised, or `openpapir` when none was.
 `--help` and `--version` are not refusals and still exit `0`.
 
 Every other code in [error-contract](error-contract.md) is unimplemented,
-including all `export` and `delete` codes, `lock.stale`, `path.traversal`, and
-`write.incomplete`.
+including every `delete` code, `lock.stale`, `path.traversal`,
+`platform.replace_while_open`, and `write.incomplete`.
 
 ### Decisions this implementation had to make
 
@@ -760,14 +970,38 @@ follows, and no other reserved code became reachable:
 
 Permissions are never repaired as a side effect. `archive init` narrows the
 supplied root once, deliberately, as part of creating the archive; after that
-every wider path is refused. The explicit repair action the design describes,
-which only narrows and reports every path it changed, is not implemented.
+every wider path is refused. The explicit repair action the design describes
+is `archive repair-permissions`, which is asked for by name, only narrows, and
+reports every path it changed.
+
+The export decided three more conditions the contract left open:
+
+1. A destination that lies inside the archive root, and one that is not a
+    usable directory, are `usage.arguments` naming the `destination`
+   argument, because the invocation itself is wrong rather than the archive.
+   A destination that already holds anything, including a file at a target
+   path, is `export.destination_conflict`, whose `details` carry `scope`,
+   `conflict_count`, and the additive `export_path`, the path relative to the
+   destination. That path is built from openPapir's own fixed directory names
+   plus a digest or an identifier, so it discloses nothing the privacy rule
+   protects.
+2. `export.copy_mismatch` reports the expected digest and a
+   `conflict_count`, and the partial copy is removed. A stored object whose
+   bytes no longer match its path is found by `archive check`; the export
+   refuses rather than writing a file whose name does not describe its
+   content, and repairs nothing.
+3. The exported directory for a record kind is the record kind's own name,
+   so `records/<kind>/<id>.json` is derivable from the manifest entry alone.
+   The archive's own directory names, `records/cases` and the rest, are not
+   reused, because a manifest entry names a kind rather than a directory.
 
 An input that is a symbolic link is refused with `path.symlink` carrying
 `scope` `input`. The path is outside the archive, so it has no
 archive-relative form and no `archive_path` is reported; the path itself is
 user-supplied and is never echoed. The refusal comes from the no-follow open
-itself, not from a check that precedes it, so nothing is stat-ed first.
+itself, not from a check that precedes it, so nothing is stat-ed first. A link
+in an export destination carries `scope` `export_destination` and the additive
+`export_path`, the path relative to the destination, and no `archive_path`.
 
 An object's path that holds something openPapir did not create is checked for
 its shape before its permissions. A directory at an object's path is
@@ -813,7 +1047,11 @@ minted, and timestamps openPapir recorded.
 
 They never carry an original filename or any form of one, a user-supplied path
 including the archive root, payload bytes or excerpts, a hostname, a username,
-or a process owner. A receipt label and an evidence statement are the user's
+or a process owner. The single exception is the export destination in human
+output: `case export` prints the `--to` argument the user typed in the same
+invocation, back to them, so that they can see where their copy went. It never
+reaches `data`, `message`, `details`, or stderr, and no other user-supplied
+path is echoed anywhere. A receipt label and an evidence statement are the user's
 own text: they appear in `data` and in human output, which report the user's
 own record back to them, and never in a `message`, in `details`, or in any
 refusal. Which input failed is answered by `input_index`, never by
