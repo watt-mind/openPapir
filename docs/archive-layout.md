@@ -318,9 +318,9 @@ implying certainty. The record carries `id`, `receipt_id`, `submission_id`
 earlier one), and `candidates`. Evidence and confidence are not record-level
 fields: each entry in `candidates` carries its own `submission_id`,
 `confidence`, and `evidence` list. `candidates` holds one entry for
-`associated`, several for `candidate` and `contradictory`, and none for
-`unassociated`. [error-contract](error-contract.md) is authoritative for wire
-shapes.
+`associated`, one or more for `candidate`, two or more for `contradictory`,
+and none for `unassociated`. [error-contract](error-contract.md) is
+authoritative for wire shapes.
 
 Outcomes are exactly:
 
