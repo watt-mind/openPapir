@@ -41,11 +41,11 @@ The repository supplies `scripts/commit-msg.sh` for subject validation.
 | Licences and advisories | `cargo deny --all-features check` | Local script, CI |
 | Relative Markdown links and anchors | `python3 scripts/check-doc-links.py` | Local script, CI |
 | Source file length | `python3 scripts/check-file-length.py` | Local script, CI |
-| Prose style, no em-dashes | `python3 scripts/check-prose.py` | Local script |
+| Prose style, no em-dashes | `python3 scripts/check-prose.py` | Local script, CI |
 | Markdown lint | `npx --yes markdownlint-cli2@0.18.1 "**/*.md" "#target" "#samples" "#refs" "#tmp" "#node_modules"` | Local script, CI |
 | Workflow lint | `actionlint` | Local script, CI |
 | Release build and CLI smoke | `cargo build --release --locked`, then `capabilities --json` | CI, and the baseline below |
-| Minimum supported Rust | `cargo check --workspace --all-targets --locked` on Rust 1.88 | CI |
+| Minimum supported Rust | `cargo check --workspace --all-targets --locked` on Rust 1.88.0 | CI |
 | Coverage threshold | `cargo llvm-cov --workspace --locked --fail-under-lines 90` | CI |
 | Commit subject shape | `scripts/commit-msg.sh` | CI, commit-msg hook |
 | Secret scan, advisories, CodeQL | The `Security` workflow | CI |

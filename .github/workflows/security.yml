@@ -62,17 +62,33 @@ jobs:
           persist-credentials: false
       # Downloaded and checksum-verified by hand rather than through the
       # upstream download-actionlint.bash helper, which pipes an unverified
-      # script into bash.
+      # script into bash. GitHub Releases has answered 500 here before and
+      # turned develop red for an unrelated merge, so each download is
+      # retried a bounded number of times before the step fails.
       - name: Install actionlint
         env:
           ACTIONLINT_VERSION: 1.7.12
         run: |
           set -euo pipefail
+          fetch() {
+            for attempt in 1 2 3 4 5; do
+              if curl -sSfL -o "$1" "$2"; then
+                return 0
+              fi
+              echo "download failed (attempt ${attempt}/5): $2" >&2
+              rm -f "$1"
+              if [ "$attempt" -lt 5 ]; then
+                sleep $((attempt * 5))
+              fi
+            done
+            echo "giving up on $2" >&2
+            return 1
+          }
           base="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}"
           tarball="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
           workdir=$(mktemp -d)
-          curl -sSfL -o "${workdir}/${tarball}" "${base}/${tarball}"
-          curl -sSfL -o "${workdir}/checksums.txt" \
+          fetch "${workdir}/${tarball}" "${base}/${tarball}"
+          fetch "${workdir}/checksums.txt" \
             "${base}/actionlint_${ACTIONLINT_VERSION}_checksums.txt"
           (cd "$workdir" && sha256sum --ignore-missing --check checksums.txt)
           tar -xzf "${workdir}/${tarball}" -C "$workdir" actionlint

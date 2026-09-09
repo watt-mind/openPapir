@@ -11,7 +11,18 @@ ignored files are never read.
 import subprocess
 import sys
 
-SKIP = ("target/", "tmp/", "node_modules/", ".claude/", ".cursor/")
+# Directories that hold generated, vendored or agent-local files. Keep this
+# list identical to the SKIP list in scripts/check-doc-links.py; the two
+# Markdown checks must see exactly the same set of files.
+SKIP = (
+    ".claude/",
+    ".cursor/",
+    "node_modules/",
+    "refs/",
+    "samples/",
+    "target/",
+    "tmp/",
+)
 EM_DASH = "—"
 
 

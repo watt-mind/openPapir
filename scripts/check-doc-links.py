@@ -8,7 +8,18 @@ import os
 import re
 import sys
 
-SKIP = ("target/", "refs/", "tmp/", "samples/", "node_modules/")
+# Directories that hold generated, vendored or agent-local files. Keep this
+# list identical to the SKIP list in scripts/check-prose.py; the two
+# Markdown checks must see exactly the same set of files.
+SKIP = (
+    ".claude/",
+    ".cursor/",
+    "node_modules/",
+    "refs/",
+    "samples/",
+    "target/",
+    "tmp/",
+)
 LINK = re.compile(r"\]\(([^)\s]+)\)")
 HEADING = re.compile(r"^#+ (.*)$", re.M)
 
