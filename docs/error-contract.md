@@ -421,8 +421,12 @@ followed ([archive-layout](archive-layout.md)).
   no candidate and ones that asked for no purge. Reporting such a document
   wherever it sits is `archive check`'s work. Without `--purge` the candidate
   keeps `purge_not_requested`, because no purge was going to unlink it.
-  Details there are `bucket`, `stage` (`delete`), and `malformed_count`; the
-  record and the value it holds are never named
+  Details there are `bucket`, `stage` (`delete`), `malformed_count`, the
+  archive-wide number of such references the scan read, and `withheld_count`,
+  the number of this case's candidate objects those references held back,
+  which is the number the message's `for this case` describes. The two count
+  different things, so either may be the larger, and neither is derived from
+  the other. The record and the value it holds are never named
   ([architecture](architecture.md)).
 - **`record.inconsistent`**: record, not retryable. **Added additively by the
   receipt and association records.** A record's fields exist and are each

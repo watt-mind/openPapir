@@ -411,28 +411,23 @@ fn retry_unlink(_path: &Path, _warnings: &mut Vec<Warning>) -> bool {
 /// reported as the named degradation rather than counted as a removal.
 ///
 /// The warning says whether the attribute was restored only where it was
-/// cleared in the first place. Where reading the permissions or clearing the
-/// attribute failed, the file is exactly as it was, there is nothing to put
-/// back, and the flag is left out rather than reported as `true`: a restore
-/// that never had to happen is not a restore that succeeded.
+/// cleared in the first place. The helper reports the permissions it found,
+/// so the restore uses the ones already in hand rather than reading the
+/// metadata a second time; where it failed, the file is exactly as it was,
+/// there is nothing to put back, and the flag is left out rather than
+/// reported as `true`: a restore that never had to happen is not a restore
+/// that succeeded.
 #[cfg(not(unix))]
 fn retry_unlink(path: &Path, warnings: &mut Vec<Warning>) -> bool {
-    let Some(original) = fs::metadata(path)
-        .ok()
-        .map(|metadata| metadata.permissions())
-    else {
+    let Ok(original) = paths::clear_read_only(path) else {
         note(warnings, replace_while_open(None));
         return false;
     };
-    if paths::clear_read_only(path).is_ok() {
-        if fs::remove_file(path).is_ok() {
-            return true;
-        }
-        let restored = fs::set_permissions(path, original).is_ok();
-        note(warnings, replace_while_open(Some(restored)));
-        return false;
+    if fs::remove_file(path).is_ok() {
+        return true;
     }
-    note(warnings, replace_while_open(None));
+    let restored = fs::set_permissions(path, original).is_ok();
+    note(warnings, replace_while_open(Some(restored)));
     false
 }
 
