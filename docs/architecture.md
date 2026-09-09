@@ -988,14 +988,32 @@ is not a digest at all. openPapir validates a digest on every write, so no
 command writes such a record, but a document edited outside openPapir can
 hold one, and the plan must read it as a reference to an object it cannot
 identify rather than as a reference to nothing. The deletion therefore cannot
-tell which object that record meant, so it purges none of them: every object
-the purge had considered is retained with the reason `referenced_elsewhere`,
-with or without `--purge`, and the number of such references is reported as a
-`record.malformed` warning carrying `stage` and `malformed_count`. The
-records the deletion planned to remove still go, `ok` stays `true`, and the
-same reference on a record that is **going** changes nothing, because that
-record and its claim both leave. The count is the whole of the warning: the
-record that holds the reference is not named, and neither is the value.
+tell which object that record meant, so a purge unlinks none of them: every
+object `--purge` would otherwise have removed is retained with the reason
+`referenced_elsewhere` instead. The records the deletion planned to remove
+still go, `ok` stays `true`, and the same reference on a record that is
+**going** changes nothing, because that record and its claim both leave.
+
+The number of such references is reported as a `record.malformed` warning
+carrying `stage` and `malformed_count`, and **only when the reference held an
+object of this deletion back**: `--purge` was given and this case had a
+candidate the purge would otherwise have removed. The scan reads the whole
+archive, so one hand-edited document anywhere would otherwise attach the
+warning to every later deletion, including ones with no candidate and ones
+that asked for no purge, and describe the archive rather than the command the
+user ran. The warning's text says `for this case` for the same reason.
+Finding such a document wherever it sits is `archive check`'s work, not
+`case delete`'s. The count is the whole of the warning: the record that holds
+the reference is not named, and neither is the value.
+
+Without `--purge` nothing was going to be unlinked, so the unresolvable
+reference decided nothing: a candidate no remaining record names keeps
+`purge_not_requested`, the reason that actually held it, exactly as in an
+archive with no such document. `referenced_elsewhere` is reserved for a
+candidate a remaining record names outright, and, for the unresolvable
+reference, for one a purge would otherwise have removed. Nothing is more
+removable for either rule: with `--purge` the retained set is unchanged, and
+without it no object is ever unlinked.
 
 An association may name submissions in more than one case. When one of them is
 going and another remains, the association has to stay, because it still
@@ -1110,8 +1128,8 @@ a count rather than testing for a key. The four reasons are fixed:
 
 | Reason | Meaning |
 | --- | --- |
-| `purge_not_requested` | The object would have become unreferenced, and `--purge` was not given. |
-| `referenced_elsewhere` | A submission or receipt that remains still references the object, or references an artefact by something that is not a digest, which may be any of them. |
+| `purge_not_requested` | The object would have become unreferenced, and `--purge` was not given. A document elsewhere in the archive whose reference is not a digest does not change that, because no purge was going to unlink anything. |
+| `referenced_elsewhere` | A submission or receipt that remains still references the object; or `--purge` was given and a record that remains references an artefact by something that is not a digest, which may be any of them. The second half is reserved for a purge: it is the reason only where the object would otherwise have been removed. |
 | `records_retained` | A record document would not go, so the object pass never ran and none of these objects was attempted. The record pass is all or nothing, so this normally means nothing at all was unlinked. |
 | `unremovable` | `--purge` was given and the unlink did not succeed. |
 
@@ -1425,7 +1443,7 @@ changes the exit code.
 | `platform.no_directory_fsync` | The directory entry a publish created may not be durable, although the file content was flushed. Emitted where the platform has no directory flush, and also where the flush was attempted and failed, with `stage`. |
 | `platform.owner_only_via_acl` | Owner-only access is an access-control list rather than a permission bit, so it depends on the filesystem. Emitted on Windows. |
 | `platform.no_follow_after_open` | The no-follow flag opens the link itself rather than failing, so the refusal comes from the handle openPapir opened, and the reparse tag is not distinguished. Emitted on Windows, once per archive opened. |
-| `record.malformed` | A record `case delete` keeps names an artefact by something that is not a digest, so the archive cannot say which object it means. Emitted by `case delete`, with `stage` and `malformed_count`. Every object the purge had considered is retained as `referenced_elsewhere`, and the records the deletion planned to remove still go. |
+| `record.malformed` | A record `case delete` keeps names an artefact by something that is not a digest, so the archive cannot say which object it means. Emitted by `case delete`, with `stage` and `malformed_count`, and only where it held an object of that deletion back: `--purge` was given and this case had a candidate the purge would otherwise have removed. Those objects are retained as `referenced_elsewhere`, and the records the deletion planned to remove still go. Without `--purge` a candidate keeps `purge_not_requested` and no warning is emitted. |
 | `platform.replace_while_open` | A purge could not unlink an object now because another process holds it open, so the removal is deferred to the user closing it. Emitted by `case delete` on platforms that defer an unlink, with `stage`, and with `read_only_restored` only where the read-only attribute was actually cleared; its absence says it never was. The object is counted as `unremovable` and the command still reports what it did remove. Reported once however many objects deferred, carrying the worst outcome any of them saw. |
 
 On Windows a no-follow open carries `FILE_FLAG_OPEN_REPARSE_POINT`, so the
