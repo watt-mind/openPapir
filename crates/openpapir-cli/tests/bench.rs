@@ -54,7 +54,12 @@ const DELETE_CEILING: Duration = Duration::from_secs(10);
 const IMPORT_CEILING: Duration = Duration::from_secs(10);
 
 /// Files in the timed import, which is the per-import file cap itself.
+///
+/// A batch under the cap would time something other than the largest import
+/// the binary accepts, so the value is asserted against the core constant at
+/// compile time rather than trusted to stay in step by hand.
 const IMPORT_BATCH: usize = 1_000;
+const _: () = assert!(IMPORT_BATCH as u64 == openpapir_core::archive::limits::MAX_IMPORT_FILES);
 
 /// A search reads every record of all four kinds rather than one kind, so it
 /// reads four times what a listing reads and is given its own ceiling.
@@ -209,24 +214,28 @@ fn the_linear_scans_stay_under_their_documented_ceilings() {
 
     report(cases, setup, &measurements);
     // A scan that matched nothing would be fast for the wrong reason, so what
-    // each listing reported is checked before its time is believed.
+    // each listing reported is checked before its time is believed. Each one
+    // is found by the name it was measured under rather than by its position,
+    // so a measurement added or reordered above cannot silently move an
+    // assertion onto another invocation.
+    let matched = cases.div_ceil(bench_support::QUERY_ONE_IN) as u64;
     assert_eq!(
-        reported_count(&measurements[0]),
+        reported_count(named(&measurements, "case list")),
         cases as u64,
         "the listing did not report every case"
     );
     assert_eq!(
-        reported_count(&measurements[1]),
-        cases.div_ceil(bench_support::QUERY_ONE_IN) as u64,
+        reported_count(named(&measurements, "case list --query")),
+        matched,
         "the query matched a different share of the archive than it filed"
     );
     assert_eq!(
-        reported_count(&measurements[4]),
-        cases.div_ceil(bench_support::QUERY_ONE_IN) as u64,
+        reported_count(named(&measurements, "search")),
+        matched,
         "the search matched a different share of the archive than it filed"
     );
     assert_eq!(
-        reported_receipts(&measurements[2]),
+        reported_receipts(named(&measurements, "case show")),
         1,
         "the shown case named no receipt, so the section that reads the \
          associations was not measured"
@@ -396,6 +405,20 @@ fn timed(directory: Option<&Path>, arguments: &[&str]) -> (Duration, Output) {
         .output()
         .expect("run the openpapir binary under test");
     (started.elapsed(), output)
+}
+
+/// The one measurement taken under `name`.
+///
+/// The measurements are keyed by the name they were measured under, because
+/// the list they live in is built in the order the invocations run and an
+/// invocation added between two others would otherwise renumber every
+/// assertion after it. A name that is not there is a mistake in this file
+/// rather than a result about the binary, so it panics.
+fn named<'a>(measurements: &'a [Measurement], name: &str) -> &'a Measurement {
+    measurements
+        .iter()
+        .find(|measurement| measurement.name == name)
+        .unwrap_or_else(|| panic!("{name} was measured"))
 }
 
 /// The `count` one listing envelope reports.
