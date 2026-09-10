@@ -409,6 +409,16 @@ envelope.
 
 ### Changed
 
+- `docs/archive-layout.md` decides the encrypted backup at rest, which no code
+  implements and which adds no dependency: it covers the backup artefact and
+  not the live archive, puts a standard AEAD container over a tarball of the
+  export shape, derives the key from a passphrase the user holds with a
+  memory-hard KDF and stores no key, says what a container does and does not
+  hide, fixes the refusal and truncation behaviour of a restore, and records
+  that an encrypted backup asserts the confidentiality of the copy and nothing
+  about the authenticity of the originals. The roadmap item's gate,
+  `SECURITY.md`, and the decided-designs table in `docs/specification.md`
+  follow it.
 - `docs/architecture.md` records the human output language decision in a new
   Human output language subsection: human output is English only, and the JSON
   form stays the scripting contract. The subsection sizes the surface, gives
