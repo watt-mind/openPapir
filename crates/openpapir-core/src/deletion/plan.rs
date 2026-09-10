@@ -15,7 +15,7 @@ use std::path::Path;
 
 use crate::archive::import::ImportEvent;
 use crate::error::{Details, Diagnostic, Warning, codes};
-use crate::records::association::Association;
+use crate::records::association::{self, Association};
 use crate::records::case::Case;
 use crate::records::document;
 use crate::records::receipt::Receipt;
@@ -260,15 +260,12 @@ impl<'a> Chains<'a> {
 
     /// The chains whose records supersede each other in a cycle.
     ///
-    /// An association supersedes at most one other record, so every walk
-    /// along `supersedes` either ends at a record that supersedes nothing,
-    /// stops at a reference no stored record answers, or closes on itself.
-    /// A closed walk is the cycle. Every record of a cycle lies in one chain,
-    /// so the chain is what is named here.
-    ///
-    /// Each record is walked at most twice, once on the walk that reaches it
-    /// and once as a start that stops immediately, so an archive holding a
-    /// cycle settles instead of looping.
+    /// The walk itself is [`association::supersession_cycles`], shared with
+    /// the integrity check so that the two agree on what a cycle is. It is
+    /// given only the edges naming a stored record, because a reference no
+    /// stored record answers is a dangling one rather than a cycle. Every
+    /// record of a cycle lies in one chain, so the chain is what is named
+    /// here.
     fn cyclic(
         associations: &'a [Association],
         chain: &BTreeMap<&'a str, usize>,
@@ -282,27 +279,10 @@ impl<'a> Chains<'a> {
                     .then_some((association.id.as_str(), previous))
             })
             .collect();
-        let mut settled: BTreeSet<&str> = BTreeSet::new();
-        let mut cyclic = BTreeSet::new();
-        for start in edges.keys() {
-            if settled.contains(start) {
-                continue;
-            }
-            let mut walked: BTreeSet<&str> = BTreeSet::new();
-            let mut here = *start;
-            while !settled.contains(here) {
-                if !walked.insert(here) {
-                    cyclic.insert(chain[here]);
-                    break;
-                }
-                match edges.get(here) {
-                    Some(previous) => here = previous,
-                    None => break,
-                }
-            }
-            settled.extend(walked);
-        }
-        cyclic
+        association::supersession_cycles(&edges)
+            .into_iter()
+            .map(|id| chain[id])
+            .collect()
     }
 
     /// What each chain means to a deletion that removes `going`.
@@ -416,9 +396,6 @@ impl<'a> Supersession<'a> {
     ///
     /// The count is of live records, the ones a retirement can name, so it
     /// counts what the user has to act on rather than the history behind it.
-    // The live filter below is what makes `retained_count` per-record rather
-    // than per-chain: without it every superseded record of the chain would
-    // be counted too.
     ///
     /// # Errors
     ///
@@ -427,6 +404,9 @@ impl<'a> Supersession<'a> {
     fn refuse_entangled(&self, associations: &'a [Association]) -> Result<(), Diagnostic> {
         let entangled = associations
             .iter()
+            // The live filter is what makes `retained_count` per-record rather
+            // than per-chain: without it every superseded record of the chain
+            // would be counted too.
             .filter(|association| self.chains.live.contains(association.id.as_str()))
             .filter(|association| self.state(association.id.as_str()).entangled())
             .count() as u64;

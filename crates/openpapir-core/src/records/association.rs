@@ -21,7 +21,7 @@
 //! candidate, so the history reads as what the user asserted and then that
 //! they withdrew it. Nothing is edited and nothing is removed.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -411,6 +411,55 @@ fn supersession_depths(associations: &[Association]) -> BTreeMap<String, usize> 
         depths.insert(association.id.clone(), depth);
     }
     depths
+}
+
+/// Where each `supersedes` cycle the given edges form closes on itself.
+///
+/// `edges` names, for each record, the record it supersedes. An association
+/// supersedes at most one other record, so the supersession graph has
+/// out-degree one and every walk along it either ends at a record that
+/// supersedes nothing, leaves the graph at a reference nothing stored
+/// answers, or closes on itself. A closed walk is a cycle: every record in it
+/// is superseded by another, so the history it forms has no live record and
+/// nothing says what the user asserts today. No openPapir command writes one,
+/// because `association retire` refuses a record another one supersedes
+/// already and `association create` refuses a `--supersedes` outside the
+/// receipt, so a cycle reaches an archive only by hand.
+///
+/// One key is returned per cycle, the record the walk came back to, so a
+/// caller may count the cycles or name whatever it holds each record under. A
+/// cycle several records lead into is still one cycle, and two separate
+/// cycles are two.
+///
+/// Each record is walked at most twice, once on the walk that reaches it and
+/// once as a start that stops immediately, so a hand-edited archive holding a
+/// cycle settles instead of looping.
+///
+/// The keys are whatever identifies a record to the caller, so this holds no
+/// stored value of its own.
+#[must_use]
+pub fn supersession_cycles<K: Copy + Ord>(edges: &BTreeMap<K, K>) -> Vec<K> {
+    let mut settled: BTreeSet<K> = BTreeSet::new();
+    let mut cycles = Vec::new();
+    for start in edges.keys() {
+        if settled.contains(start) {
+            continue;
+        }
+        let mut walked: BTreeSet<K> = BTreeSet::new();
+        let mut here = *start;
+        while !settled.contains(&here) {
+            if !walked.insert(here) {
+                cycles.push(here);
+                break;
+            }
+            match edges.get(&here) {
+                Some(previous) => here = *previous,
+                None => break,
+            }
+        }
+        settled.extend(walked);
+    }
+    cycles
 }
 
 /// The refusal for a value openPapir cannot read, naming the argument only.

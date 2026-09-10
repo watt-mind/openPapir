@@ -11,7 +11,7 @@ use std::path::Path;
 
 use crate::archive::import::ImportEvent;
 use crate::integrity::store::Store;
-use crate::records::association::Association;
+use crate::records::association::{self, Association};
 use crate::records::case::Case;
 use crate::records::document::{self, Visited, is_identifier};
 use crate::records::receipt::Receipt;
@@ -153,45 +153,18 @@ impl References {
 
     /// How many `supersedes` cycles the stored association records form.
     ///
-    /// An association supersedes at most one other record, so the supersession
-    /// graph is a graph of out-degree one and every walk along it either ends
-    /// at a record that supersedes nothing, leaves the archive at a reference
-    /// nothing stored answers, or closes on itself. A closed walk is a cycle:
-    /// every record in it is superseded by another, so the history it forms
-    /// has no live record and nothing says what the user asserts today.
+    /// The walk is [`association::supersession_cycles`], shared with the
+    /// deletion planner so that the two agree on what a cycle is. The keys
+    /// this pass holds are record identifiers, so a cycle here is counted
+    /// wherever it sits rather than tied to any one command.
     ///
-    /// No openPapir command writes one, so a cycle reaches an archive only by
-    /// hand. The count is of cycles rather than of the records in them, and
-    /// it is the whole of what the check reports: naming a record would say
-    /// which of the user's assertions is the damaged one
+    /// The count is of cycles rather than of the records in them, and it is
+    /// the whole of what the check reports: naming a record would say which
+    /// of the user's assertions is the damaged one
     /// (`docs/error-contract.md`).
-    ///
-    /// Each record is walked at most twice, once on the walk that reaches it
-    /// and once as a start that stops immediately, so a hand-edited archive
-    /// holding a cycle settles instead of looping.
     #[must_use]
     pub fn supersedes_cycles(&self) -> u64 {
-        let mut settled: BTreeSet<IdKey> = BTreeSet::new();
-        let mut cycles = 0_u64;
-        for start in self.supersedes.keys() {
-            if settled.contains(start) {
-                continue;
-            }
-            let mut walked: BTreeSet<IdKey> = BTreeSet::new();
-            let mut here = *start;
-            while !settled.contains(&here) {
-                if !walked.insert(here) {
-                    cycles += 1;
-                    break;
-                }
-                match self.supersedes.get(&here) {
-                    Some(previous) => here = *previous,
-                    None => break,
-                }
-            }
-            settled.extend(walked);
-        }
-        cycles
+        association::supersession_cycles(&self.supersedes).len() as u64
     }
 }
 
