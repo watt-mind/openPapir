@@ -5,6 +5,10 @@ name: Release
 # builds and uploads the same artefacts to the run and creates nothing.
 # Tagging stays a human act on master, and this workflow never tags anything.
 #
+# A dry run exercises everything a tagged run does except creating the
+# release, including the extraction of the release notes from CHANGELOG.md,
+# which it runs against the Unreleased section.
+#
 # The pull_request trigger is narrowed to this file. GitHub registers a
 # workflow_dispatch trigger only from the default branch, so a change to this
 # workflow could otherwise not be exercised before it is merged; with the
@@ -260,6 +264,11 @@ jobs:
     permissions:
       contents: read
     steps:
+      # The checkout is what the release notes are extracted from below. It
+      # reads the repository and nothing else; the job keeps `contents: read`.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: dist
@@ -281,6 +290,33 @@ jobs:
             echo "expected ${EXPECTED} checksum files, found ${found}" >&2
             exit 1
           fi
+      # Only a tagged run reaches the job that turns a CHANGELOG section into
+      # release notes, so the extraction runs here as well, under the
+      # read-only scope and on every run. A dry run has no released version to
+      # look for and reads the `Unreleased` section instead, which is what a
+      # release is cut from. A changelog this cannot read therefore fails a
+      # dry run rather than surfacing on a tag.
+      #
+      # The notes are not echoed to the log, because a changelog line is
+      # arbitrary text and the log is where GitHub reads workflow commands.
+      # The dry-run summary below prints them, where nothing is parsed.
+      - name: Extract the release notes
+        env:
+          DRY_RUN: ${{ needs.prepare.outputs.dry-run }}
+          SECTION: >-
+            ${{ needs.prepare.outputs.dry-run == 'true' && 'Unreleased'
+            || needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          python3 scripts/release-notes.py --self-test
+          # Between a changelog cut and the next entry the Unreleased section
+          # is legitimately empty, which must not fail a dry run. A tagged run
+          # reads a version section and still refuses a missing or empty one.
+          if [ "$DRY_RUN" = "true" ]; then
+            python3 scripts/release-notes.py --allow-empty "$SECTION" > notes.md
+          else
+            python3 scripts/release-notes.py "$SECTION" > notes.md
+          fi
       - name: Report the dry run
         if: needs.prepare.outputs.dry-run == 'true'
         env:
@@ -295,6 +331,15 @@ jobs:
             echo '```'
             cat dist/*.sha256
             echo '```'
+            echo
+            if [ -s notes.md ]; then
+              echo "The notes a release would carry, from the Unreleased section:"
+              echo
+              cat notes.md
+            else
+              echo "The Unreleased section holds nothing, so a release cut now"
+              echo "would carry no notes."
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
   release:
@@ -319,30 +364,15 @@ jobs:
           pattern: openpapir-*
           merge-multiple: true
       # The release notes are the CHANGELOG section for this version, copied
-      # verbatim. A version with no section is a release nobody described, so
-      # the run fails here rather than publishing an empty note.
+      # verbatim by the same script the verify job above runs. A version with
+      # no section, or an empty one, is a release nobody described, so the run
+      # fails here rather than publishing an empty note.
       - name: Extract the changelog section
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           set -euo pipefail
-          awk -v version="$VERSION" '
-            /^## / {
-              if (found) { exit }
-              heading = substr($0, 4)
-              gsub(/^\[/, "", heading)
-              rest = substr(heading, length(version) + 1)
-              if (index(heading, version) == 1 && rest ~ /^([ \]]|$)/) {
-                found = 1
-                next
-              }
-            }
-            found { print }
-          ' CHANGELOG.md > notes.md
-          if [ ! -s notes.md ]; then
-            echo "no CHANGELOG section for ${VERSION}" >&2
-            exit 1
-          fi
+          python3 scripts/release-notes.py "$VERSION" > notes.md
           cat notes.md
       # Public repositories on GitHub-hosted runners can attest a build, so
       # every archive and checksum file carries provenance.
