@@ -207,7 +207,7 @@ pub fn run(command: CaseCommand) -> i32 {
             "case.import",
             arguments.run(),
             arguments.json,
-            report::restored,
+            restore::lines,
         ),
         CaseCommand::Delete(arguments) => emit_with_problems(
             "case.delete",

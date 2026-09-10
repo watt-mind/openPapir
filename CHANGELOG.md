@@ -185,10 +185,10 @@ envelope.
   implemented command with its exact invocation and the `data` fields to read,
   the envelope, the exit codes by bucket, the privacy rule, the input caps,
   and the separation of imported, matched, and authenticity-verified (#22).
-- `capabilities` now lists `skill` as the fifteenth operation. It is the one
+- `capabilities` now lists `skill`. It is the one
   operation that touches no archive, and it is reported there so that a
   machine caller learns of it from the same list as every other operation.
-- `tests/golden/` pins the output of twenty-six invocations, in both the JSON
+- `tests/golden/` pins the output of twenty-eight invocations, in both the JSON
   and the human form, with both streams and the exit code of each. The harness
   is `crates/openpapir-cli/tests/golden.rs`; it builds every archive from
   constants, normalises the four values that legitimately move between runs

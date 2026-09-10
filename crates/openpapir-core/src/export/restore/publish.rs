@@ -194,7 +194,10 @@ mod tests {
             id: CASE.to_owned(),
             notes: None,
             record_kind: "case".to_owned(),
+            status: crate::records::case::Status::Open,
+            tags: Vec::new(),
             title: "Tax matter".to_owned(),
+            updated_at: None,
         }
     }
 

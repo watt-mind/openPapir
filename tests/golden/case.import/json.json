@@ -1,12 +1,12 @@
 {
   "command": "case.import",
   "data": {
-    "bytes_stored": 27,
+    "bytes_stored": 50,
     "case_id": "<id>",
-    "events_recorded": 1,
+    "events_recorded": 2,
     "object_count": 2,
-    "objects_present": 1,
-    "objects_stored": 1,
+    "objects_present": 0,
+    "objects_stored": 2,
     "records": [
       {
         "count": 1,
@@ -29,8 +29,8 @@
         "kind": "import_event"
       }
     ],
-    "records_present": 2,
-    "records_written": 4
+    "records_present": 0,
+    "records_written": 6
   },
   "ok": true,
   "schema_version": 1,

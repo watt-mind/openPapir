@@ -46,14 +46,16 @@ fn ready(_: &World) {}
 
 fn cases() -> Vec<Case> {
     let mut cases = archive_cases();
+    cases.extend(transfer_cases());
     cases.extend(record_cases());
     cases.extend(association_cases());
     cases
 }
 
 /// The cases that exercise the archive itself: creation, import, the check,
-/// the export, the permission repair, and the two commands that need no
-/// archive at all.
+/// the summary, the permission repair, the deletion, and the two commands
+/// that need no archive at all. The copy outward and back is
+/// [`transfer_cases`].
 fn archive_cases() -> Vec<Case> {
     vec![
         Case {
@@ -179,6 +181,12 @@ fn archive_cases() -> Vec<Case> {
             prepare: ready,
             arguments: |world| world.delete_arguments(true),
         },
+    ]
+}
+
+/// The cases that copy one case out of the archive and read it back in.
+fn transfer_cases() -> Vec<Case> {
+    vec![
         Case {
             name: "case.import",
             stage: Stage::Associated,

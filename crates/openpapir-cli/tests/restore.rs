@@ -85,6 +85,9 @@ impl Fixture {
             .map(|artefact| artefact["digest"].as_str().expect("a digest").to_owned())
             .collect();
 
+        // The case carries every field a case record can carry, the ones a
+        // later build added included, so the round trip has to preserve them
+        // rather than quietly dropping what it does not know about.
         let case_id = stdout_json(&run(&[
             "case",
             "create",
@@ -92,11 +95,30 @@ impl Fixture {
             &root_text,
             "--title",
             "Synthetic matter",
+            "--tag",
+            "tax",
+            "--tag",
+            "office",
             "--json",
         ]))["data"]["case"]["id"]
             .as_str()
             .expect("an id")
             .to_owned();
+        // `case update` is what writes `updated_at`, so the case has one.
+        assert!(
+            run(&[
+                "case",
+                "update",
+                "--archive",
+                &root_text,
+                &case_id,
+                "--status",
+                "closed",
+                "--json",
+            ])
+            .status
+            .success()
+        );
         let submission_id = stdout_json(&run(&[
             "submission",
             "add",
@@ -337,6 +359,17 @@ fn a_case_survives_an_export_a_purging_deletion_and_an_import() {
     );
     assert_eq!(fixture.show(), before_show, "the case is the case again");
     assert_eq!(fixture.associations(), before_associations);
+    let case = &fixture.show()["data"]["case"];
+    assert_eq!(case["status"], "closed", "a status survives the round trip");
+    assert_eq!(
+        case["tags"],
+        serde_json::json!(["office", "tax"]),
+        "the user's own tags survive the round trip"
+    );
+    assert!(
+        case["updated_at"].is_string(),
+        "the record's own update time survives the round trip"
+    );
 
     let events = fixture.import_events();
     assert_eq!(
