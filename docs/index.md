@@ -4,13 +4,16 @@ Start at [README](../README.md) for what openPapir is and how to build it,
 then [specification.md](specification.md) for the single index of scope,
 implemented behaviour, decided designs, and deferred contracts.
 
-The implementation is early: help, version, and the nineteen operations
+The implementation is early: help, version, and the operations
 `capabilities` reports exist, which are archive creation, artefact import, the
-case, submission, receipt, and user-asserted association records, the
-withdrawal of one assertion, the read-only whole-archive integrity check, the
-read-only summary and its receipt-retrieval reminders, the export of one case,
-the permission repair, deleting a case with an explicit purge, and writing the
-embedded agent skill document.
+case, submission, receipt, and user-asserted association records, the update
+of one case record, the withdrawal of one assertion, the read-only
+whole-archive integrity check, the read-only summary and its
+receipt-retrieval reminders, the export of one case and the import of such an
+export back into an archive, the permission repair, deleting a case with an
+explicit purge, and writing the embedded agent skill document. The one
+enumeration of them is the table in
+[architecture and CLI contract](architecture.md).
 Every document below separates implemented behaviour from plans, and the
 remaining correspondence workflows, including automatic matching, derived
 metadata, any receipt parsing, and any verification, are not available yet.
@@ -24,12 +27,12 @@ are in the Documentation section of [contributing](../CONTRIBUTING.md).
 | Document | Purpose |
 | --- | --- |
 | [specification.md](specification.md) | Top-level index of purpose, scope, non-goals, implemented behaviour, decided designs, deferred contracts, and the separated receipt states. |
-| [architecture.md](architecture.md) | Canonical contract of what is implemented: crate responsibilities, one section per implemented command, the response envelope, the storage guarantees, the input caps, the implemented codes and exit codes, the privacy rule, planned ownership, and the integration boundary. |
+| [architecture.md](architecture.md) | Canonical contract of what is implemented: crate responsibilities, one section per implemented command, the response envelope, the storage guarantees, the input caps, the measured cost of the linear scans, the implemented codes and exit codes, the privacy rule, planned ownership, and the integration boundary. |
 | [roadmap.md](roadmap.md) | Milestone sequencing and the discovery gates that must close before implementation, plus how work is split into bounded issues. |
 | [receipt-discovery.md](receipt-discovery.md) | Discovery note recording what public sources state about one candidate receipt type, a proposed local case model, and the questions that stay open. |
 | [archive-layout.md](archive-layout.md) | Design for review of the local archive: storage technology, on-disk layout, record shapes, association states, and export, backup, and deletion semantics. Partly implemented; architecture.md is authoritative for the implemented part. |
 | [error-contract.md](error-contract.md) | Specification for review of the import and association error model: the extended JSON envelope, the stable error-code catalogue, and the exit-code mapping. Partly implemented; architecture.md is authoritative for the implemented part. |
-| [testing.md](testing.md) | Test layout, the coverage expectation, the synthetic public fixture policy, and the rules for any future private input. |
+| [testing.md](testing.md) | Test layout, the coverage expectation, the scan benchmark and how to run it, the synthetic public fixture policy, and the rules for any future private input. |
 | [references.md](references.md) | Related independent projects, discovery entry points, and the evidence policy every future format decision must satisfy. |
 | [releasing.md](releasing.md) | The current release position, which is that nothing is published, the artefact policy the release workflow follows, and the checklist a first release still needs. |
 | [factory.md](factory.md) | Runner setup for an explicitly launched orchestration run: tools, credentials, and checkout expectations. |

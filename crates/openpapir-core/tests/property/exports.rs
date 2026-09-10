@@ -1,11 +1,11 @@
 //! Invariant 3: an export answers with a manifest or a documented refusal.
 //!
-//! openPapir writes export manifests and never reads one back: an export is a
-//! copy out, and importing from an export is not implemented
-//! (`docs/architecture.md`). The manifest boundary that exists is therefore
-//! the writer, and its contract has two halves. When an export succeeds, the
-//! manifest is one LF-terminated JSON object with sorted keys that names every
-//! record and object the export wrote and nothing else. When it does not, the
+//! This module holds the export writer to its half of that contract. `case
+//! import` reads a manifest back (`docs/architecture.md`), and the reader is
+//! covered by its own tests; what is checked here is the writer, whose
+//! contract has two halves. When an export succeeds, the manifest is one
+//! LF-terminated JSON object with sorted keys that names every record and
+//! object the export wrote and nothing else. When it does not, the
 //! refusal is one of the documented codes, `export.*` whenever the destination
 //! is what stood in the way, it carries no value the caller supplied, and the
 //! destination is left as the export found it.

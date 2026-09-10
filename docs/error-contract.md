@@ -445,7 +445,8 @@ followed ([archive-layout](archive-layout.md)).
   the other. The record and the value it holds are never named
   ([architecture](architecture.md)).
 - **`record.inconsistent`**: record, not retryable. **Added additively by the
-  receipt and association records, and emitted by `case delete`.** A record's
+  receipt and association records, emitted by `case delete`, and reported by
+  `archive check`.** A record's
   fields exist and are each readable, but they cannot be true together under a
   rule [archive-layout](archive-layout.md) already states: an outcome whose
   candidate count the design forbids, one submission named as a candidate
@@ -468,16 +469,20 @@ followed ([archive-layout](archive-layout.md)).
   | `supersedes_other_receipt` | The superseded record belongs to another receipt. |
   | `already_superseded` | The record `association retire` names is superseded already. |
   | `import_event_digest_mismatch` | A named import event records another artefact. |
-  | `supersedes_cycle` | Stored association records supersede each other in a cycle, so the history has no live record. |
+  | `supersedes_cycle` | Stored association records supersede each other in a cycle, so that history cannot be read in order. |
 
   `supersedes_cycle` is the one rule of the list a stored archive rather than
   a supplied field breaks: no openPapir command writes a cycle, so it reaches
-  an archive only by hand. `case delete` refuses it because both of its
-  supersession rules read the chain's live record and a cycle has none, so a
-  cycle naming a departing submission would otherwise be removed whole as
-  history nobody asserts. Only a cycle a deletion would otherwise have removed
-  is refused, and never a cycle elsewhere in the archive: reporting one
-  wherever it sits is `archive check`'s work
+  an archive only by hand. `case delete` refuses any supersession chain that
+  holds a cycle anywhere and that the deletion would otherwise have removed.
+  Inside a cycle every record is superseded by another, so nothing in it says
+  what the user asserts today: a chain that is only a cycle has no live record
+  for the deletion's two supersession rules to read, and a chain whose live
+  record supersedes a cycle behind it has a head whose claim about that
+  history cannot be checked. Either would otherwise be removed whole as
+  history nobody asserts. A cycle a deletion would not have touched is left
+  alone: reporting one wherever it sits is `archive check`'s work, and the
+  check reports it under this same code and rule
   ([architecture](architecture.md)).
 
   A rule name is stable once published, and a new rule is an additive change
@@ -792,6 +797,7 @@ or record titles:
       { "code": "integrity.length_mismatch", "count": 0 },
       { "code": "integrity.orphan_object", "count": 0 },
       { "code": "path.symlink", "count": 0 },
+      { "code": "record.inconsistent", "count": 0 },
       { "code": "record.malformed", "count": 0 }
     ],
     "records_checked": 1,
@@ -831,13 +837,23 @@ found something, the check still completed its stated work, so the report
 stays in `data` while `ok` becomes `false` and `error` names the first problem
 in this fixed precedence:
 
-`path.symlink`, `record.malformed`, `integrity.digest_mismatch`,
-`integrity.length_mismatch`, `integrity.dangling_reference`,
-`integrity.orphan_object`.
+`path.symlink`, `record.malformed`, `record.inconsistent`,
+`integrity.digest_mismatch`, `integrity.length_mismatch`,
+`integrity.dangling_reference`, `integrity.orphan_object`.
 
 The order runs from what stopped the check reading something, through what it
 read and disbelieved, to what is merely unreferenced, and it is fixed so that
-one archive always reports one code. The exit code is the highest of the
+one archive always reports one code.
+
+`record.inconsistent` is the check's report of the `supersedes_cycle` rule
+above: it counts the cycles the stored association records form, archive-wide,
+and its `error` carries `record_kind` and `rule` and never an identifier. The
+count is of cycles rather than of the records in them, so a cycle several live
+records supersede is one. A cycle is a record the check read and could not
+make sense of, so it ranks after `record.malformed`, a record it could not
+read at all, and before the object conditions the records describe.
+
+The exit code is the highest of the
 buckets' groups, as this document already requires of a command that reports
 several conditions: `4` whenever a `record` or `integrity` condition was
 found, and `3` for an archive whose only complaint is a link inside the store.

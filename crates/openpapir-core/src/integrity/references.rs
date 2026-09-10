@@ -85,6 +85,10 @@ pub struct References {
     pub referenced: BTreeSet<DigestKey>,
     /// The identifiers of the records of each kind, in the order of [`KINDS`].
     pub ids: [BTreeSet<IdKey>; 5],
+    /// The record each association says it supersedes, by the association's
+    /// own identifier. Two fixed-size keys per edge and nothing else, so the
+    /// supersession graph costs the check what a pair of identifiers costs.
+    pub supersedes: BTreeMap<IdKey, IdKey>,
     /// How many documents of each kind could not be read as a record.
     pub malformed: [u64; 5],
     /// How many leftover staging files each kind's directory holds, in the
@@ -145,6 +149,49 @@ impl References {
     #[must_use]
     pub fn orphaned(&self, key: &DigestKey) -> bool {
         self.may_judge_orphans() && !self.referenced.contains(key)
+    }
+
+    /// How many `supersedes` cycles the stored association records form.
+    ///
+    /// An association supersedes at most one other record, so the supersession
+    /// graph is a graph of out-degree one and every walk along it either ends
+    /// at a record that supersedes nothing, leaves the archive at a reference
+    /// nothing stored answers, or closes on itself. A closed walk is a cycle:
+    /// every record in it is superseded by another, so the history it forms
+    /// has no live record and nothing says what the user asserts today.
+    ///
+    /// No openPapir command writes one, so a cycle reaches an archive only by
+    /// hand. The count is of cycles rather than of the records in them, and
+    /// it is the whole of what the check reports: naming a record would say
+    /// which of the user's assertions is the damaged one
+    /// (`docs/error-contract.md`).
+    ///
+    /// Each record is walked at most twice, once on the walk that reaches it
+    /// and once as a start that stops immediately, so a hand-edited archive
+    /// holding a cycle settles instead of looping.
+    #[must_use]
+    pub fn supersedes_cycles(&self) -> u64 {
+        let mut settled: BTreeSet<IdKey> = BTreeSet::new();
+        let mut cycles = 0_u64;
+        for start in self.supersedes.keys() {
+            if settled.contains(start) {
+                continue;
+            }
+            let mut walked: BTreeSet<IdKey> = BTreeSet::new();
+            let mut here = *start;
+            while !settled.contains(&here) {
+                if !walked.insert(here) {
+                    cycles += 1;
+                    break;
+                }
+                match self.supersedes.get(&here) {
+                    Some(previous) => here = *previous,
+                    None => break,
+                }
+            }
+            settled.extend(walked);
+        }
+        cycles
     }
 }
 
@@ -229,6 +276,9 @@ pub fn collect(root: &Path) -> References {
         records += 1;
         if let Some(id) = id_key(&association.id) {
             found.ids[ASSOCIATIONS].insert(id);
+            if let Some(previous) = association.supersedes.as_deref().and_then(id_key) {
+                found.supersedes.insert(id, previous);
+            }
         }
     });
     count(records, visited, ASSOCIATIONS, &mut found);
@@ -371,6 +421,52 @@ mod tests {
         assert_eq!(found.records_unchecked(), 0);
         assert!(staging.exists(), "the check deletes nothing");
         assert_eq!(References::default().records_staging(), 0);
+    }
+
+    /// The supersession graph has out-degree one, so the counter has to tell
+    /// a walk that ends from one that closes, count a cycle once however many
+    /// records lead into it, and count two separate cycles separately.
+    #[test]
+    fn a_closed_supersession_walk_is_counted_once_and_a_finite_one_never() {
+        let key = |seed: u8| id_key(&format!("{seed:02x}").repeat(16)).unwrap();
+        let graph = |edges: &[(u8, u8)]| References {
+            supersedes: edges
+                .iter()
+                .map(|(from, to)| (key(*from), key(*to)))
+                .collect(),
+            ..References::default()
+        };
+        assert_eq!(References::default().supersedes_cycles(), 0);
+        assert_eq!(
+            graph(&[(3, 2), (2, 1)]).supersedes_cycles(),
+            0,
+            "an ordinary history ends at the record it supersedes"
+        );
+        assert_eq!(
+            graph(&[(2, 1), (1, 2)]).supersedes_cycles(),
+            1,
+            "two records that supersede each other"
+        );
+        assert_eq!(
+            graph(&[(1, 1)]).supersedes_cycles(),
+            1,
+            "a record on itself"
+        );
+        assert_eq!(
+            graph(&[(4, 1), (3, 1), (2, 1), (1, 2)]).supersedes_cycles(),
+            1,
+            "a cycle several live records lead into is still one cycle"
+        );
+        assert_eq!(
+            graph(&[(1, 2), (2, 1), (3, 4), (4, 3)]).supersedes_cycles(),
+            2,
+            "two cycles are two"
+        );
+        assert_eq!(
+            graph(&[(1, 9)]).supersedes_cycles(),
+            0,
+            "a reference nothing stored answers is dangling, not a cycle"
+        );
     }
 
     #[test]
