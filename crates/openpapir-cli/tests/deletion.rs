@@ -503,6 +503,104 @@ fn an_association_spanning_two_cases_refuses_the_deletion_and_touches_nothing() 
     assert_eq!(snapshot(&fixture.root), before, "still nothing was removed");
 }
 
+/// The remedy for the entanglement above, end to end: the user withdraws the
+/// assertion with `association retire`, and the deletion then takes the
+/// withdrawn history with the case it was about. Nothing is edited: the
+/// retired record stays exactly as it was written until the case goes, and
+/// the archive is clean afterwards.
+#[test]
+fn retiring_an_entangled_association_lets_the_deletion_proceed() {
+    let fixture = Fixture::new();
+    let first = fixture.import("first.bin", FIRST);
+    let second = fixture.import("second.bin", SECOND);
+    let going = fixture.case("A local matter");
+    let staying = fixture.case("Another local matter");
+    let departing = fixture.submission(&going, &first);
+    let remaining = fixture.submission(&staying, &second);
+    let receipt = fixture.receipt(&second);
+    let association = data(&[
+        "association",
+        "create",
+        "--archive",
+        &fixture.root_text(),
+        "--receipt",
+        &receipt,
+        "--outcome",
+        "contradictory",
+        "--candidate",
+        &format!("{departing}:weak:The user stated one link."),
+        "--candidate",
+        &format!("{remaining}:weak:The user stated another link."),
+        "--json",
+    ])["association"]["id"]
+        .as_str()
+        .expect("an association identifier")
+        .to_owned();
+
+    let refused = stdout_json(&fixture.delete(&going, false));
+    assert_eq!(refused["error"]["code"], "delete.record_entangled");
+    let message = refused["error"]["message"]
+        .as_str()
+        .expect("a refusal message");
+    assert!(
+        message.contains("Retire it first."),
+        "the refusal says what the user can do about it"
+    );
+    assert!(
+        !message.contains(&association),
+        "the refusal names no identifier"
+    );
+
+    let retired = data(&[
+        "association",
+        "retire",
+        "--archive",
+        &fixture.root_text(),
+        &association,
+        "--reason",
+        "The user withdrew the statement about the other case.",
+        "--json",
+    ]);
+    assert_eq!(retired["association"]["supersedes"], association.as_str());
+    assert!(
+        fixture.check().status.success(),
+        "the retirement leaves the archive clean"
+    );
+
+    let output = fixture.delete(&going, true);
+    assert!(
+        output.status.success(),
+        "the withdrawn record is no longer in the way"
+    );
+    let envelope = stdout_json(&output);
+    assert_eq!(envelope["ok"], true);
+    assert_private(&envelope);
+    let data = &envelope["data"];
+    assert_eq!(
+        removed(data),
+        vec![
+            ("association".to_owned(), 2),
+            ("case".to_owned(), 1),
+            ("import_event".to_owned(), 1),
+            ("receipt".to_owned(), 1),
+            ("submission".to_owned(), 1),
+        ],
+        "the whole withdrawn history goes with the case, counted as associations"
+    );
+    assert_eq!(data["records_removed_total"], 6);
+    assert!(
+        fixture.check().status.success(),
+        "no record is left naming one the archive no longer holds"
+    );
+
+    let other = fixture.delete(&staying, true);
+    assert!(
+        other.status.success(),
+        "the case that was blocked by the same association can go too"
+    );
+    assert!(fixture.check().status.success(), "the archive stays clean");
+}
+
 /// A record directory the process cannot write to is the one way to refuse a
 /// record unlink from outside. The probe that precedes the record pass sees
 /// it and refuses the whole deletion before the first unlink, so no object is

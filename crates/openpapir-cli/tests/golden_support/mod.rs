@@ -75,6 +75,8 @@ pub struct World {
     pub submission_ids: Vec<String>,
     /// The one receipt the associations are about.
     pub receipt_id: String,
+    /// The associations recorded against it, oldest first.
+    pub association_ids: Vec<String>,
 }
 
 impl World {
@@ -93,6 +95,7 @@ impl World {
             case_id: String::new(),
             submission_ids: Vec::new(),
             receipt_id: String::new(),
+            association_ids: Vec::new(),
         };
         world.fill(stage, second_submission);
         world
@@ -166,8 +169,9 @@ impl World {
             "candidate",
             &[(0, "moderate", "The reference matches the submission.")],
         );
-        arguments.extend(["--supersedes".to_owned(), first_id]);
-        self.json(&arguments);
+        arguments.extend(["--supersedes".to_owned(), first_id.clone()]);
+        let second = self.json(&arguments);
+        self.association_ids = vec![first_id, text(&second["data"]["association"]["id"])];
     }
 
     /// Run one invocation in its JSON form and return the parsed envelope.

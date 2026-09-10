@@ -347,6 +347,22 @@ pub fn association_created(created: &AssociationCreated) -> Vec<String> {
     lines
 }
 
+/// The lines `association retire` prints when it succeeds.
+///
+/// A retirement is a record like any other, so it is printed like any other,
+/// with the record it supersedes named. The user's own reason is stored on
+/// the record and is not printed back at them.
+#[must_use]
+pub fn association_retired(retired: &AssociationCreated) -> Vec<String> {
+    let mut lines = vec![
+        "The assertion is withdrawn. Both records stay, and nothing was edited or removed."
+            .to_owned(),
+    ];
+    lines.extend(association_lines(&retired.association));
+    lines.push(ASSERTION_DISCLAIMER.to_owned());
+    lines
+}
+
 /// The lines `association list` prints when it succeeds.
 ///
 /// The whole history is printed, newest first, superseded records included.
@@ -424,6 +440,7 @@ mod tests {
             outcome: outcome.to_owned(),
             receipt_id: RECEIPT_ID.to_owned(),
             record_kind: "association".to_owned(),
+            statement: None,
             submission_id: submission_id.map(str::to_owned),
             supersedes: None,
         }

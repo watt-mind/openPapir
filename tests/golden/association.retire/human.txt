@@ -1,0 +1,8 @@
+The assertion is withdrawn. Both records stay, and nothing was edited or removed.
+Association <id>, recorded <time> by user.
+Receipt: <id>
+Outcome: unassociated
+Confirmed submission: none
+Supersedes: <id>
+Candidates: 0.
+These are the user's own assertions. openPapir checked nothing about the file and reports no delivery, authenticity, or legal effect.

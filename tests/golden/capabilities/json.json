@@ -12,6 +12,7 @@
       "receipt.list",
       "association.create",
       "association.list",
+      "association.retire",
       "archive.check",
       "case.export",
       "archive.repair_permissions",

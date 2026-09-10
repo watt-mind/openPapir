@@ -247,7 +247,7 @@ fn association_cases() -> Vec<Case> {
             )
         }),
     ];
-    let mut cases: Vec<Case> = Vec::with_capacity(5);
+    let mut cases: Vec<Case> = Vec::with_capacity(6);
     for (name, arguments) in outcomes {
         cases.push(Case {
             name,
@@ -257,6 +257,21 @@ fn association_cases() -> Vec<Case> {
             arguments,
         });
     }
+    cases.push(Case {
+        name: "association.retire",
+        stage: Stage::Associated,
+        second_submission: false,
+        prepare: ready,
+        arguments: |world| {
+            let mut arguments = world.command(&["association", "retire"]);
+            arguments.push(world.association_ids[1].clone());
+            arguments.extend([
+                "--reason".to_owned(),
+                "The user withdrew the statement.".to_owned(),
+            ]);
+            arguments
+        },
+    });
     cases.push(Case {
         name: "association.list",
         stage: Stage::Associated,

@@ -1,4 +1,4 @@
-Removed 4 record(s): association 1, case 1, import_event 1, receipt 0, submission 1.
-Removed 1 object(s); 0 retained: purge_not_requested 0, records_retained 0, referenced_elsewhere 0, unremovable 0.
+Removed 7 record(s): association 2, case 1, import_event 2, receipt 1, submission 1.
+Removed 2 object(s); 0 retained: purge_not_requested 0, records_retained 0, referenced_elsewhere 0, unremovable 0.
 A purge was requested: an object is unlinked only when no remaining import event, receipt, or submission references it.
 Deletion unlinked files in this archive. It does not erase data from the storage medium, and any backup already taken is outside openPapir's reach.

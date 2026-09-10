@@ -4,12 +4,12 @@ Start at [README](../README.md) for what openPapir is and how to build it,
 then [specification.md](specification.md) for the single index of scope,
 implemented behaviour, decided designs, and deferred contracts.
 
-The implementation is early: help, version, and the fifteen operations
+The implementation is early: help, version, and the sixteen operations
 `capabilities` reports exist, which are archive creation, artefact import, the
 case, submission, receipt, and user-asserted association records, the
-read-only whole-archive integrity check, the export of one case, the
-permission repair, deleting a case with an explicit purge, and writing the
-embedded agent skill document.
+withdrawal of one assertion, the read-only whole-archive integrity check, the
+export of one case, the permission repair, deleting a case with an explicit
+purge, and writing the embedded agent skill document.
 Every document below separates implemented behaviour from plans, and the
 remaining correspondence workflows, including automatic matching, derived
 metadata, any receipt parsing, and any verification, are not available yet.

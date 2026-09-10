@@ -30,6 +30,9 @@
 //!   to be a receipt.
 //! - `openpapir association create|list ... [--json]`, what the user asserts
 //!   about whether a receipt relates to a submission.
+//! - `openpapir association retire --archive <root> <association-id>
+//!   [--reason <text>] [--json]`, the withdrawal of one assertion, written as
+//!   a new record superseding it.
 //! - `openpapir skill`, the embedded agent skill document, written to stdout
 //!   byte for byte. It takes no file and no `--json`. A reader that closed the
 //!   pipe still exits `0`; any other failing write exits `4`.
@@ -67,6 +70,7 @@
 //! a dependency. No output may state or imply authenticity, successful
 //! delivery, or legal effect.
 
+mod associations;
 mod delete;
 mod envelope;
 mod report;
@@ -120,10 +124,10 @@ enum Command {
         #[command(subcommand)]
         command: ReceiptCommand,
     },
-    /// Record and list what the user asserts about a receipt.
+    /// Record, list, and retire what the user asserts about a receipt.
     Association {
         #[command(subcommand)]
-        command: AssociationCommand,
+        command: associations::AssociationCommand,
     },
     /// Write the embedded agent skill document to stdout and nothing else.
     Skill,
@@ -285,44 +289,6 @@ enum ReceiptCommand {
     },
 }
 
-#[derive(Subcommand)]
-enum AssociationCommand {
-    /// Record what the user asserts about a receipt.
-    Create {
-        /// The archive root, which is always supplied explicitly.
-        #[arg(long, value_name = "ROOT")]
-        archive: PathBuf,
-        /// The receipt the assertion is about.
-        #[arg(long = "receipt", value_name = "RECEIPT_ID")]
-        receipt_id: String,
-        /// One of `unassociated`, `candidate`, `associated`, `contradictory`.
-        #[arg(long, value_name = "OUTCOME")]
-        outcome: String,
-        /// A candidate, as `<submission-id>:<confidence>:<statement>`, where
-        /// confidence is `weak`, `moderate`, or `strong`.
-        #[arg(long = "candidate", value_name = "SUBMISSION_ID:CONFIDENCE:STATEMENT")]
-        candidates: Vec<String>,
-        /// An earlier association for the same receipt, which this replaces.
-        #[arg(long, value_name = "ASSOCIATION_ID")]
-        supersedes: Option<String>,
-        /// Emit one JSON object instead of human-readable text.
-        #[arg(long)]
-        json: bool,
-    },
-    /// List one receipt's associations, newest first, with its whole history.
-    List {
-        /// The archive root, which is always supplied explicitly.
-        #[arg(long, value_name = "ROOT")]
-        archive: PathBuf,
-        /// The receipt whose history to list.
-        #[arg(long = "receipt", value_name = "RECEIPT_ID")]
-        receipt_id: String,
-        /// Emit one JSON object instead of human-readable text.
-        #[arg(long)]
-        json: bool,
-    },
-}
-
 fn main() {
     // The arguments are kept before the parse, because an invocation the
     // parser rejects still has to say whether it asked for the JSON form.
@@ -406,7 +372,7 @@ fn run(command: Command) -> i32 {
             report::submission_added,
         ),
         Command::Receipt { command } => run_receipt(command),
-        Command::Association { command } => run_association(command),
+        Command::Association { command } => associations::run(command),
     }
 }
 
@@ -486,41 +452,6 @@ fn run_receipt(command: ReceiptCommand) -> i32 {
             records::receipt::list(&archive),
             json,
             report::receipt_list,
-        ),
-    }
-}
-
-/// Dispatch one `association` subcommand and return the process exit code.
-fn run_association(command: AssociationCommand) -> i32 {
-    match command {
-        AssociationCommand::Create {
-            archive,
-            receipt_id,
-            outcome,
-            candidates,
-            supersedes,
-            json,
-        } => emit(
-            "association.create",
-            records::association::create(
-                &archive,
-                &receipt_id,
-                &outcome,
-                &candidates,
-                supersedes.as_deref(),
-            ),
-            json,
-            report::association_created,
-        ),
-        AssociationCommand::List {
-            archive,
-            receipt_id,
-            json,
-        } => emit(
-            "association.list",
-            records::association::list(&archive, &receipt_id),
-            json,
-            report::association_history,
         ),
     }
 }

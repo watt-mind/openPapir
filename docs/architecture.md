@@ -37,6 +37,7 @@ openpapir receipt add --archive <root> --artefact <digest> [--import-event <id>]
 openpapir receipt list --archive <root> [--json]
 openpapir association create --archive <root> --receipt <receipt-id> --outcome <outcome> [--candidate <submission-id>:<confidence>:<statement>]... [--supersedes <association-id>] [--json]
 openpapir association list --archive <root> --receipt <receipt-id> [--json]
+openpapir association retire --archive <root> <association-id> [--reason <text>] [--json]
 openpapir archive check --archive <root> [--json]
 openpapir case export --archive <root> --case <case-id> --to <dir> [--json]
 openpapir archive repair-permissions --archive <root> [--json]
@@ -66,11 +67,12 @@ is in [Implemented codes and exit codes](#implemented-codes-and-exit-codes).
 `skill` is the exception: it opens no archive, reads no input, and can refuse
 only with `usage.arguments` or `internal.unexpected`.
 
-Fifteen operations are implemented, `archive.init`, `import`, `case.create`,
+Sixteen operations are implemented, `archive.init`, `import`, `case.create`,
 `case.list`, `case.show`, `submission.add`, `receipt.add`, `receipt.list`,
-`association.create`, `association.list`, `archive.check`, `case.export`,
-`archive.repair_permissions`, `case.delete`, and `skill`, and those are the
-fifteen names `capabilities` reports. Everything else in
+`association.create`, `association.list`, `association.retire`,
+`archive.check`, `case.export`, `archive.repair_permissions`, `case.delete`,
+and `skill`, and those are the sixteen names `capabilities` reports.
+Everything else in
 [local archive layout and storage design](archive-layout.md) and
 [import error, JSON, and exit-code contract](error-contract.md) remains a
 design: no derived-metadata or verification records; no automatic matching, no
@@ -92,7 +94,7 @@ never shares stdout with the JSON object.
 | --- | --- |
 | `schema_version` | The envelope's version, currently `1`, independent of `archive_schema_version`. |
 | `ok` | `true` only when the command completed its stated work. |
-| `command` | The invoked command's stable name: `capabilities`, or one of the fifteen operation names `capabilities` reports. An invocation the argument parser rejected before it recognised a subcommand carries `openpapir` instead. |
+| `command` | The invoked command's stable name: `capabilities`, or one of the sixteen operation names `capabilities` reports. An invocation the argument parser rejected before it recognised a subcommand carries `openpapir` instead. |
 | `data` | The command's result. `{}` when `ok` is `false`, except `archive check`, whose report is the result the user asked for and stays in `data` beside the error. |
 | `verified` | Always `false`. No cryptographic check is implemented. |
 | `error` | Present exactly when `ok` is `false`: `code`, `message`, `details`. |
@@ -106,7 +108,7 @@ carries `bucket`. Changes within `schema_version` are additive only.
 `stage` is a plain string that names how far the implementation has come, and
 it is one of a small closed set: `scaffold`, `alpha`, `beta`, `stable`. It is
 not a version, not a support promise, and never a verification verdict. The
-value is `alpha` today, because the fifteen operations below are implemented
+value is `alpha` today, because the sixteen operations below are implemented
 against a local archive whose on-disk layout may still change. A move to
 another value is a release decision, recorded in `CHANGELOG.md` in the pull
 request that makes it; the set itself grows or shrinks the same way. A caller
@@ -115,7 +117,7 @@ the last value it knows", and a caller that needs to know what the binary can
 do reads `operations`, not `stage`. Changing the value is not a
 `schema_version` change: the field's name, type, and meaning are unchanged.
 
-The capabilities response is unchanged in shape and lists the fifteen
+The capabilities response is unchanged in shape and lists the sixteen
 implemented operations:
 
 ```json
@@ -137,6 +139,7 @@ implemented operations:
       "receipt.list",
       "association.create",
       "association.list",
+      "association.retire",
       "archive.check",
       "case.export",
       "archive.repair_permissions",
@@ -280,7 +283,7 @@ directory reads as empty there.
 | Case | `records/cases/<id>.json` | `title`, optional `notes`, plus the four common fields. |
 | Submission | `records/submissions/<id>.json` | `case_id`, `description`, optional `stated_date`, `artefacts`, plus the four common fields. |
 | Receipt | `records/receipts/<id>.json` | `artefact_digest`, `import_event_id`, optional `label`, plus the four common fields. |
-| Association | `records/associations/<id>.json` | `receipt_id`, `outcome`, `candidates`, `created_by`, `submission_id`, `supersedes`, plus the four common fields. |
+| Association | `records/associations/<id>.json` | `receipt_id`, `outcome`, `candidates`, `created_by`, `submission_id`, `supersedes`, an optional `statement` a retirement carries, plus the four common fields. |
 | Import event | `records/imports/<id>.json` | `digest`, `byte_length`, `imported_at`, `created_object`, `original_filename`, `id`, `record_kind`, `archive_schema_version`. |
 
 Each entry of `artefacts` is an object with `digest`, the algorithm-qualified
@@ -516,6 +519,7 @@ refusal is the additive `record.inconsistent`, whose `details` carry
 | `contradictory_requires_two_candidates` | `contradictory` was given fewer than two candidates. |
 | `duplicate_candidate_submission` | One submission was named as a candidate more than once. |
 | `supersedes_other_receipt` | The superseded record belongs to another receipt. |
+| `already_superseded` | The record `association retire` names is superseded already. |
 | `import_event_digest_mismatch` | A named import event records another artefact (`receipt.add`). |
 
 `submission_id` is the confirmed submission and equals the single candidate
@@ -578,6 +582,34 @@ supersedes, then by identifier, all descending. The middle key matters because
 openPapir records whole seconds: two records written in the same second would
 otherwise order arbitrarily, and a record that supersedes another is by
 construction the later of the two.
+
+## `association retire`
+
+`openpapir association retire --archive <root> <association-id>
+[--reason <text>]` withdraws an assertion the user no longer stands behind. It
+writes a new record for the same receipt, with outcome `unassociated`, an
+empty `candidates` list, and `supersedes` naming the record the user retired.
+Nothing is edited and nothing is removed: the retired record stays exactly as
+it was written, and `association list` shows both, so the history reads as
+what the user asserted and then that they withdrew it. `data` is one
+`association`, the same shape `association create` returns.
+
+`--reason` is the user's own single line, at most 512 bytes. It is stored on
+the new record as `statement`, the one field only a retirement carries, and it
+is the user's own text: no message, warning, or count repeats it, and the
+human form does not print it back. An oversized or multi-line reason is
+`input.cap.field_length` or `usage.arguments`, naming the field and never the
+value.
+
+An identifier that names no association is `record.not_found`. A record
+another association supersedes already is `record.inconsistent` with rule
+`already_superseded`, because a further statement has to supersede the newest
+record of the history rather than one behind it, and two records claiming to
+replace the same one would leave the history ambiguous. Retiring holds the
+writer lock, like every other write.
+
+Retiring is what unblocks a `case delete` refused with
+`delete.record_entangled`; see [`case delete`](#case-delete).
 
 ## `archive check`
 
@@ -979,7 +1011,7 @@ What goes, and why:
 | --- | --- |
 | The case | The named case, always. |
 | Submissions | Every submission recorded against that case. |
-| Associations | An association goes when every submission it names is going and it names at least one. One naming no submission at all stays. An association a remaining association supersedes is kept, because removing it would leave the newer record naming a record the archive no longer holds. An association naming submissions in this case **and** in another is refused rather than resolved; see below. |
+| Associations | The unit is the supersession chain, because a record that supersedes another cannot go without it: removing the older record alone would leave the newer one naming a record the archive no longer holds. A chain goes when one of its records names a submission that is going and its live record, the one no other record supersedes, names none that remains. That is the ordinary case, where every candidate the chain ever named belongs to this case, and the retired one, where the live record asserts nothing at all, so the withdrawn history goes with the case it was about. Every record of a departing chain is counted under `records_removed` as `association`. A chain naming no departing submission is no business of this deletion and stays, and one whose live record still names submissions in this case **and** in another is refused rather than resolved; see below. |
 | Receipts | A receipt is its own record. It goes when an association tied it to a submission that is going and no remaining association still names it. A receipt no association names is not tied to this case and stays. |
 | Import events | History, and kept. The one exception is an import event naming an object `--purge` removed: it goes with that object, because an event describing content that is gone describes nothing. An object the purge could not unlink keeps its import event, so it stays a referenced object rather than becoming an orphan. |
 | Objects | Only with `--purge`, and only an object no remaining import event, receipt, or submission references. |
@@ -1031,17 +1063,25 @@ reference, for one a purge would otherwise have removed. Nothing is more
 removable for either rule: with `--purge` the retained set is unchanged, and
 without it no object is ever unlinked.
 
-An association may name submissions in more than one case. When one of them is
-going and another remains, the association has to stay, because it still
-references a submission this deletion leaves behind, and it would then name a
-submission the archive no longer holds. openPapir edits no stored record, so
-it can neither drop the departing candidate nor invent a shorter record, and
-removing the association would delete the user's own assertion about a case
-they did not ask to delete. The deletion is refused instead, with
-`delete.record_entangled`, before anything is touched. The refusal is
-symmetric: until the user resolves the association themselves, neither case
-can be deleted. It is the only one of the three possible outcomes that loses
-nothing and can be undone.
+An association may name submissions in more than one case. While the user
+still asserts it, one of them going and another remaining leaves the record
+naming a submission the archive no longer holds. openPapir edits no stored
+record, so it can neither drop the departing candidate nor invent a shorter
+record, and removing the assertion would delete the user's own statement
+about a case they did not ask to delete. The deletion is refused instead,
+with `delete.record_entangled`, before anything is touched. The refusal is
+symmetric: until the assertion is withdrawn, neither case can be deleted. It
+is the only one of the three possible outcomes that loses nothing and can be
+undone.
+
+The remedy is `association retire`, and it is the user's decision rather than
+openPapir's. Retiring writes a record superseding the assertion, so nothing is
+edited and nothing is removed, and the chain's live record then names no
+submission that remains. Deleting either case then takes the withdrawn history
+with it, the record naming the other case's submission included, because the
+user has said the assertion no longer stands. `retained_count` counts the live
+records standing in the way, which are the ones a retirement can name, and
+names none of them.
 
 The record pass is **all or nothing per case**. Before a single document is
 unlinked, every record directory the deletion would remove an entry from is
