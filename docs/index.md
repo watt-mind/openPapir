@@ -11,12 +11,15 @@ of one case record, the withdrawal of one assertion, the read-only
 whole-archive integrity check, the read-only summary and its
 receipt-retrieval reminders, the export of one case and the import of such an
 export back into an archive, the permission repair, deleting a case with an
-explicit purge, and writing the embedded agent skill document. The one
+explicit purge, computing derived metadata on request, and writing the
+embedded agent skill document. The one
 enumeration of them is the table in
 [architecture and CLI contract](architecture.md).
 Every document below separates implemented behaviour from plans, and the
-remaining correspondence workflows, including automatic matching, derived
-metadata, any receipt parsing, and any verification, are not available yet.
+remaining correspondence workflows, including automatic matching, any receipt
+parsing, and any verification, are not available yet; the only derived
+metadata is the media type and the byte length `archive derive` computes on
+request.
 
 Every file under `docs/` appears in the first table. The rules that keep these
 documents correct, including which document each kind of change must update,

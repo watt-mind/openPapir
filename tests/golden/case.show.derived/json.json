@@ -11,7 +11,13 @@
       "tags": [],
       "title": "Tax matter"
     },
-    "derived": [],
+    "derived": [
+      {
+        "artefact_digest": "sha256:<digest>",
+        "byte_length": 27,
+        "media_type": "text"
+      }
+    ],
     "receipts": [],
     "submission_count": 1,
     "submissions": [

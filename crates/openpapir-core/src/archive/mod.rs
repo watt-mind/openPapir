@@ -34,11 +34,13 @@ pub const SUBMISSIONS_DIR: &str = crate::records::SUBMISSIONS_DIR;
 pub const RECEIPTS_DIR: &str = crate::records::RECEIPTS_DIR;
 /// The directory holding association records, relative to the root.
 pub const ASSOCIATIONS_DIR: &str = crate::records::ASSOCIATIONS_DIR;
+/// The directory holding derived-metadata records, relative to the root.
+pub const DERIVED_DIR: &str = crate::records::DERIVED_DIR;
 /// The disposable, rebuildable index directory, relative to the root.
 pub const CACHE_DIR: &str = "cache";
 
 /// The directories an archive holds, relative to its root.
-const LAYOUT_DIRS: [&str; 10] = [
+const LAYOUT_DIRS: [&str; 11] = [
     "objects",
     "objects/sha256",
     "objects/incoming",
@@ -48,6 +50,7 @@ const LAYOUT_DIRS: [&str; 10] = [
     SUBMISSIONS_DIR,
     RECEIPTS_DIR,
     ASSOCIATIONS_DIR,
+    DERIVED_DIR,
     CACHE_DIR,
 ];
 

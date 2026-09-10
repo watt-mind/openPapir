@@ -180,6 +180,13 @@ fn archive_cases() -> Vec<Case> {
             },
         },
         Case {
+            name: "archive.derive",
+            stage: Stage::Associated,
+            second_submission: false,
+            prepare: ready,
+            arguments: |world| world.command(&["archive", "derive"]),
+        },
+        Case {
             name: "archive.repair-permissions",
             stage: Stage::Associated,
             second_submission: false,
@@ -298,6 +305,17 @@ fn record_cases() -> Vec<Case> {
             },
         },
         Case {
+            name: "case.show.derived",
+            stage: Stage::Submitted,
+            second_submission: false,
+            prepare: golden_support::derive_metadata,
+            arguments: |world| {
+                let mut arguments = world.command(&["case", "show"]);
+                arguments.push(world.case_id.clone());
+                arguments
+            },
+        },
+        Case {
             name: "submission.add",
             stage: Stage::Cased,
             second_submission: false,
@@ -330,6 +348,13 @@ fn record_cases() -> Vec<Case> {
             stage: Stage::Receipted,
             second_submission: false,
             prepare: ready,
+            arguments: |world| world.command(&["receipt", "list"]),
+        },
+        Case {
+            name: "receipt.list.derived",
+            stage: Stage::Receipted,
+            second_submission: false,
+            prepare: golden_support::derive_metadata,
             arguments: |world| world.command(&["receipt", "list"]),
         },
         Case {

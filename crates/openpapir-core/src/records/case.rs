@@ -188,6 +188,13 @@ pub struct CaseReceipt {
 pub struct CaseView {
     /// The case itself.
     pub case: Case,
+    /// What a derived-metadata record says about the artefacts the
+    /// submissions below reference, ordered by digest. An artefact with no
+    /// derived record contributes no entry, and an empty array therefore
+    /// means nothing has been derived rather than that anything is missing.
+    /// The facts are openPapir's own disposable computation and assert
+    /// nothing about what an artefact is or proves.
+    pub derived: Vec<crate::records::derived::DerivedFacts>,
     /// Every receipt whose live association names a submission of this case,
     /// with the outcome that association records, ordered by receipt
     /// identifier and then by association identifier. Only the live head of
@@ -592,9 +599,17 @@ fn show_record(
         .into_iter()
         .filter(|submission| submission.case_id == case.id)
         .collect();
+    let derived = crate::records::derived::facts_for(
+        archive.root(),
+        submissions
+            .iter()
+            .flat_map(|submission| &submission.artefacts)
+            .map(|artefact| artefact.digest.as_str()),
+    );
     let receipts = case_receipts(archive.root(), &submissions)?;
     Ok(CaseView {
         case,
+        derived,
         receipts,
         submission_count: submissions.len() as u64,
         submissions,

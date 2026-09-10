@@ -1,0 +1,43 @@
+{
+  "command": "archive.derive",
+  "data": {
+    "bytes_sniffed": 77,
+    "media_types": [
+      {
+        "count": 0,
+        "media_type": "jpeg"
+      },
+      {
+        "count": 0,
+        "media_type": "pdf"
+      },
+      {
+        "count": 0,
+        "media_type": "png"
+      },
+      {
+        "count": 3,
+        "media_type": "text"
+      },
+      {
+        "count": 0,
+        "media_type": "unknown"
+      },
+      {
+        "count": 0,
+        "media_type": "xml"
+      },
+      {
+        "count": 0,
+        "media_type": "zip"
+      }
+    ],
+    "objects_checked": 3,
+    "objects_unchecked": 0,
+    "records_removed": 0,
+    "records_written": 3
+  },
+  "ok": true,
+  "schema_version": 1,
+  "verified": false
+}

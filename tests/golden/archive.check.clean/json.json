@@ -2,6 +2,7 @@
   "command": "archive.check",
   "data": {
     "bytes_digested": 77,
+    "derived_records": 0,
     "objects_checked": 3,
     "objects_unchecked": 0,
     "orphan_objects": 0,

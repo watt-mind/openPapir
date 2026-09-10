@@ -40,12 +40,14 @@ of each kind of content, and the style are in the Documentation section of
   association records, the withdrawal of one assertion, the update of one
   case record, the export of one case or of a whole archive and the import of
   either export back into an archive, the deletion of one case with an
-  explicit purge, `skill`, and the generated shell completions and man page.
+  explicit purge, the derived metadata `archive derive` computes on request,
+  `skill`, and the generated shell completions and man page.
   [Architecture and CLI contract](docs/architecture.md) is the contract of
   what is implemented, and the
   [specification index](docs/specification.md) indexes everything else. Not
   implemented, and not to be described as if it were: receipt parsing,
-  automatic matching, derived metadata and verification records, delegated
+  automatic matching, verification records, any derived metadata beyond the
+  media type and the byte length `archive derive` computes, delegated
   verification, migration, KRX and `.es3` handling, and any government
   integration or delivery. Never document a planned operation as implemented
   or imply a government integration exists.

@@ -2,7 +2,13 @@
   "command": "receipt.list",
   "data": {
     "count": 1,
-    "derived": [],
+    "derived": [
+      {
+        "artefact_digest": "sha256:<digest>",
+        "byte_length": 23,
+        "media_type": "text"
+      }
+    ],
     "receipts": [
       {
         "archive_schema_version": 1,

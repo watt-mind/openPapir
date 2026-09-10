@@ -26,6 +26,9 @@
 //!   same copy read back in, all of it or none of it.
 //! - `openpapir archive repair-permissions --archive <root> [--json]`, the
 //!   only action besides `archive init` that narrows permissions.
+//! - `openpapir archive derive --archive <root> [--json]`, the media type and
+//!   the byte length of every stored object, computed only when asked for,
+//!   disposable, and never authoritative.
 //! - `openpapir import --archive <root> <file>... [--case <id> --description
 //!   <d> [--date <yyyy-mm-dd>]] [--json]`, artefact import, and with `--case`
 //!   the same import with one submission recorded over it.
@@ -62,12 +65,12 @@
 //!   definition the parser uses, take no file and no `--json`, and follow
 //!   `skill`'s rule for a stdout that cannot take the bytes.
 //!
-//! There is no automatic matching, no derived metadata, no receipt parsing,
-//! no editing of a stored record other than the case record `case update`
-//! rewrites, no deletion of a single submission or receipt, no deletion of an
-//! archive, no signature verification, and no government delivery. The
-//! integrity check re-digests stored bytes, which is a storage-layer identity
-//! check and never a cryptographic verification.
+//! There is no automatic matching, no receipt parsing, no editing of a stored
+//! record other than the case record `case update` rewrites, no deletion of a
+//! single submission or receipt, no deletion of an archive, no signature
+//! verification, and no government delivery. The integrity check re-digests
+//! stored bytes, which is a storage-layer identity check and never a
+//! cryptographic verification.
 //!
 //! # Envelope and exit codes
 //!
@@ -100,6 +103,7 @@ mod associations;
 mod cases;
 mod completions;
 mod delete;
+mod derive;
 mod envelope;
 mod export;
 mod imports;
@@ -191,6 +195,8 @@ enum ArchiveCommand {
     },
     /// Summarise the archive and the receipts still worth fetching.
     Status(status::Status),
+    /// Compute the media type and the byte length of every stored object.
+    Derive(derive::Derive),
     /// Narrow every path in the archive back to owner-only.
     RepairPermissions {
         /// The archive root, which is always supplied explicitly.
@@ -321,6 +327,14 @@ fn run(command: Command) -> i32 {
             arguments.run(),
             arguments.json,
             report::archive_restored,
+        ),
+        Command::Archive {
+            command: ArchiveCommand::Derive(arguments),
+        } => emit(
+            "archive.derive",
+            arguments.run(),
+            arguments.json,
+            derive::lines,
         ),
         Command::Archive {
             command: ArchiveCommand::RepairPermissions { archive, json },
