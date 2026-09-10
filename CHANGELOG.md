@@ -634,6 +634,29 @@ envelope.
   states that `case list` narrows by the fields a case record carries and that
   searching artefact content is what is absent. No behaviour, contract, or
   output changes.
+- The archive keeps one rebuildable index,
+  `cache/import-events-by-digest.json`, mapping each artefact digest to the
+  import events recorded against it. It answers `receipt add` without
+  `--import-event`, the history a duplicate import reports, and the deletion
+  plan, all of which read every import-event record before. It is never
+  authoritative: it is rebuilt whenever it is absent, whenever the
+  import-event directory has changed since it was written, or whenever it does
+  not parse, and a reader that cannot prove it current reads the records
+  instead, so deleting it changes no answer. It is written only under the
+  writer lock, through the same staging-then-rename procedure and owner-only
+  permissions as every other file, and it is excluded from both export shapes
+  and from what a deletion counts or removes. Whether it is current is decided
+  by a digest of the import-event directory's entry names together with the
+  entry count and the newest modification time, taken before and after the
+  read, so an exchange of one record for another cannot pass as an unchanged
+  directory. An identifier the index gives is read back as a record, through
+  the same path a named `--import-event` goes through, before it is written
+  into another record or into a plan that removes one. An unreadable
+  import-event document is still `record.malformed` with the same count.
+  `archive check` now reports `cache_files`, how many files `cache/` holds,
+  and prints one
+  more line for it; the figure is never a problem and never changes the exit
+  code. The field is additive and `schema_version` stays `1`.
 - `case import` and `archive import` are bounded by their own ceiling,
   `input.cap.restore_bytes`, over the sum of the object bytes the export's
   manifest names, checked before any copy is opened and before the writer lock

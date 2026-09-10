@@ -1229,3 +1229,210 @@ fn a_human_import_into_a_case_names_the_record_and_no_filename() {
     assert!(!text.contains("note.txt"), "no filename is printed");
     assert!(!text.contains(path(inputs.path())), "no path is printed");
 }
+
+/// The rebuildable index under `cache/` is openPapir's own accelerator, so it
+/// is visible to the check, never a problem, never part of an export, and
+/// never counted or removed by a deletion. Its loss changes no answer, which
+/// is why the deletion leaves it exactly where it is: a stale index is
+/// rebuilt on the next read rather than repaired.
+#[test]
+fn the_rebuildable_index_is_counted_never_a_problem_and_never_exported() {
+    let (root, inputs) = archive();
+    let home = empty_dir();
+    let first = write_input(inputs.path(), "first.txt", PAYLOAD);
+    let second = write_input(inputs.path(), "second.txt", PAYLOAD);
+    for input in [&first, &second] {
+        run(&[
+            "import",
+            "--archive",
+            path(root.path()),
+            "--json",
+            path(input),
+        ]);
+    }
+    // `receipt add` without `--import-event` is the read that resolves an
+    // artefact to its earliest import event, and it leaves the index behind.
+    let output = run(&[
+        "receipt",
+        "add",
+        "--archive",
+        path(root.path()),
+        "--artefact",
+        PAYLOAD_DIGEST,
+        "--json",
+    ]);
+    assert_eq!(output.status.code(), Some(0), "the receipt is recorded");
+    let index = root
+        .path()
+        .join("cache")
+        .join("import-events-by-digest.json");
+    assert!(
+        index.is_file(),
+        "the read wrote the index it had to rebuild"
+    );
+    assert_owner_only(&index);
+
+    let checked = run(&["archive", "check", "--archive", path(root.path()), "--json"]);
+    assert_eq!(checked.status.code(), Some(0), "an index is not damage");
+    let envelope = stdout_json(&checked);
+    assert_envelope(&envelope, "archive.check", true);
+    assert_eq!(envelope["data"]["cache_files"], 1, "the index is counted");
+    for problem in envelope["data"]["problems"].as_array().unwrap() {
+        assert_eq!(problem["count"], 0, "the index is never a problem");
+    }
+
+    let destination = home.path().join("whole");
+    let exported = run(&[
+        "archive",
+        "export",
+        "--archive",
+        path(root.path()),
+        "--to",
+        path(&destination),
+        "--json",
+    ]);
+    assert_eq!(exported.status.code(), Some(0), "the archive is exported");
+    assert!(
+        !destination.join("cache").exists(),
+        "an export copies the records and the objects, never the index"
+    );
+    assert!(index.is_file(), "the export changed nothing in the archive");
+
+    // A deletion plans against the index and still counts only records and
+    // objects. The index is neither removed nor retained: it is not part of
+    // what a deletion is about, and the next read rebuilds it.
+    let case_id = stdout_json(&run(&[
+        "case",
+        "create",
+        "--archive",
+        path(root.path()),
+        "--title",
+        "A synthetic case",
+        "--json",
+    ]))["data"]["case"]["id"]
+        .as_str()
+        .expect("a case identifier")
+        .to_owned();
+    run(&[
+        "submission",
+        "add",
+        "--archive",
+        path(root.path()),
+        "--case",
+        &case_id,
+        "--description",
+        "The user states they sent this.",
+        "--artefact",
+        PAYLOAD_DIGEST,
+        "--json",
+    ]);
+    let deleted = run(&[
+        "case",
+        "delete",
+        "--archive",
+        path(root.path()),
+        "--case",
+        &case_id,
+        "--purge",
+        "--json",
+    ]);
+    assert_eq!(deleted.status.code(), Some(0), "the case is deleted");
+    let envelope = stdout_json(&deleted);
+    let data = envelope["data"]
+        .as_object()
+        .expect("a deletion reports data");
+    assert!(
+        data.keys().all(|key| !key.contains("cache")),
+        "a deletion counts records and objects, and nothing under cache/"
+    );
+    assert!(
+        index.is_file(),
+        "a deletion neither counts the index nor removes it"
+    );
+}
+
+/// The index is openPapir's own accelerator and is not a record, so nothing
+/// it says may be written into a record without the record it names being
+/// read first. A doctored index that names an import event the archive does
+/// not hold must therefore change no answer: `receipt add` reads the records
+/// instead, and the receipt it writes names a real event rather than leaving
+/// a dangling reference behind for `archive check` to find.
+#[test]
+fn an_index_naming_an_absent_import_event_is_not_believed() {
+    let (root, inputs) = archive();
+    let first = write_input(inputs.path(), "first.txt", PAYLOAD);
+    let imported = stdout_json(&run(&[
+        "import",
+        "--archive",
+        path(root.path()),
+        "--json",
+        path(&first),
+    ]));
+    let event = imported["data"]["artefacts"][0]["import_event"]
+        .as_str()
+        .expect("an import reports its event")
+        .to_owned();
+
+    // Warm the index, then doctor it so that it names an event that is not
+    // there. Its stamp still describes the import-event directory exactly,
+    // so the freshness check has nothing to object to.
+    run(&[
+        "receipt",
+        "add",
+        "--archive",
+        path(root.path()),
+        "--artefact",
+        PAYLOAD_DIGEST,
+        "--json",
+    ]);
+    let index = root
+        .path()
+        .join("cache")
+        .join("import-events-by-digest.json");
+    let doctored = fs::read_to_string(&index)
+        .expect("the index is there")
+        .replace(&event, "0123456789abcdef0123456789abcdef");
+    fs::remove_file(&index).expect("the index is replaced");
+    fs::write(&index, doctored).expect("the doctored index is written");
+    assert_owner_only_after_write(&index);
+
+    let output = run(&[
+        "receipt",
+        "add",
+        "--archive",
+        path(root.path()),
+        "--artefact",
+        PAYLOAD_DIGEST,
+        "--json",
+    ]);
+    assert_eq!(output.status.code(), Some(0), "the receipt is recorded");
+    let envelope = stdout_json(&output);
+    assert_eq!(
+        envelope["data"]["receipt"]["import_event_id"],
+        event.as_str(),
+        "the records decide which event a receipt names, never the index"
+    );
+
+    let checked = stdout_json(&run(&[
+        "archive",
+        "check",
+        "--archive",
+        path(root.path()),
+        "--json",
+    ]));
+    for problem in checked["data"]["problems"].as_array().unwrap() {
+        assert_eq!(problem["count"], 0, "no reference was left dangling");
+    }
+}
+
+/// Narrow a file this test wrote itself, so that the archive's owner-only
+/// rule has nothing to refuse. It is the test's own housekeeping and says
+/// nothing about what openPapir writes.
+#[cfg(unix)]
+fn assert_owner_only_after_write(path: &Path) {
+    use std::os::unix::fs::PermissionsExt as _;
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600)).expect("narrow the test's file");
+}
+
+#[cfg(not(unix))]
+fn assert_owner_only_after_write(_path: &Path) {}

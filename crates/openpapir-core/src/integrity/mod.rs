@@ -85,6 +85,13 @@ pub struct Problem {
 pub struct Report {
     /// How many bytes were streamed through the digest.
     pub bytes_digested: u64,
+    /// How many files the archive's `cache/` directory holds. A cache is
+    /// openPapir's own rebuildable index, never authoritative, and safe to
+    /// delete at any time, so an absent one, a stale one, and a damaged one
+    /// are alike nothing at all. The figure is reported so that a cache is
+    /// visible rather than invisible, and it is never a problem: the check
+    /// reads no file here and concludes nothing from what it counts.
+    pub cache_files: u64,
     /// How many derived-metadata records the archive holds. A derived record
     /// is openPapir's own disposable computation about a stored object, so a
     /// missing one is nothing at all rather than a problem. The count is of
@@ -297,6 +304,7 @@ fn run(root: &Path) -> Report {
     let derived = crate::records::derived::filed(root);
     Report {
         bytes_digested: store.bytes_digested,
+        cache_files: crate::cache::file_count(root),
         derived_records: derived.len() as u64,
         derived_orphans: derived_orphans(&derived, &store),
         objects_checked: store.objects_checked,

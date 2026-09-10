@@ -208,6 +208,12 @@ created owner-only:
     cache/
 ```
 
+Creation writes no file into `cache/`. The one index that lives there,
+`cache/import-events-by-digest.json`, is written by the first operation that
+wants it and is rebuilt whenever it cannot be proved current, so it is never
+authoritative and deleting it changes no answer
+([archive layout](archive-layout.md#the-rebuildable-index)).
+
 Creation narrows the supplied root to owner-only permissions. It only ever
 narrows; there is no flag that widens anything.
 
@@ -989,9 +995,10 @@ holds, never with their size.
 | A symbolic link, or any other non-regular file, inside `objects/`. | `path.symlink` |
 
 `data` also carries `derived_records`, how many derived-metadata records the
-archive holds, and `derived_orphans`, how many of those name an object the
-store no longer holds. A derived record is openPapir's own disposable
-computation about a stored object, so a missing one is nothing at all rather
+archive holds, `derived_orphans`, how many of those name an object the
+store no longer holds, and `cache_files`, how many files `cache/` holds. A
+derived record and a cache file are alike openPapir's own disposable
+computation about the archive, so a missing one is nothing at all rather
 than a problem, and an orphaned one is a count rather than a problem too:
 nothing references it and the next `archive derive` discards it. Neither ever
 changes the exit code, and neither appears in `problems`.
@@ -1006,7 +1013,10 @@ it. A record whose object lies in a fan-out directory the check could not
 list is not counted as an orphan, exactly as no reference into an unread
 directory is called dangling. The count is reported because it is the one
 visible trace of a purge that stopped between its record pass and its object
-pass.
+pass. `cache_files` is read the same way and no file under `cache/` is opened
+either: the index there is rebuildable, so a stale one and a damaged one are
+alike nothing at all, and the count is reported so that it is visible rather
+than invisible.
 
 `data` is the whole-archive integrity report of
 [error-contract](error-contract.md): counts and stable codes only. It never
@@ -1021,6 +1031,7 @@ question the privacy rule allows an answer to.
   "command": "archive.check",
   "data": {
     "bytes_digested": 16,
+    "cache_files": 0,
     "derived_orphans": 0,
     "derived_records": 0,
     "objects_checked": 1,
@@ -2464,12 +2475,15 @@ them are `input` refusals and all exit `3`.
 
 ## Performance
 
-There is no index. Every listing, the integrity check, the export, the
-deletion plan, and the receipts section of one shown case read the records
-they could report, in one linear scan, so their cost grows with what the
-archive holds. The numbers below say what that costs at a size a user could
-reach. They are indicative: they are one run on one machine on one date, not
-a guarantee and not a benchmark result to compare builds by.
+Every listing, the integrity check, the export, the deletion plan, and the
+receipts section of one shown case read the records they could report, in one
+linear scan, so their cost grows with what the archive holds. The one index
+that exists is `cache/import-events-by-digest.json`, which is rebuildable,
+never authoritative, and described under
+[the rebuildable index](archive-layout.md#the-rebuildable-index). The numbers
+below say what all of that costs at a size a user could reach. They are
+indicative: they are one run on one machine on one date, not a guarantee and
+not a benchmark result to compare builds by.
 
 Measured on 2026-09-10 on a 13th Gen Intel Core i9-13900 with an NVMe
 solid-state disk and an ext4 filesystem, with the release binary, on a
@@ -2478,15 +2492,18 @@ associations, and 20000 imported objects of 256 bytes each.
 
 | Invocation | Wall time | Ceiling |
 | --- | --- | --- |
-| `case list` | 0.06 s | 5 s |
-| `case list --query` | 0.10 s | 5 s |
-| `case show` of one case | 0.37 s | 5 s |
-| `archive check` | 0.80 s | 10 s |
-| `search` | 0.17 s | 10 s |
-| `archive status` | 0.32 s | 5 s |
-| `case export` of one case | 0.27 s | 5 s |
-| `case delete --purge` of one case | 0.41 s | 10 s |
-| `import` of a batch of 1000 new files | 0.90 s | 10 s |
+| `case list` | 0.12 s | 5 s |
+| `case list --query` | 0.05 s | 5 s |
+| `case show` of one case | 0.22 s | 5 s |
+| `archive check` | 0.69 s | 10 s |
+| `search` | 0.18 s | 10 s |
+| `archive status` | 0.41 s | 5 s |
+| `case export` of one case | 0.26 s | 5 s |
+| `case delete --purge` of one case | 0.60 s | 10 s |
+| `receipt add`, rebuilding the index | 0.20 s | 5 s |
+| `receipt add`, index current | 0.07 s | 5 s |
+| `import` of a batch of 1000 new files | 0.81 s | 10 s |
+| the twentieth `import` of 100 new files | 0.17 s | 10 s |
 
 The ceiling is what `crates/openpapir-cli/tests/bench.rs` asserts. It is loose
 on purpose: the same assertion has to hold on an unoptimised build, on a
@@ -2494,20 +2511,30 @@ slower disk, and on a busy machine, so crossing one means the cost changed in
 kind rather than drifted. [Testing](testing.md) says how to run the
 measurement and how to change its size.
 
-The import row is the last measurement of the run, so its 1000 files are
-stored into the archive above with 20000 import events already present. The
-same batch imported into an empty archive took 1.4 s in a separate run on the
-same machine and date, so the cost of an import is the cost of the batch and
-not of the history behind it. Recording an import event reads the stored
-events only when the bytes were already present, and then once for the whole
-operation rather than once per file, so a directory of new files costs no read
-of them at all. Building the whole synthetic archive took 46 seconds.
+The import rows are the last measurements of the run, so their files are
+stored into the archive above with 20000 import events already present.
+Recording an import event reads the stored events only when the bytes were
+already present, and then once for the whole operation rather than once per
+file, so a directory of new files costs no read of them at all. The twentieth
+row is the last of twenty imports run back to back: it is there because the
+index is written by a write as well as read by one, and an import that had to
+rebuild it from every record each time would show as a cost that grew batch by
+batch. Building the whole synthetic archive took 50 seconds.
 
-One cost is still a scan, because records are named by a minted identifier and
-nothing indexes them by digest. Resolving a receipt's artefact to its earliest
-import event, which is `receipt add` without `--import-event`, reads every
-import-event record, once per invocation: 0.12 s over 20000 of them. Naming
-`--import-event` reads one record instead.
+The two `receipt add` rows are the same invocation twice. `receipt add`
+without `--import-event` resolves an artefact to its earliest import event,
+which is a question about a digest, and records are named by a minted
+identifier. The first invocation finds no index, reads every import-event
+record once, and writes the index it built; every later one is answered from
+that file until an import, a restore, or a deletion moves the archive past it.
+Naming `--import-event` reads one record and consults no index at all. The
+index is never authoritative: deleting it costs the next reader one scan and
+changes no answer, which is the property
+`crates/openpapir-core/tests/property/cache.rs` asserts. An index is used only
+when a digest of the import-event directory's entry names, taken twice around
+the read, matches the one the index recorded, and the identifier it gives is
+read back as a record before it is written into another one, so neither a
+stale index nor a doctored one changes an answer.
 
 ## Implemented codes and exit codes
 
