@@ -1,0 +1,38 @@
+{
+  "command": "search",
+  "data": {
+    "count": 4,
+    "hits": [
+      {
+        "field": "statement",
+        "id": "<id>",
+        "kind": "association"
+      },
+      {
+        "field": "notes",
+        "id": "<id>",
+        "kind": "case"
+      },
+      {
+        "field": "label",
+        "id": "<id>",
+        "kind": "receipt"
+      },
+      {
+        "case_id": "<id>",
+        "field": "description",
+        "id": "<id>",
+        "kind": "submission"
+      }
+    ],
+    "kinds": [
+      "association",
+      "case",
+      "receipt",
+      "submission"
+    ]
+  },
+  "ok": true,
+  "schema_version": 1,
+  "verified": false
+}

@@ -28,7 +28,8 @@
       "manpage",
       "archive.export",
       "archive.import",
-      "archive.derive"
+      "archive.derive",
+      "search"
     ],
     "project": "openPapir",
     "stage": "alpha"

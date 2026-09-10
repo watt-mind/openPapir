@@ -10,8 +10,9 @@
 //! integrity check, the read-only summary and its receipt-retrieval
 //! reminders, the export of one case or of a whole archive, the import of
 //! either export back into an archive, the permission repair that restoring
-//! an export or a backup needs, and the derived-metadata records `derive`
-//! computes on request. Verification results are designed in
+//! an export or a backup needs, the derived-metadata records `derive`
+//! computes on request, and the `search` scan over the user's own record
+//! text. Verification results are designed in
 //! `docs/archive-layout.md` and are not implemented.
 //!
 //! # Status
@@ -87,6 +88,7 @@ pub use records::case::{
 };
 pub use records::derived::{DerivedFacts, DerivedMetadata};
 pub use records::receipt::{Receipt, ReceiptAdded, ReceiptList, ReceiptView};
+pub use records::search::{Found, Hit, Kind as SearchKind, search};
 pub use records::submission::{ArtefactRef, FileRef, Submission, SubmissionAdded, SubmissionView};
 
 use serde::Serialize;
@@ -121,6 +123,7 @@ const OPERATIONS: &[&str] = &[
     "archive.export",
     "archive.import",
     "archive.derive",
+    "search",
 ];
 
 /// The closed set of implementation stages `capabilities` may report, in
@@ -217,7 +220,8 @@ mod tests {
                 "manpage",
                 "archive.export",
                 "archive.import",
-                "archive.derive"
+                "archive.derive",
+                "search"
             ]
         );
         assert_eq!(reported.project, "openPapir");

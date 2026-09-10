@@ -41,7 +41,8 @@ of each kind of content, and the style are in the Documentation section of
   case record, the export of one case or of a whole archive and the import of
   either export back into an archive, the deletion of one case with an
   explicit purge, the derived metadata `archive derive` computes on request,
-  `skill`, and the generated shell completions and man page.
+  the `search` scan over the user's own record text, `skill`, and the
+  generated shell completions and man page.
   [Architecture and CLI contract](docs/architecture.md) is the contract of
   what is implemented, and the
   [specification index](docs/specification.md) indexes everything else. Not

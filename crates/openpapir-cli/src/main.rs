@@ -55,6 +55,11 @@
 //! - `openpapir association retire --archive <root> <association-id>
 //!   [--reason <text>] [--json]`, the withdrawal of one assertion, written as
 //!   a new record superseding it.
+//! - `openpapir search --archive <root> <text> [--kind <kind>]... [--json]`,
+//!   the record kinds' own user-typed text and their identifiers scanned for
+//!   one string, reported as the kind, the identifier, the owning case when
+//!   there is one, and the field that matched. It reads no stored object, no
+//!   original filename, and nothing derived.
 //! - `openpapir skill`, the embedded agent skill document, written to stdout
 //!   byte for byte. It takes no file and no `--json`. A reader that closed the
 //!   pipe still exits `0`; any other failing write exits `4`.
@@ -110,6 +115,7 @@ mod imports;
 mod manpage;
 mod report;
 mod restore;
+mod search;
 mod skill;
 mod status;
 mod stdout;
@@ -180,6 +186,8 @@ enum Command {
     Manpage,
     /// Import local files into the archive's artefact store.
     Import(imports::Import),
+    /// Look for text in the user's own records, and in nothing else.
+    Search(search::Search),
 }
 
 #[derive(Subcommand)]
@@ -345,6 +353,9 @@ fn run(command: Command) -> i32 {
             report::repaired,
         ),
         Command::Import(arguments) => imports::run(arguments),
+        Command::Search(arguments) => {
+            emit("search", arguments.run(), arguments.json, search::lines)
+        }
         Command::Skill => skill::emit(),
         Command::Completions { shell } => completions::emit::<Args>(shell),
         Command::Manpage => manpage::emit::<Args>(),

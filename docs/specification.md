@@ -82,6 +82,7 @@ and man page. These invocations exist and nothing else:
 | `openpapir skill` | Writes the embedded agent skill document to stdout, byte for byte and with nothing added. It takes no file and no `--json`, touches no archive, and exits `0`. |
 | `openpapir completions <bash\|zsh\|fish\|powershell\|elvish>` | Writes one shell's completion script to stdout, generated from the command definition the parser uses. It takes no file and no `--json`, touches no archive, and exits `0`. |
 | `openpapir manpage` | Writes the man page for the whole command tree to stdout as one roff stream, the page for `openpapir` first and then one page for each subcommand. It takes no file, no directory, and no `--json`, touches no archive, and exits `0`. |
+| `openpapir search --archive <root> <text> [--kind case\|submission\|receipt\|association]... [--json]` | Reports where the text is in the user's own record text: case titles, notes, and tags, submission descriptions, receipt labels, an association's own statement, and the record identifiers. It reads no stored object, no original filename, and nothing derived, takes no lock, and changes nothing. |
 
 The exact envelope, the storage guarantees, the input caps, the implemented
 error codes, the exit-code mapping, and the privacy rule that binds all output

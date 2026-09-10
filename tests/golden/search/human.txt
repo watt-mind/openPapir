@@ -1,0 +1,6 @@
+association <id> statement
+case <id> notes
+receipt <id> label
+submission <id> description (case <id>)
+4 hit(s) in the record kind(s) read: association, case, receipt, submission.
+Search reads the user's own record text and the identifiers openPapir minted, never a stored object, an original filename, or anything derived.
