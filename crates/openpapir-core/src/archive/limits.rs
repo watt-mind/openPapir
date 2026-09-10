@@ -12,6 +12,8 @@ pub const MAX_FILE_BYTES: u64 = 64 * 1024 * 1024;
 pub const MAX_IMPORT_BYTES: u64 = 512 * 1024 * 1024;
 /// The largest number of files one import operation may name.
 pub const MAX_IMPORT_FILES: u64 = 1_000;
+/// The largest total a restore may read out of an export, in bytes.
+pub const MAX_RESTORE_BYTES: u64 = 16 * 1024 * 1024 * 1024;
 /// The largest record document, in bytes.
 pub const MAX_RECORD_BYTES: u64 = 1024 * 1024;
 /// The largest original filename kept as a record attribute, in bytes.
@@ -79,6 +81,58 @@ pub fn check_import_bytes(observed: u64, input_index: u64) -> Result<(), Diagnos
         ));
     }
     Ok(())
+}
+
+/// Refuse a restore whose objects come to more than the restore cap.
+///
+/// A restore replays objects the archive already accepted one command at a
+/// time, so the per-operation import ceiling is not the bound that serves it
+/// (`docs/architecture.md`). It carries no `input_index`: the manifest is one
+/// input and the sum is over all of it, so no single position was refused.
+///
+/// # Errors
+///
+/// Returns `input.cap.restore_bytes`.
+pub fn check_restore_bytes(observed: u64) -> Result<(), Diagnostic> {
+    if observed > MAX_RESTORE_BYTES {
+        return Err(refusal(
+            codes::INPUT_CAP_RESTORE_BYTES,
+            "The objects the export names exceed the restore cap.",
+            Details::new()
+                .int("cap_bytes", MAX_RESTORE_BYTES)
+                .int("observed_bytes", observed),
+        ));
+    }
+    Ok(())
+}
+
+/// Which per-operation byte ceiling bounds one stream into the object store.
+///
+/// The store enforces a running total while it reads, and which total it is
+/// depends on what the caller is doing: an import reads files the user just
+/// named, a restore replays an export the archive already accepted. The two
+/// have their own caps and their own codes, so the store is told which one it
+/// is serving rather than guessing from its arguments.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Ceiling {
+    /// One `import` or `submission add --file`, under `MAX_IMPORT_BYTES`.
+    Import,
+    /// One `case import` or `archive import`, under `MAX_RESTORE_BYTES`.
+    Restore,
+}
+
+impl Ceiling {
+    /// Refuse a running total that has passed this ceiling.
+    ///
+    /// # Errors
+    ///
+    /// Returns `input.cap.import_bytes` or `input.cap.restore_bytes`.
+    pub fn check(self, observed: u64, input_index: u64) -> Result<(), Diagnostic> {
+        match self {
+            Self::Import => check_import_bytes(observed, input_index),
+            Self::Restore => check_restore_bytes(observed),
+        }
+    }
 }
 
 /// Refuse an original filename longer than the attribute cap.
@@ -170,6 +224,7 @@ mod tests {
         assert!(check_file_count(MAX_IMPORT_FILES).is_ok());
         assert!(check_file_size(MAX_FILE_BYTES, 0).is_ok());
         assert!(check_import_bytes(MAX_IMPORT_BYTES, 0).is_ok());
+        assert!(check_restore_bytes(MAX_RESTORE_BYTES).is_ok());
         assert!(check_filename_length(MAX_FILENAME_BYTES, 0).is_ok());
         assert!(check_record_size(MAX_RECORD_BYTES).is_ok());
         assert!(check_tag_count(MAX_TAG_COUNT).is_ok());
@@ -187,6 +242,10 @@ mod tests {
             (
                 check_import_bytes(MAX_IMPORT_BYTES + 1, 3),
                 codes::INPUT_CAP_IMPORT_BYTES,
+            ),
+            (
+                check_restore_bytes(MAX_RESTORE_BYTES + 1),
+                codes::INPUT_CAP_RESTORE_BYTES,
             ),
             (
                 check_filename_length(MAX_FILENAME_BYTES + 1, 3),
@@ -220,5 +279,38 @@ mod tests {
         assert_eq!(json["details"]["cap_bytes"], MAX_FILE_BYTES);
         assert_eq!(json["details"]["bucket"], "input");
         assert_eq!(json["details"].as_object().unwrap().len(), 4);
+    }
+
+    /// The restore cap keeps the shape every cap refusal has, and it names no
+    /// position: the manifest is one input and the sum is over all of it.
+    #[test]
+    fn the_restore_cap_reports_the_cap_and_the_sum_and_no_position() {
+        let refusal = check_restore_bytes(MAX_RESTORE_BYTES + 1).unwrap_err();
+        let json = serde_json::to_value(&refusal).unwrap();
+        assert_eq!(json["code"], codes::INPUT_CAP_RESTORE_BYTES);
+        assert_eq!(json["details"]["bucket"], "input");
+        assert_eq!(json["details"]["cap_bytes"], MAX_RESTORE_BYTES);
+        assert_eq!(json["details"]["observed_bytes"], MAX_RESTORE_BYTES + 1);
+        assert_eq!(json["details"].as_object().unwrap().len(), 3);
+        assert_eq!(refusal.exit_code(), 3);
+    }
+
+    /// A restore is bounded by the restore ceiling and an import by the
+    /// import one, at a total that only one of the two refuses.
+    #[test]
+    fn each_ceiling_refuses_a_total_the_other_accepts() {
+        let between = MAX_IMPORT_BYTES + 1;
+        assert_eq!(
+            Ceiling::Import.check(between, 2).unwrap_err().code,
+            codes::INPUT_CAP_IMPORT_BYTES
+        );
+        assert!(Ceiling::Restore.check(between, 2).is_ok());
+        assert_eq!(
+            Ceiling::Restore
+                .check(MAX_RESTORE_BYTES + 1, 2)
+                .unwrap_err()
+                .code,
+            codes::INPUT_CAP_RESTORE_BYTES
+        );
     }
 }

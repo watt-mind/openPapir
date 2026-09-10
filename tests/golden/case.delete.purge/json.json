@@ -32,6 +32,10 @@
         "kind": "case"
       },
       {
+        "count": 0,
+        "kind": "derived_metadata"
+      },
+      {
         "count": 2,
         "kind": "import_event"
       },

@@ -23,9 +23,10 @@ use crate::records::submission::Submission;
 use crate::records::{DIGEST_PREFIX, inconsistent, is_digest};
 
 /// The record kinds a deletion reports, ordered by name.
-pub const KINDS: [&str; 5] = [
+pub const KINDS: [&str; 6] = [
     "association",
     "case",
+    crate::records::derived::KIND,
     "import_event",
     "receipt",
     "submission",
@@ -59,6 +60,12 @@ pub struct Plan {
     pub import_events: BTreeMap<String, Vec<String>>,
     /// The bare, validated digests of the objects to unlink.
     pub objects: Vec<String>,
+    /// The bare digests of the objects being purged that have a derived
+    /// record on disk. The record describes bytes the purge removes, so it
+    /// goes with them, and only a record that is actually there is planned:
+    /// counting one that is not would over-report what a refused deletion
+    /// retained.
+    pub derived: Vec<String>,
     /// Objects a remaining submission or receipt still references.
     pub referenced_elsewhere: u64,
     /// Objects that would become unreferenced, left because no purge was asked
@@ -133,6 +140,7 @@ pub fn build(root: &Path, case_id: &str, purge: bool) -> Result<Plan, Diagnostic
         purge,
     );
     let purged: BTreeSet<&str> = plan.objects.iter().map(String::as_str).collect();
+    plan.derived = derived_records(root, &purged);
     for event in &events {
         if let Some(hex) = hex(&event.digest).filter(|hex| purged.contains(hex)) {
             plan.import_events
@@ -142,6 +150,25 @@ pub fn build(root: &Path, case_id: &str, purge: bool) -> Result<Plan, Diagnostic
         }
     }
     Ok(plan)
+}
+
+/// The digests among `purged` whose derived record is on disk.
+///
+/// A derived record is openPapir's own disposable computation about the bytes
+/// of one object, so it describes nothing once those bytes are gone. The
+/// purge therefore takes it in the same all-or-nothing record pass rather
+/// than leaving it for the next `archive derive`
+/// (`docs/archive-layout.md`). The directory is listed once, by name alone:
+/// no record is opened or parsed, because what one contains decides nothing
+/// about whether it should go.
+fn derived_records(root: &Path, purged: &BTreeSet<&str>) -> Vec<String> {
+    crate::records::derived::filed(root)
+        .into_iter()
+        .filter_map(|digest| {
+            let hex = digest.strip_prefix(DIGEST_PREFIX)?;
+            purged.contains(hex).then(|| hex.to_owned())
+        })
+        .collect()
 }
 
 /// Every submission an association names, confirmed or as a candidate.

@@ -200,7 +200,7 @@ fn removed(data: &Value) -> Vec<(String, u64)> {
     let entries = data["records_removed"]
         .as_array()
         .expect("records_removed is an array");
-    assert_eq!(entries.len(), 5, "every record kind is listed");
+    assert_eq!(entries.len(), 6, "every record kind is listed");
     entries
         .iter()
         .map(|entry| {
@@ -259,6 +259,7 @@ fn a_deletion_without_purge_removes_records_and_keeps_every_object() {
         vec![
             ("association".to_owned(), 1),
             ("case".to_owned(), 1),
+            ("derived_metadata".to_owned(), 0),
             ("import_event".to_owned(), 0),
             ("receipt".to_owned(), 1),
             ("submission".to_owned(), 2),
@@ -581,6 +582,7 @@ fn retiring_an_entangled_association_lets_the_deletion_proceed() {
         vec![
             ("association".to_owned(), 2),
             ("case".to_owned(), 1),
+            ("derived_metadata".to_owned(), 0),
             ("import_event".to_owned(), 1),
             ("receipt".to_owned(), 1),
             ("submission".to_owned(), 1),
@@ -815,6 +817,7 @@ fn a_refused_record_unlink_stops_the_purge_before_it_touches_an_object() {
         vec![
             ("association".to_owned(), 0),
             ("case".to_owned(), 1),
+            ("derived_metadata".to_owned(), 0),
             ("import_event".to_owned(), 1),
             ("receipt".to_owned(), 0),
             ("submission".to_owned(), 2),
@@ -899,6 +902,7 @@ fn an_interrupted_record_pass_unlinks_nothing_so_the_retry_purges_everything() {
         vec![
             ("association".to_owned(), 0),
             ("case".to_owned(), 0),
+            ("derived_metadata".to_owned(), 0),
             ("import_event".to_owned(), 0),
             ("receipt".to_owned(), 0),
             ("submission".to_owned(), 0),
@@ -930,6 +934,7 @@ fn an_interrupted_record_pass_unlinks_nothing_so_the_retry_purges_everything() {
         vec![
             ("association".to_owned(), 1),
             ("case".to_owned(), 1),
+            ("derived_metadata".to_owned(), 0),
             ("import_event".to_owned(), 2),
             ("receipt".to_owned(), 1),
             ("submission".to_owned(), 1),
@@ -1016,7 +1021,9 @@ fn human_output_prints_the_same_counts_and_no_path() {
     ]);
     assert!(output.status.success());
     let text = String::from_utf8(output.stdout).expect("stdout is UTF-8");
-    assert!(text.contains("Removed 5 record(s): association 1, case 1, import_event 0"));
+    assert!(text.contains(
+        "Removed 5 record(s): association 1, case 1, derived_metadata 0, import_event 0"
+    ));
     assert!(text.contains("Removed 0 object(s); 2 retained: purge_not_requested 2"));
     assert!(text.contains("No purge was requested, so no object was removed."));
     assert!(text.contains("does not erase data from the storage medium"));
@@ -1358,4 +1365,126 @@ fn association(
         .as_str()
         .expect("an association identifier")
         .to_owned()
+}
+
+/// The path of one object's derived-metadata record.
+fn derived_record(fixture: &Fixture, digest: &str) -> PathBuf {
+    let hex = digest.trim_start_matches("sha256:");
+    fixture
+        .root
+        .join("records/derived")
+        .join(format!("{hex}.json"))
+}
+
+#[test]
+fn a_purge_removes_the_derived_record_of_every_object_it_removes() {
+    let (fixture, case_id, first, second) = populated();
+    assert!(
+        run(&[
+            "archive",
+            "derive",
+            "--archive",
+            &fixture.root_text(),
+            "--json"
+        ])
+        .status
+        .success()
+    );
+    let records = [
+        derived_record(&fixture, &first),
+        derived_record(&fixture, &second),
+    ];
+    assert!(
+        records.iter().all(|path| path.is_file()),
+        "both are derived"
+    );
+
+    let envelope = stdout_json(&fixture.delete(&case_id, true));
+    assert_eq!(envelope["ok"], true);
+    assert_private(&envelope);
+    let data = &envelope["data"];
+    assert_eq!(data["objects_removed"], 2);
+    assert_eq!(
+        removed(data)
+            .into_iter()
+            .find(|(kind, _)| kind == "derived_metadata"),
+        Some(("derived_metadata".to_owned(), 2)),
+        "one derived record per purged object, counted under its own kind"
+    );
+    assert_eq!(data["records_removed_total"], 9);
+    assert!(
+        records.iter().all(|path| !path.exists()),
+        "no record about bytes that are gone is left behind"
+    );
+
+    let checked = stdout_json(&fixture.check());
+    assert_eq!(checked["ok"], true, "the archive is clean afterwards");
+    assert_eq!(checked["data"]["derived_records"], 0);
+    assert_eq!(checked["data"]["derived_orphans"], 0);
+}
+
+#[test]
+fn a_deletion_of_a_case_whose_objects_stay_removes_no_derived_record() {
+    let (fixture, case_id, first, _) = populated();
+    assert!(
+        run(&[
+            "archive",
+            "derive",
+            "--archive",
+            &fixture.root_text(),
+            "--json"
+        ])
+        .status
+        .success()
+    );
+    let envelope = stdout_json(&fixture.delete(&case_id, false));
+    let data = &envelope["data"];
+    assert_eq!(data["objects_removed"], 0);
+    assert_eq!(
+        removed(data)
+            .into_iter()
+            .find(|(kind, _)| kind == "derived_metadata"),
+        Some(("derived_metadata".to_owned(), 0)),
+        "a record whose object stays describes bytes that are still here"
+    );
+    assert!(derived_record(&fixture, &first).is_file());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_derived_record_that_will_not_go_refuses_the_whole_deletion() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let (fixture, case_id, first, _) = populated();
+    assert!(
+        run(&[
+            "archive",
+            "derive",
+            "--archive",
+            &fixture.root_text(),
+            "--json"
+        ])
+        .status
+        .success()
+    );
+    let directory = fixture.root.join("records/derived");
+    fs::set_permissions(&directory, fs::Permissions::from_mode(0o500))
+        .expect("make the directory refuse an unlink");
+    let output = fixture.delete(&case_id, true);
+    fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).expect("put it back");
+
+    assert_eq!(output.status.code(), Some(4));
+    let envelope = stdout_json(&output);
+    assert_eq!(envelope["ok"], false);
+    assert_eq!(envelope["error"]["code"], "delete.records_retained");
+    assert_private(&envelope);
+    let data = &envelope["data"];
+    assert_eq!(data["records_removed_total"], 0, "the probe refused first");
+    assert_eq!(data["objects_removed"], 0, "so no object was touched");
+    assert!(fixture.object(&first).is_file());
+    assert!(derived_record(&fixture, &first).is_file());
+
+    let again = stdout_json(&fixture.delete(&case_id, true));
+    assert_eq!(again["ok"], true, "clearing the cause and retrying works");
+    assert_eq!(again["data"]["objects_removed"], 2);
 }
