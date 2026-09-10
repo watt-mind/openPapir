@@ -42,6 +42,7 @@ cargo run --locked -p openpapir-cli -- receipt list --archive ./my-archive --jso
 cargo run --locked -p openpapir-cli -- association create --archive ./my-archive --receipt <receipt-id> --outcome candidate --candidate "<submission-id>:moderate:The reference matches." --json
 cargo run --locked -p openpapir-cli -- association list --archive ./my-archive --receipt <receipt-id> --json
 cargo run --locked -p openpapir-cli -- archive check --archive ./my-archive --json
+cargo run --locked -p openpapir-cli -- archive status --archive ./my-archive --json
 cargo run --locked -p openpapir-cli -- case export --archive ./my-archive --case <case-id> --to ./my-export --json
 cargo run --locked -p openpapir-cli -- archive repair-permissions --archive ./my-archive --json
 cargo run --locked -p openpapir-cli -- case delete --archive ./my-archive --case <case-id> --purge --json
@@ -71,6 +72,7 @@ The capabilities command reports the current implementation honestly:
       "association.list",
       "association.retire",
       "archive.check",
+      "archive.status",
       "case.export",
       "archive.repair_permissions",
       "case.delete",
@@ -117,6 +119,11 @@ each. All but the last can process input:
 - `archive check` re-digests what the store holds and reports counts only; it
   takes no lock, changes nothing, and a passing check is storage integrity
   rather than authenticity.
+- `archive status` summarises what the archive holds and lists the
+  submissions whose receipt is still worth looking for in the delivery
+  storage, inside the 30-day window the operator's help page describes. It
+  takes no lock, changes nothing, and states no delivery, no receipt by an
+  authority, and no legal effect.
 - `case export` copies one case out as plain files, the original bytes named
   by their digest plus readable JSON records and a manifest, without changing
   the archive, and re-digests every copy.

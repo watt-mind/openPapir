@@ -24,6 +24,46 @@ envelope.
 
 ### Added
 
+- `openpapir archive status --archive <root> [--as-of <yyyy-mm-dd>] [--json]`
+  (operation `archive.status`) summarises one archive without changing it and
+  reminds the user where to look in their delivery storage for a submission
+  receipt while the operator says one would still be there. `data` carries
+  `as_of`, the counts `cases`, `cases_by_status[]` (one `{count, status}` per
+  status in the closed set, including a status no case holds, summing to
+  `cases`),
+  `submissions`, `receipts`, `associations`, and `stored_objects`,
+  `undated_submissions`, `retention_window_days`, and
+  `receipts_to_retrieve[]`, each entry with `case_id`, `submission_id`,
+  `submission_date`, `retrieve_by`, and `days_left`, ordered by `retrieve_by`
+  and then by identifier. A submission is listed when it carries a
+  user-supplied date, no live association with outcome `associated` or
+  `candidate` names it, and its date plus the window is on or after the as-of
+  date; the last day of the window still counts as open. Live means the head
+  of the supersession chain: a superseded record stays in the history and is
+  still returned by `association list`, but it no longer says what the user
+  asserts today, so `association retire` on an `associated` record withdraws
+  the assertion and the reminder comes back. A submission with no usable
+  date is counted and never listed. `--as-of` is validated exactly as
+  `submission add --date` is, defaults to the clock's own date, and accepts a
+  past or future date as a what-if; an unusable one is `usage.arguments` with
+  `argument` `as_of`. The command takes no writer lock, opens the archive
+  read-only exactly as `archive check` does, reads no artefact bytes, and
+  writes nothing. The retention window is one constant of 30 days: the
+  operator's help page states that the personal delivery storage retains
+  incoming documents for 30 days unless they are moved to permanent storage,
+  retrieved 2026-09-09, descriptive rather than normative. openPapir enforces
+  nothing, reads no mailbox, and checks no service, and no output states
+  delivery, receipt by an authority, authenticity, or legal effect. A case's
+  status changes no reminder: closing a case is the user's own filing, so a
+  submission in a closed case is listed exactly as one in an open case.
+- `capabilities` now lists `archive.status`, so eighteen operations are
+  reported, and every document that states the number or the list of
+  operations states eighteen.
+- `tests/golden/archive.status/` pins the JSON and human output of the summary
+  against a fixture holding one submission whose window has elapsed, one whose
+  window is open, one a live candidate association already names, and one with
+  no date. `tests/golden/archive.status.retired/` pins the same fixture with
+  that candidate record retired, where the submission is reminded of again.
 - `.github/workflows/release.yml` builds the release artefacts described in
   `docs/releasing.md`: prebuilt binaries for `x86_64-unknown-linux-musl`,
   `aarch64-unknown-linux-musl`, `aarch64-apple-darwin`, `x86_64-apple-darwin`,
@@ -55,7 +95,7 @@ envelope.
   `statement`, which only a retirement carries, and no message, warning, or
   count repeats it. Retiring a record something already supersedes is
   `record.inconsistent` with the new rule `already_superseded`. `capabilities`
-  lists `association.retire`, so seventeen operations are reported.
+  lists `association.retire`, so eighteen operations are reported.
 - `case update` rewrites one case record in place, keeping its `id` and its
   `created_at` and adding an `updated_at`. It is the one operation that
   rewrites a stored record, and it rewrites only the case record: a
@@ -69,8 +109,8 @@ envelope.
   reports the changed fields by name only. A tag both added and removed in one
   invocation stays on the case, and a `--untag` value is checked against the
   record rather than against the tag caps, because a value no case could carry
-  is simply not on this one. `capabilities` lists it as the seventeenth
-  operation. The rewrite is reachable only for a record kind that implements
+  is simply not on this one. `capabilities` lists it, so eighteen operations
+  are reported. The rewrite is reachable only for a record kind that implements
   the `Rewritable` marker in `openpapir-core`, which the case record alone
   does, so the append-only rule holds at compile time rather than by
   convention.
@@ -105,7 +145,7 @@ envelope.
 - `capabilities` now lists `skill` as the fifteenth operation. It is the one
   operation that touches no archive, and it is reported there so that a
   machine caller learns of it from the same list as every other operation.
-- `tests/golden/` pins the output of twenty-three invocations, in both the JSON
+- `tests/golden/` pins the output of twenty-six invocations, in both the JSON
   and the human form, with both streams and the exit code of each. The harness
   is `crates/openpapir-cli/tests/golden.rs`; it builds every archive from
   constants, normalises the four values that legitimately move between runs

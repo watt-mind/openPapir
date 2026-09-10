@@ -85,14 +85,18 @@ page's last update.
   change the fields its record already carries and let the list narrow by
   them, gated on those fields and their write stages being the ones
   [architecture and CLI contract](architecture.md) documents: implemented.
-- The receipt-retrieval reminder (`archive status`) reports how long ago each
-  recorded receipt was dated so that the operator can decide for themselves
-  what to retrieve from their delivery storage, gated on the operator's own
-  descriptive statement that the storage retains incoming documents for
-  30 days ([receipt evidence and local case model
+- The receipt-retrieval reminder (`archive status`) summarises what the
+  archive holds and lists the submissions that carry a user-supplied date and
+  that no live association names as associated or a candidate, each with the
+  date by which the receipt would have to be retrieved from the delivery
+  storage, so that the user can decide for themselves where to look;
+  submissions carrying no usable date are counted rather than listed. It is
+  gated on the
+  operator's own descriptive statement that the storage retains incoming
+  documents for 30 days ([receipt evidence and local case model
   decisions](receipt-discovery.md), source E1, retrieved 2026-09-09), which
-  the tool would restate as that operator's description while reading no
-  mailbox and asserting no deadline of its own: planned.
+  the tool restates as that operator's description while reading no
+  mailbox and asserting no deadline of its own: implemented.
 - The entangled-deletion remedy (`association retire`) marks an association
   withdrawn instead of removing it, so that separating a receipt from a case
   leaves the earlier record readable, gated on the record and deletion

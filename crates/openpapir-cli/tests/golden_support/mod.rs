@@ -273,6 +273,51 @@ impl World {
         arguments
     }
 
+    /// Record one more submission with a date, for the summary's window
+    /// cases. The date is the user's own text and is stored verbatim.
+    pub fn add_dated_submission(&self, description: &str, date: &str) {
+        let mut arguments = self.command(&["submission", "add"]);
+        arguments.extend([
+            "--case".to_owned(),
+            self.case_id.clone(),
+            "--description".to_owned(),
+            description.to_owned(),
+            "--date".to_owned(),
+            date.to_owned(),
+        ]);
+        self.json(&arguments);
+    }
+
+    /// Record a second case and close it, so the summary's status breakdown
+    /// pins a count on both sides rather than a zero on one.
+    pub fn add_closed_case(&self) {
+        let mut create = self.command(&["case", "create"]);
+        create.extend(["--title".to_owned(), "Parking notice".to_owned()]);
+        let created = self.json(&create);
+        let id = text(&created["data"]["case"]["id"]);
+        let mut update = self.command(&["case", "update"]);
+        update.extend([id, "--status".to_owned(), "closed".to_owned()]);
+        self.json(&update);
+    }
+
+    /// Retire the receipt's live association, withdrawing what it asserted.
+    ///
+    /// The retired record stays exactly where it is; only the head of the
+    /// chain changes, which is how a user withdraws an assertion.
+    pub fn retire_live_association(&self) {
+        let mut listing = self.command(&["association", "list"]);
+        listing.extend(["--receipt".to_owned(), self.receipt_id.clone()]);
+        let history = self.json(&listing);
+        let live = text(&history["data"]["associations"][0]["id"]);
+        let mut arguments = self.command(&["association", "retire"]);
+        arguments.extend([
+            live,
+            "--reason".to_owned(),
+            "The reference turned out to name another case.".to_owned(),
+        ]);
+        self.json(&arguments);
+    }
+
     /// The deletion of the one case, with or without a purge.
     #[must_use]
     pub fn delete_arguments(&self, purge: bool) -> Vec<String> {
@@ -367,6 +412,37 @@ fn write_inputs(root: &Path) -> Vec<PathBuf> {
         })
         .collect()
 }
+
+/// Record the two extra submissions the archive summary's case needs: one
+/// whose retention window closed before the pinned as-of date, and one whose
+/// window is still open on it.
+///
+/// Together with the world's own two submissions, one dated and named by a
+/// candidate association and one carrying no date at all, the archive then
+/// holds exactly one submission of each kind the summary distinguishes.
+pub fn record_window_submissions(world: &World) {
+    world.add_dated_submission("Sent the first reminder.", ELAPSED_DATE);
+    world.add_dated_submission("Sent the second reminder.", OPEN_DATE);
+    world.add_closed_case();
+}
+
+/// The same world, with the receipt's live association retired.
+///
+/// The candidate record that named the first submission is superseded by the
+/// retirement, so the chain's live head asserts nothing and the submission is
+/// reminded of again. The retired record is untouched and `association list`
+/// still shows it.
+pub fn retire_the_live_association(world: &World) {
+    record_window_submissions(world);
+    world.retire_live_association();
+}
+
+/// The date every window in the summary case is measured against.
+pub const STATUS_AS_OF: &str = "2026-02-10";
+/// A stated date whose window closed before [`STATUS_AS_OF`].
+const ELAPSED_DATE: &str = "2025-12-01";
+/// A stated date whose window is still open on [`STATUS_AS_OF`].
+const OPEN_DATE: &str = "2026-01-20";
 
 /// Replace one stored object's bytes with others of the same length.
 ///

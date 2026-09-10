@@ -131,6 +131,34 @@ fn archive_cases() -> Vec<Case> {
             arguments: |world| world.command(&["archive", "check"]),
         },
         Case {
+            name: "archive.status",
+            stage: Stage::Associated,
+            second_submission: true,
+            prepare: golden_support::record_window_submissions,
+            arguments: |world| {
+                let mut arguments = world.command(&["archive", "status"]);
+                arguments.extend([
+                    "--as-of".to_owned(),
+                    golden_support::STATUS_AS_OF.to_owned(),
+                ]);
+                arguments
+            },
+        },
+        Case {
+            name: "archive.status.retired",
+            stage: Stage::Associated,
+            second_submission: true,
+            prepare: golden_support::retire_the_live_association,
+            arguments: |world| {
+                let mut arguments = world.command(&["archive", "status"]);
+                arguments.extend([
+                    "--as-of".to_owned(),
+                    golden_support::STATUS_AS_OF.to_owned(),
+                ]);
+                arguments
+            },
+        },
+        Case {
             name: "archive.repair-permissions",
             stage: Stage::Associated,
             second_submission: false,

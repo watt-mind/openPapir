@@ -1,0 +1,8 @@
+As of 2026-02-10. Case(s): 2. Submission(s): 4. Receipt(s): 1. Association(s): 3. Stored object(s): 3.
+Case(s) by status: open 1, closed 1.
+Submission(s) with no usable date: 1.
+Reminder(s) to look for a submission receipt in the delivery storage while the 30-day window the operator describes is open: 2.
+case <id>, submission <id>, stated 2026-01-13, look by 2026-02-12, 2 day(s) left.
+case <id>, submission <id>, stated 2026-01-20, look by 2026-02-19, 9 day(s) left.
+The window is the operator's own published description of their storage, not a rule openPapir applies or checks. Nothing was read from any mailbox or service, and nothing here states that a submission was delivered, that a receipt exists, that one was received by an authority, or that any legal effect followed.
+The summary read the archive and changed nothing.
