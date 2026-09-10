@@ -796,6 +796,14 @@ envelope.
   chain as well printed the same record twice; the first line now names the
   record, and its entry in the chain is marked. The `--json` form is
   unchanged: `data` still carries `association` beside `chain`.
+- The `capabilities` sample in `README.md` and in `docs/architecture.md` is
+  valid JSON again. Both lost the comma after `"manpage"` when the
+  whole-archive export entries were added, so a reader who copied either
+  sample into a parser was handed text no parser accepts. The contract test
+  now parses every fenced `json` block that names `operations` in
+  `README.md`, `docs/architecture.md`, and `docs/specification.md` and
+  compares the array it holds with the list the binary reports, so a sample
+  cannot go invalid or stale unnoticed.
 - `case export` no longer succeeds with fewer records than the case holds when
   a record directory cannot be listed. Reading such a directory as empty made
   the export describe a smaller case than the archive holds; it is now a

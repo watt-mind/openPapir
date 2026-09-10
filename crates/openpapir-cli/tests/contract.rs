@@ -475,3 +475,91 @@ fn the_two_tables_document_the_same_invocation_for_every_operation() {
         "every operation the architecture table names has a specification row"
     );
 }
+
+/// The operations `capabilities` reports, as the binary reports them.
+fn reported_operations() -> Vec<String> {
+    let output = run(&["capabilities", "--json"]);
+    assert!(output.status.success());
+    let envelope: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("capabilities is one JSON object");
+    envelope["data"]["operations"]
+        .as_array()
+        .expect("operations is an array")
+        .iter()
+        .map(|name| {
+            name.as_str()
+                .expect("every operation name is a string")
+                .to_owned()
+        })
+        .collect()
+}
+
+/// Every fenced `json` block of a document, in the order it reads in.
+fn fenced_json_blocks(document: &str) -> Vec<String> {
+    let mut blocks = Vec::new();
+    let mut open: Option<String> = None;
+    for line in document.lines() {
+        match open.as_mut() {
+            Some(block) if line.trim_end() == "```" => {
+                blocks.push(std::mem::take(block));
+                open = None;
+            }
+            Some(block) => {
+                block.push_str(line);
+                block.push('\n');
+            }
+            None if line.trim_end() == "```json" => open = Some(String::new()),
+            None => {}
+        }
+    }
+    assert!(open.is_none(), "a fenced block was left unclosed");
+    blocks
+}
+
+/// Every documented `capabilities` sample is valid JSON and reports the
+/// operations the binary reports.
+///
+/// A sample is what a reader copies before they run anything, so one that no
+/// parser accepts is worse than no sample: a dropped comma between two
+/// operation names turned both samples into text that only looks like JSON,
+/// and nothing failed. Parsing each block as JSON is what catches that, and
+/// comparing the array it holds is what keeps the samples from drifting the
+/// way the tables can. The comparison is order-sensitive, because a sample
+/// claims to be the output of one run.
+#[test]
+fn every_documented_capabilities_sample_is_json_and_reports_what_the_binary_does() {
+    let repository = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let reported = reported_operations();
+    let mut checked = 0;
+    for name in ["README.md", "docs/architecture.md", "docs/specification.md"] {
+        let document = std::fs::read_to_string(repository.join(name))
+            .unwrap_or_else(|_| panic!("read {name}"));
+        for (index, block) in fenced_json_blocks(&document).iter().enumerate() {
+            if !block.contains("\"operations\"") {
+                continue;
+            }
+            let sample: serde_json::Value = serde_json::from_str(block)
+                .unwrap_or_else(|error| panic!("block {index} of {name} is not JSON: {error}"));
+            let operations: Vec<String> = sample["data"]["operations"]
+                .as_array()
+                .unwrap_or_else(|| panic!("block {index} of {name} has no operations array"))
+                .iter()
+                .map(|value| {
+                    value
+                        .as_str()
+                        .expect("every operation name is a string")
+                        .to_owned()
+                })
+                .collect();
+            assert_eq!(
+                operations, reported,
+                "the capabilities sample in {name} and the binary disagree"
+            );
+            checked += 1;
+        }
+    }
+    assert!(
+        checked >= 2,
+        "README.md and docs/architecture.md each carry a capabilities sample"
+    );
+}

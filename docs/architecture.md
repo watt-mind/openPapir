@@ -166,7 +166,7 @@ operations:
       "receipt.show",
       "association.show",
       "completions",
-      "manpage"
+      "manpage",
       "archive.export",
       "archive.import"
     ]
