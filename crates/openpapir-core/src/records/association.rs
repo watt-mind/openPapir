@@ -438,7 +438,7 @@ fn supersession_depths(associations: &[Association]) -> BTreeMap<String, usize> 
 /// The keys are whatever identifies a record to the caller, so this holds no
 /// stored value of its own.
 #[must_use]
-pub fn supersession_cycles<K: Copy + Ord>(edges: &BTreeMap<K, K>) -> Vec<K> {
+pub(crate) fn supersession_cycles<K: Copy + Ord>(edges: &BTreeMap<K, K>) -> Vec<K> {
     let mut settled: BTreeSet<K> = BTreeSet::new();
     let mut cycles = Vec::new();
     for start in edges.keys() {
