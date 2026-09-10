@@ -64,6 +64,25 @@ envelope.
   window is open, one a live candidate association already names, and one with
   no date. `tests/golden/archive.status.retired/` pins the same fixture with
   that candidate record retired, where the submission is reminded of again.
+- A property suite over the boundaries that accept input openPapir did not
+  mint: `crates/openpapir-core/tests/property/` and
+  `crates/openpapir-cli/tests/property.rs`. Each property states one
+  invariant. Any byte sequence at a record path reads back as that record or
+  is refused with a documented `record.*` code, and a document over the record
+  cap is refused on the opened handle rather than read. Any byte sequence in
+  the archive marker opens the archive or is refused with an `archive.*` code.
+  Every generated case, submission, receipt and association record round-trips
+  byte for byte through its own document, with sorted keys and one final
+  newline. Every name carrying a `..`, a separator, a NUL, or an overlong
+  component is refused before it is joined into a path, and the archive is
+  left untouched; a record path that is a link or is occupied is refused with
+  `path.symlink` or `path.overwrite`. An export writes a well-formed manifest
+  or refuses with a documented code and leaves the destination as it found it.
+  Any command line asking for the JSON form is answered by one envelope with a
+  bucketed exit code, and `details.argument` never carries a value the caller
+  typed. `proptest` is a pinned workspace dev-dependency of both crates. The
+  suite runs in seconds at its committed case counts; `PROPTEST_CASES` raises
+  them for a local soak, as [testing](docs/testing.md) describes.
 - `.github/workflows/release.yml` builds the release artefacts described in
   `docs/releasing.md`: prebuilt binaries for `x86_64-unknown-linux-musl`,
   `aarch64-unknown-linux-musl`, `aarch64-apple-darwin`, `x86_64-apple-darwin`,
