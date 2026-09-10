@@ -372,7 +372,15 @@ fn the_human_form_names_the_field_and_never_the_text_or_the_query() {
     let world = world();
     let output = run(&["search", "--archive", &world.root, "office"]);
     assert_eq!(output.status.code(), Some(0));
-    assert!(output.stderr.is_empty(), "a result is not a diagnostic");
+    // Windows writes its platform warnings to stderr in the human form, so
+    // what is asserted is that the run reported no error rather than that
+    // stderr is empty, and every stream is checked for the query all the same.
+    let diagnostics = String::from_utf8(output.stderr.clone()).expect("stderr is UTF-8");
+    assert!(
+        !diagnostics.contains("error "),
+        "a search that ran reports no error: {diagnostics}"
+    );
+    assert!(!diagnostics.contains("office"), "the query is never echoed");
     let printed = stdout_text(&output);
     let lines: Vec<&str> = printed.lines().collect();
     assert_eq!(lines.len(), 3, "one hit, the count, and the boundary");
