@@ -22,7 +22,7 @@
 pub mod media;
 
 use std::fs::{self, DirEntry};
-use std::io::Read as _;
+use std::io::{ErrorKind, Read as _};
 use std::path::Path;
 
 use serde::Serialize;
@@ -34,7 +34,7 @@ use crate::clock;
 use crate::error::{Diagnostic, Failure, Outcome, Result, Warning};
 use crate::records::DIGEST_PREFIX;
 use crate::records::derived::{
-    DerivedMetadata, EXTRACTOR_NAME, EXTRACTOR_VERSION, KIND, remove_derived, stored, write_derived,
+    DerivedMetadata, EXTRACTOR_NAME, EXTRACTOR_VERSION, KIND, filed, remove_derived, write_derived,
 };
 use crate::records::is_digest;
 
@@ -107,7 +107,7 @@ fn run(root: &Path, warnings: &mut Vec<Warning>) -> std::result::Result<Derived,
     let _lock = WriterLock::acquire(archive.root())?;
     let root = archive.root();
     let mut counts = Counts::default();
-    let mut existing = stored(root);
+    let mut existing = filed(root);
     let computed_at = clock::now_rfc3339();
     let mut buffer = vec![0_u8; media::SNIFF_BYTES];
     for digest in present_objects(root, &mut counts) {
@@ -120,7 +120,7 @@ fn run(root: &Path, warnings: &mut Vec<Warning>) -> std::result::Result<Derived,
         counts.seen(record.media_type.as_str());
         existing.remove(&digest);
     }
-    for stale in existing.keys() {
+    for stale in &existing {
         if remove_derived(root, stale) {
             counts.records_removed += 1;
         }
@@ -266,6 +266,10 @@ fn describe(
         match file.read(&mut buffer[filled..]) {
             Ok(0) => break,
             Ok(read) => filled += read,
+            // A read a signal interrupted read nothing and says nothing
+            // about the object, so it is retried rather than counted: an
+            // object left unchecked here would silently lose its record.
+            Err(error) if error.kind() == ErrorKind::Interrupted => {}
             Err(_) => {
                 counts.objects_unchecked += 1;
                 return None;

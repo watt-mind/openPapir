@@ -17,7 +17,7 @@
 //! evidence is untouched by whatever is in that file, and `archive derive`
 //! writes it again.
 
-use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::io::Read as _;
 use std::path::Path;
 
@@ -147,15 +147,22 @@ pub fn remove_derived(root: &Path, digest: &str) -> bool {
         .is_some_and(|name| std::fs::remove_file(root.join(DERIVED_DIR).join(name)).is_ok())
 }
 
-/// The digests the derived directory holds a record for, and how many.
+/// The digests the derived directory holds a record file for.
 ///
-/// The map is keyed by the algorithm-qualified digest the record is filed
-/// under, so a caller can tell which stored objects already have one. An
-/// entry that cannot be read as a derived record is not counted: it describes
-/// nothing, and it is not a problem either.
+/// The set holds the algorithm-qualified digest each file is filed under, so
+/// a caller can tell which stored objects already have one. The pass names
+/// and validates: an entry is taken when its name is a digest with the
+/// `.json` suffix and the entry is a regular file rather than a link or a
+/// directory. Nothing is opened, read, or parsed, so the walk costs one
+/// listing of the directory whatever the records inside it hold.
+///
+/// Not parsing them is the rule rather than an optimisation. A derived record
+/// is disposable, so what one contains decides nothing here: every caller of
+/// this pass wants to know which objects already have a file, and
+/// `archive derive` replaces the file whether it still parses or not.
 #[must_use]
-pub fn stored(root: &Path) -> BTreeMap<String, DerivedMetadata> {
-    let mut found = BTreeMap::new();
+pub fn filed(root: &Path) -> BTreeSet<String> {
+    let mut found = BTreeSet::new();
     let Ok(entries) = std::fs::read_dir(root.join(DERIVED_DIR)) else {
         return found;
     };
@@ -164,21 +171,22 @@ pub fn stored(root: &Path) -> BTreeMap<String, DerivedMetadata> {
         let Some(hex) = name.strip_suffix(".json").filter(|hex| is_digest(hex)) else {
             continue;
         };
-        let digest = format!("{DIGEST_PREFIX}{hex}");
-        if let Some(record) = read_derived(root, &digest) {
-            found.insert(digest, record);
+        if entry.file_type().is_ok_and(|kind| kind.is_file()) {
+            found.insert(format!("{DIGEST_PREFIX}{hex}"));
         }
     }
     found
 }
 
-/// How many readable derived records the archive holds.
+/// How many derived records the archive holds.
 ///
-/// The count is what `archive check` reports. A missing record is nothing at
-/// all rather than a problem, because no operation needs one.
+/// The count is what `archive check` reports, and it is [`filed`]'s answer:
+/// how many files the derived directory holds under a digest name. A missing
+/// record is nothing at all rather than a problem, because no operation needs
+/// one.
 #[must_use]
 pub fn count(root: &Path) -> u64 {
-    stored(root).len() as u64
+    filed(root).len() as u64
 }
 
 /// The facts every named artefact has a derived record for, by digest.

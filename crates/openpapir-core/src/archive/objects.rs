@@ -66,9 +66,11 @@ pub fn absolute_path(root: &Path, digest: &str) -> PathBuf {
 
 /// Stream one input into the store, enforcing the caps while reading.
 ///
-/// `read_total` carries the import's running byte count, so the per-operation
-/// cap is enforced again while streaming and not only from the sizes the
-/// filesystem reported.
+/// `read_total` carries the operation's running byte count, so the ceiling is
+/// enforced again while streaming and not only from the sizes the filesystem
+/// reported. `ceiling` says which ceiling that is: an import reads files the
+/// user just named, a restore replays an export the archive already accepted,
+/// and the two have their own caps ([`limits::Ceiling`]).
 ///
 /// # Errors
 ///
@@ -79,6 +81,7 @@ pub fn store(
     source: &mut File,
     input_index: u64,
     read_total: &mut u64,
+    ceiling: limits::Ceiling,
 ) -> Result<Stored, Diagnostic> {
     let mut staging = Staging::create(&root.join(INCOMING_DIR), "object")?;
     let mut hasher = Sha256::new();
@@ -94,7 +97,7 @@ pub fn store(
         byte_length += read as u64;
         *read_total += read as u64;
         limits::check_file_size(byte_length, input_index)?;
-        limits::check_import_bytes(*read_total, input_index)?;
+        ceiling.check(*read_total, input_index)?;
         hasher.update(&buffer[..read]);
         staging
             .file()

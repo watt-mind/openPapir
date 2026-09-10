@@ -135,9 +135,13 @@ page's last update.
   [local archive layout and storage design](archive-layout.md): a standard AEAD
   container over a tarball of the export shape, a key derived from a passphrase
   the user holds with a memory-hard KDF, and no key stored by openPapir. It is
-  gated on the one thing that design leaves open, a dependency review that
+  gated on the one thing that design left open, a dependency review that
   admits a container crate under the licence and audit constraints recorded
-  there: planned.
+  there. That review ran on 2026-09-10 and is recorded as Dependency review in
+  the same document; it admitted no candidate, because the only crate that
+  implements the decided container reaches three BSD-3-Clause crates the
+  `deny.toml` allow list does not carry. The gate therefore stays shut until
+  that allow list is decided on its own terms: planned, blocked.
 
 ## Later, subject to evidence
 

@@ -23,6 +23,7 @@ use crate::archive::import::ImportEvent;
 use crate::archive::{objects, paths};
 use crate::deletion::plan::Plan;
 use crate::error::{Details, Diagnostic, Warning, codes};
+use crate::records::DERIVED_DIR;
 use crate::records::association::Association;
 use crate::records::case::Case;
 use crate::records::document::Record;
@@ -36,6 +37,9 @@ pub struct Removed {
     pub associations: u64,
     /// How many case records were unlinked, which is one or none.
     pub cases: u64,
+    /// How many derived-metadata records were unlinked, which is one per
+    /// purged object that had one.
+    pub derived: u64,
     /// How many import-event records were unlinked.
     pub import_events: u64,
     /// How many receipt records were unlinked.
@@ -55,7 +59,12 @@ impl Removed {
     /// How many record documents were unlinked in total.
     #[must_use]
     pub const fn records(&self) -> u64 {
-        self.associations + self.cases + self.import_events + self.receipts + self.submissions
+        self.associations
+            + self.cases
+            + self.derived
+            + self.import_events
+            + self.receipts
+            + self.submissions
     }
 }
 
@@ -109,6 +118,15 @@ pub fn run(root: &Path, plan: &Plan, warnings: &mut Vec<Warning>) -> Removed {
         removed.cases = cases.removed;
         refused = cases.retained > 0;
     }
+    if !refused {
+        // The derived records go last in the record pass and before any
+        // object: each describes bytes this purge is about to remove, and
+        // nothing in the archive names one, so nothing is left pointing at a
+        // document that went.
+        let derived = unlink_documents(root, DERIVED_DIR, &plan.derived);
+        removed.derived = derived.removed;
+        refused = derived.retained > 0;
+    }
 
     if refused {
         removed.records_retained = planned - removed.records();
@@ -138,7 +156,12 @@ pub fn run(root: &Path, plan: &Plan, warnings: &mut Vec<Warning>) -> Removed {
 /// `records/imports` whenever that was the directory the probe refused.
 fn planned_documents(plan: &Plan) -> u64 {
     let events: usize = plan.import_events.values().map(Vec::len).sum();
-    (plan.associations.len() + plan.receipts.len() + plan.submissions.len() + events) as u64 + 1
+    (plan.associations.len()
+        + plan.receipts.len()
+        + plan.submissions.len()
+        + plan.derived.len()
+        + events) as u64
+        + 1
 }
 
 /// Whether every record document this plan names can be unlinked.
@@ -180,16 +203,28 @@ fn removable(root: &Path, plan: &Plan) -> bool {
         && kind_removable::<Submission>(root, &plan.submissions)
         && kind_removable::<Case>(root, std::slice::from_ref(&plan.case))
         && kind_removable::<ImportEvent>(root, &events)
+        && documents_removable(root, DERIVED_DIR, &plan.derived)
 }
 
 /// Whether one kind's directory and every document the plan names in it can
 /// be unlinked. A kind the plan removes nothing from is not probed, because
 /// its directory is not touched.
 fn kind_removable<R: Record>(root: &Path, ids: &[String]) -> bool {
+    documents_removable(root, R::DIRECTORY, ids)
+}
+
+/// Whether one record directory and every document the plan names in it can
+/// be unlinked. A directory the plan removes nothing from is not probed,
+/// because it is not touched.
+///
+/// The derived records are named by digest rather than by a minted
+/// identifier, so they reach the probe by directory rather than through the
+/// `Record` trait; the test they are put to is the same one.
+fn documents_removable(root: &Path, directory: &str, ids: &[String]) -> bool {
     if ids.is_empty() {
         return true;
     }
-    let directory = root.join(R::DIRECTORY);
+    let directory = root.join(directory);
     directory_writable(&directory)
         && ids
             .iter()
@@ -287,7 +322,15 @@ struct Unlinked {
 /// remove, so it is not a refusal. Every other failure is a refusal and is
 /// counted, because a record that is still there still names its artefacts.
 fn unlink_records<R: Record>(root: &Path, ids: &[String]) -> Unlinked {
-    let directory = root.join(R::DIRECTORY);
+    unlink_documents(root, R::DIRECTORY, ids)
+}
+
+/// Unlink one directory's documents, counting what went and what would not.
+///
+/// The name is a digest or an identifier openPapir minted and a reader
+/// validated, so nothing user-supplied is joined into the path.
+fn unlink_documents(root: &Path, directory: &str, ids: &[String]) -> Unlinked {
+    let directory = root.join(directory);
     let mut unlinked = Unlinked::default();
     for id in ids {
         match fs::remove_file(document_path(&directory, id)) {
@@ -353,6 +396,7 @@ fn flush_record_directories(root: &Path, plan: &Plan, events: bool, warnings: &m
         (!plan.submissions.is_empty(), Submission::DIRECTORY),
         (true, Case::DIRECTORY),
         (events, ImportEvent::DIRECTORY),
+        (!plan.derived.is_empty(), DERIVED_DIR),
     ];
     for directory in touched
         .into_iter()

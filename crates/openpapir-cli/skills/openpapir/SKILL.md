@@ -404,9 +404,11 @@ Read-only in the strongest sense: no lock is taken, every file is opened with
 the platform's no-follow flag, and nothing is created, renamed, removed, or
 repaired. `data` holds `bytes_digested`, `objects_checked`,
 `objects_unchecked`, `orphan_objects`, `records_checked`, `records_unchecked`,
-`staging_files`, `derived_records`, and `problems[]`, one entry per code with
-a `count`, including the codes it did not see, ordered by code. A derived
-record is counted and never judged: a missing one is not a problem.
+`staging_files`, `derived_records`, `derived_orphans`, and `problems[]`, one
+entry per code with a `count`, including the codes it did not see, ordered by
+code. A derived record is counted and never judged: a missing one is not a
+problem, and neither is one of the `derived_orphans`, which name an object the
+store no longer holds and which the next `archive derive` discards.
 
 A clean archive exits `0`. When something is found, `ok` is `false`, the
 report stays in `data`, and `error` names the first problem in this fixed
@@ -554,7 +556,9 @@ of a retired assertion included, counted under `records_removed` as
 `association`; every receipt an association tied to a departing submission
 that no remaining association still names. An
 import event is history and is kept, unless `--purge` removed the object it
-describes. The whole archive is read first, under the writer lock, and the
+describes. The derived-metadata record of a purged object goes with the same
+record pass, counted as `derived_metadata`, because it describes bytes that
+are gone. The whole archive is read first, under the writer lock, and the
 removal set is decided before a single file is unlinked.
 
 `data` holds `purge`, `records_removed[]` per kind with

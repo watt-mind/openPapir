@@ -107,10 +107,9 @@ fn a_record_naming_an_object_the_archive_no_longer_holds_is_discarded() {
 
 /// The one stored object of an archive that holds exactly one.
 fn only_digest(root: &Path) -> String {
-    crate::records::derived::stored(root)
-        .keys()
+    crate::records::derived::filed(root)
+        .into_iter()
         .next()
-        .cloned()
         .expect("the archive holds one derived record")
 }
 

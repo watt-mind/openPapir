@@ -7,7 +7,10 @@
 //! every object no remaining import event, receipt, or submission references
 //! is unlinked, and the import-event records naming a purged object go with
 //! it, because an event describing content that is gone is history of nothing
-//! (`docs/archive-layout.md`).
+//! (`docs/archive-layout.md`). The derived-metadata record of a purged object
+//! goes with it too, in the record pass rather than the object pass: it is
+//! openPapir's own disposable computation about those bytes, so once they are
+//! gone it describes nothing.
 //!
 //! # Plan, then apply
 //!
@@ -177,6 +180,7 @@ fn report(plan: &plan::Plan, removed: &apply::Removed, purge: bool) -> Deleted {
     let counts = [
         removed.associations,
         removed.cases,
+        removed.derived,
         removed.import_events,
         removed.receipts,
         removed.submissions,
@@ -220,6 +224,7 @@ mod tests {
         let outcome = delete(root.path(), &case_id, false).unwrap();
         let data = outcome.data;
         assert_eq!(data.records_removed_total, 1);
+        assert_eq!(data.records_removed.len(), 6);
         assert_eq!(data.records_removed.len(), plan::KINDS.len());
         assert_eq!(data.objects_retained.len(), plan::REASONS.len());
         assert_eq!(data.objects_removed, 0);
@@ -230,7 +235,7 @@ mod tests {
         let kinds: Vec<&str> = data.records_removed.iter().map(|kind| kind.kind).collect();
         assert_eq!(kinds, plan::KINDS, "every kind is listed, in order");
         let removed: Vec<u64> = data.records_removed.iter().map(|kind| kind.count).collect();
-        assert_eq!(removed, vec![0, 1, 0, 0, 0]);
+        assert_eq!(removed, vec![0, 1, 0, 0, 0, 0]);
         assert!(
             case::show(root.path(), &case_id).is_err(),
             "the case is gone"

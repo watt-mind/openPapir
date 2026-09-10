@@ -49,6 +49,17 @@ envelope.
   workflow and the CI test job both call, so a pull request exercises the
   packaging on Linux, macOS, and Windows without a tag. A draft release and a
   dry-run summary list what an archive holds, printed by that same script.
+- Dependency review for the encrypted backup container, recorded as
+  Dependency review in
+  [local archive layout and storage design](docs/archive-layout.md). It states
+  the date it ran, the tool versions, and the exact commands, and records for
+  `age` 0.12.1, `chacha20poly1305` 0.11.0, `aes-gcm` 0.11.1, and `argon2`
+  0.6.0 the licence result against this repository's `deny.toml`, the build on
+  the pinned minimum toolchain, `unsafe` in each crate's own source, open
+  RustSec advisories, the release and repository activity, the transitive crate
+  count, and which features can be left off. The outcome is that no candidate
+  is admitted, with what would change that. Documentation only: no manifest,
+  lockfile, or `deny.toml` change, and no operation is added.
 - `openpapir submission show --archive <root> <submission-id> [--json]`,
   `openpapir receipt show --archive <root> <receipt-id> [--json]`, and
   `openpapir association show --archive <root> <association-id> [--json]`,
@@ -603,6 +614,19 @@ envelope.
 
 ### Changed
 
+- `case import` and `archive import` are bounded by their own ceiling,
+  `input.cap.restore_bytes`, over the sum of the object bytes the export's
+  manifest names, checked before any copy is opened and before the writer lock
+  is taken. The default is 16 GiB, which is 256 objects at the single-file cap
+  or 32 imports at the per-operation ceiling; `docs/architecture.md` gives the
+  reasoning. `input.cap.import_bytes` is unchanged and still bounds `import`
+  and `submission add --file`, so an export several smaller imports were able
+  to build is no longer refused for exceeding a cap that was never about
+  restores. The refusal keeps the shape every cap refusal has, with `bucket`,
+  `cap_bytes`, and `observed_bytes` and no `input_index`, because the sum is
+  over the whole manifest. Above the ceiling the answer is unchanged: a backup
+  is a plain copy of the archive root.
+
 - An export manifest now carries `export_scope`, `case` for a directory
   `case export` wrote and `archive` for one `archive export` wrote. The field
   is additive and the manifest format version stays `1`: a manifest written
@@ -856,6 +880,24 @@ envelope.
   `docs/architecture.md` now states. The ignored benchmark times one import of
   a full batch against the archive it built, so the cost that grew is asserted
   against a ceiling rather than only described.
+- `case delete --purge` removes the derived-metadata record of every object it
+  purges, in the same all-or-nothing record pass and counted under
+  `records_removed` as the new kind `derived_metadata`. A purge that unlinked
+  an object left a record about bytes that were gone until the next
+  `archive derive` discarded it. The record is disposable and nothing
+  references one, so nothing the user wrote is lost with it, and a deletion
+  that removes no object removes none of them.
+- `archive check` reports `derived_orphans`, how many derived records name an
+  object the store no longer holds. It is a count and never a problem: it does
+  not appear in `problems`, it changes no exit code, and the next
+  `archive derive` still discards such a record. It makes a purge that stopped
+  between its record pass and its object pass visible instead of silent.
+  `derived_records` is now the count of the files the derived directory holds
+  under a digest name, so the check no longer parses every derived record only
+  to count them; a record that cannot be read is counted like any other and is
+  still not damage.
+- `archive derive` retries a read a signal interrupted rather than leaving the
+  object unchecked and without a record.
 - The human form of `association show` prints the shown record once. The
   chain it reports always holds that record, so printing its block before the
   chain as well printed the same record twice; the first line now names the
