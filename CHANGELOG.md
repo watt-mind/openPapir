@@ -35,6 +35,22 @@ envelope.
   records the measured numbers, the machine class, and the date, and states
   that they are indicative; `docs/testing.md` says how to run it and how to
   change its size.
+- Property and concurrency coverage for three boundaries the earlier suites
+  left open. An import event is round-tripped with its `source` field both
+  absent and present, so the field a build writes only when it is there
+  survives as an absence rather than as a default. The export manifest gains a
+  reader property beside its writer one: any bytes at `manifest.json` read
+  back or are refused with a documented code and never panic, a manifest this
+  build wrote reads back with exactly the rows it lists, and one carrying a
+  dropped key, a value of the wrong type, an unknown record kind, a malformed
+  digest, or a path-shaped identifier is refused with
+  `export.manifest_malformed`. A new concurrency test runs several
+  `submission add` processes against one archive at once and asserts each
+  either succeeds or refuses with `lock.held`, that the archive then holds
+  exactly what the successful ones reported, and that `archive check` is clean
+  with no leftover staging file, and it takes `case list` listings while
+  another process publishes and asserts every one of them is a whole set of
+  whole records. No behaviour changes.
 - `openpapir case import --archive <root> --from <dir> [--json]`, operation
   `case.import`, reads a directory `case export` wrote back into an archive.
   The manifest is authoritative: every object it lists is re-digested from the

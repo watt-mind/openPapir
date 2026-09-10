@@ -38,8 +38,29 @@ the record cap is refused before its bytes are read while one inside it is
 read and then refused on its content, a valid record round-trips byte for byte
 with sorted keys, a name carrying a `..`, a separator, a NUL, or an overlong
 component never becomes a path, an export writes a well-formed manifest or a
-documented refusal, and the argument parser answers with one envelope that
-never quotes the caller.
+documented refusal, an export manifest read back from a user-supplied
+directory answers or refuses with a documented code and never panics, and the
+argument parser answers with one envelope that never quotes the caller.
+
+The manifest is a boundary in both directions, so it carries a property for
+each. The writer's property asserts the manifest an export leaves behind; the
+reader's asserts that any bytes at `manifest.json` read back as a manifest or
+are refused, whether the manifest is there as a regular file, as a symbolic
+link, or not at all; that a manifest this build wrote reads back with exactly
+the rows it lists; and that a manifest carrying one difference the reader
+checks for is refused with the code that check answers with. The differences
+are the ones the reader documents: a key the document cannot be parsed
+without, a value of the wrong type, a record kind this build does not know, a
+digest that is not the store's own shape, an identifier shaped like a path,
+and an archive schema version this build does not support. The first five are
+`export.manifest_malformed`; the last is refused by the archive's own schema
+rules, because a manifest from a build this one does not support is a document
+this build has no business reading rather than a broken one. Every code the
+reader may answer is reached by a generated case and pinned to the case that
+must produce it, so no admitted code goes untested. An import event is
+round-tripped with its `source` field both absent and present, because the
+field is written only when it is there and an absent key has to survive the
+round trip as an absence rather than as a default the reader filled in.
 
 A property whose subject has two answers needs both of them reached. Random
 bytes are never a valid record, so the reader properties pair the random-byte
@@ -118,6 +139,29 @@ from a counter and a mixing function, so it is wholly synthetic in the sense
 the fixture policy below requires and is reproducible from this repository
 alone. It stays inside the input caps: the objects are imported in batches of
 the per-import file cap.
+
+## Concurrency tests
+
+`crates/openpapir-cli/tests/concurrency.rs` covers what happens when two
+openPapir processes touch one archive at once. These are example-based tests
+rather than properties: a property generates an input and shrinks a
+counterexample, and the subject here is a schedule, which nothing shrinks.
+
+Two guarantees are asserted. Several processes running `submission add`
+against one archive at the same time each either succeed or refuse with
+`lock.held`, and afterwards the archive holds exactly what the successful ones
+reported, the lock file is gone, and `archive check` is clean with no leftover
+staging file. A reader running `case list` while another process publishes
+takes a listing that shows the set before the publication or the set after it,
+never a document part way through being written, which is what the atomic
+rename of a fully written staging file buys; the test asserts it by parsing
+every listing, checking every field of every case in it, and requiring that no
+listing loses a case an earlier one showed.
+
+Neither test asserts that contention actually occurred. Whether two processes
+overlap is the operating system's business, and a test that demanded an
+overlap would fail on a machine that scheduled them apart. What is asserted is
+that every observed outcome is a permitted one, which holds either way.
 
 ## Fixtures
 
