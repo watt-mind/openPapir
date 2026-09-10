@@ -108,7 +108,10 @@ def licence(package):
         return " ".join(expression.split())
     if package.get("license_file"):
         return f"See `{package['license_file']}` in the crate source"
-    return "Not declared"
+    raise SystemExit(
+        f"{package['name']} {package['version']} declares no licence; "
+        "the notice cannot attribute it, so the dependency set must change"
+    )
 
 
 def render(data):
@@ -118,7 +121,6 @@ def render(data):
         (
             (packages[id]["name"], packages[id]["version"], licence(packages[id]))
             for id in shipped(data)
-            if id in packages
         ),
         key=lambda row: (row[0], row[1]),
     )
