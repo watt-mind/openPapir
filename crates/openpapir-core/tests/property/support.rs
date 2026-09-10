@@ -13,6 +13,7 @@ use proptest::prelude::*;
 use proptest::test_runner::Config as ProptestConfig;
 
 use openpapir_core::archive::SUPPORTED_SCHEMA_VERSION;
+use openpapir_core::archive::import::ImportEvent;
 use openpapir_core::error::Diagnostic;
 use openpapir_core::records::association::{
     Association, CONFIDENCES, CREATED_BY, Candidate, EVIDENCE_KIND, EVIDENCE_SOURCE, Evidence,
@@ -311,4 +312,161 @@ fn benign_fragment() -> impl Strategy<Value = String> {
         Just("record".to_owned()),
         proptest::string::string_regex("[a-z0-9]{0,8}").expect("a printable pattern compiles"),
     ]
+}
+
+/// A generated import-event record.
+///
+/// Import events are records like any other, so the reader properties cover
+/// them alongside the four the archive design names.
+pub fn import_event_record() -> impl Strategy<Value = ImportEvent> {
+    (
+        identifier(),
+        digest(),
+        timestamp(),
+        0_u64..1_000_000,
+        any::<bool>(),
+        proptest::string::string_regex("[a-z0-9._-]{1,30}").expect("a filename pattern compiles"),
+    )
+        .prop_map(
+            |(id, digest, imported_at, byte_length, created_object, original_filename)| {
+                ImportEvent {
+                    archive_schema_version: u64::from(SUPPORTED_SCHEMA_VERSION),
+                    byte_length,
+                    created_object,
+                    digest,
+                    id,
+                    imported_at,
+                    original_filename,
+                    record_kind: openpapir_core::archive::import::EVENT_KIND.to_owned(),
+                }
+            },
+        )
+}
+
+/// One way a stored record document can differ from the one openPapir wrote.
+///
+/// The two groups are the point of the enumeration. A reader checks three
+/// things and no more: that the document parses as its own kind, that its
+/// `record_kind` is that kind, and that its `id` is the name of the file it
+/// was found in. A difference that leaves all three true must still read back,
+/// and one that breaks any of them must be refused. Splitting the enumeration
+/// this way makes both arms of the reader reachable by construction rather
+/// than by luck, and pins what the reader deliberately does not re-check: a
+/// field length cap belongs to the write path, not to the read path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Damage {
+    /// Nothing is changed.
+    None,
+    /// A key no version of this record defines is added. Serde ignores it.
+    UnknownKey,
+    /// A capped text field is set to exactly its cap.
+    FieldAtCap,
+    /// A capped text field is set to one byte over its cap. The reader does
+    /// not re-check field caps, so the document still reads back.
+    FieldOverCap,
+    /// A key the record cannot be parsed without is removed.
+    MissingKey,
+    /// A value is replaced by one of the wrong JSON type.
+    WrongType,
+    /// `record_kind` names a different kind of record.
+    ForeignKind,
+    /// `id` names a record other than the file the document is stored in.
+    ForeignIdentifier,
+}
+
+impl Damage {
+    /// Whether a document carrying this damage must still read back.
+    #[must_use]
+    pub const fn tolerated(self) -> bool {
+        matches!(
+            self,
+            Self::None | Self::UnknownKey | Self::FieldAtCap | Self::FieldOverCap
+        )
+    }
+}
+
+/// The damages a reader must tolerate.
+pub fn tolerated_damage() -> impl Strategy<Value = Damage> {
+    prop_oneof![
+        Just(Damage::None),
+        Just(Damage::UnknownKey),
+        Just(Damage::FieldAtCap),
+        Just(Damage::FieldOverCap),
+    ]
+}
+
+/// The damages a reader must refuse.
+pub fn breaking_damage() -> impl Strategy<Value = Damage> {
+    prop_oneof![
+        Just(Damage::MissingKey),
+        Just(Damage::WrongType),
+        Just(Damage::ForeignKind),
+        Just(Damage::ForeignIdentifier),
+    ]
+}
+
+/// The keys every record kind carries and cannot be parsed without.
+pub const REQUIRED_KEYS: [&str; 3] = ["archive_schema_version", "id", "record_kind"];
+
+/// An identifier no generated record uses, for the foreign-identifier damage.
+pub const FOREIGN_ID: &str = "ffffffffffffffffffffffffffffffff";
+
+/// Render one record as the document that would be stored at `id`, damaged.
+///
+/// `capped` names a top-level text field of this kind and its cap, for the
+/// two field-length damages; a kind whose only capped text lives inside a
+/// nested value passes `None` and those two damages leave the document alone.
+/// `key` and `swap` are generated, so the choice of which required key goes
+/// missing and which value takes the wrong type shrinks like any other input.
+pub fn damaged_document<R: serde::Serialize>(
+    record: &R,
+    id: &str,
+    damage: Damage,
+    capped: Option<(&str, usize)>,
+    key: &str,
+) -> String {
+    let mut value = serde_json::to_value(record).expect("a record serialises");
+    let object = value.as_object_mut().expect("a record is an object");
+    object.insert("id".to_owned(), serde_json::Value::String(id.to_owned()));
+    match damage {
+        Damage::None => {}
+        Damage::UnknownKey => {
+            object.insert(
+                "papir_unknown_key".to_owned(),
+                serde_json::Value::String("ignored".to_owned()),
+            );
+        }
+        Damage::FieldAtCap | Damage::FieldOverCap => {
+            if let Some((field, cap)) = capped {
+                let length = if damage == Damage::FieldAtCap {
+                    cap
+                } else {
+                    cap + 1
+                };
+                object.insert(
+                    field.to_owned(),
+                    serde_json::Value::String("a".repeat(length)),
+                );
+            }
+        }
+        Damage::MissingKey => {
+            object.remove(key);
+        }
+        Damage::WrongType => {
+            object.insert(key.to_owned(), serde_json::json!([1, 2, 3]));
+        }
+        Damage::ForeignKind => {
+            object.insert(
+                "record_kind".to_owned(),
+                serde_json::Value::String("papir_not_a_kind".to_owned()),
+            );
+        }
+        Damage::ForeignIdentifier => {
+            object.insert(
+                "id".to_owned(),
+                serde_json::Value::String(FOREIGN_ID.to_owned()),
+            );
+        }
+    }
+    format!("{value}\n")
 }

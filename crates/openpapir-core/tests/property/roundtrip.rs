@@ -69,21 +69,25 @@ fn keys_are_sorted(rendered: &str) -> bool {
 proptest! {
     #![proptest_config(support::config(256))]
 
+    /// A case carries an optional notes field, so the round-trip has to survive a key that is written only when it is there.
     #[test]
     fn a_case_record_round_trips(record in support::case_record()) {
         round_trips(&record)?;
     }
 
+    /// A submission carries a list of artefact references, each with an optional role, so the round-trip has to survive a nested optional inside a list.
     #[test]
     fn a_submission_record_round_trips(record in support::submission_record()) {
         round_trips(&record)?;
     }
 
+    /// A receipt names an artefact and the import event it came from, and carries an optional label.
     #[test]
     fn a_receipt_record_round_trips(record in support::receipt_record()) {
         round_trips(&record)?;
     }
 
+    /// An association carries nested candidates and evidence, and two optional identifiers that are written as null rather than omitted.
     #[test]
     fn an_association_record_round_trips(record in support::association_record()) {
         round_trips(&record)?;

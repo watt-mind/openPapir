@@ -31,14 +31,22 @@ tests that merely duplicate the implementation.
 The boundaries that accept input openPapir did not mint are covered
 generatively as well as by example. The suite lives in
 `crates/openpapir-core/tests/property/` for the library and in
-`crates/openpapir-cli/tests/property.rs` for the binary, and every test states
-one invariant in its own documentation comment: a record document reader
-answers or refuses and never panics, a document over the record cap is refused
-before its bytes are read, a valid record round-trips byte for byte with
-sorted keys, a name carrying a `..`, a separator, a NUL, or an overlong
+`crates/openpapir-cli/tests/property.rs` for the binary. Every property module
+and every property in it states its invariant in a documentation comment: a
+record document reader answers or refuses and never panics, a document over
+the record cap is refused before its bytes are read while one inside it is
+read and then refused on its content, a valid record round-trips byte for byte
+with sorted keys, a name carrying a `..`, a separator, a NUL, or an overlong
 component never becomes a path, an export writes a well-formed manifest or a
 documented refusal, and the argument parser answers with one envelope that
 never quotes the caller.
+
+A property whose subject has two answers needs both of them reached. Random
+bytes are never a valid record, so the reader properties pair the random-byte
+generator with a generated valid record carrying one generated difference:
+a difference the reader is documented to ignore must still read back, and one
+it checks must be refused. Prefer that shape to a property that accepts either
+answer, which can pass without ever reaching one of them.
 
 Run the suite with:
 

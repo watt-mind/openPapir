@@ -224,26 +224,32 @@ mod property {
                 // The human form is the parser's own usage text, which this
                 // property does not constrain beyond the exit code.
                 prop_assert!(stdout.is_empty() || code == 0);
-            } else if code != 0 {
+            } else {
+                // The privacy rule and the envelope's shape hold whatever the
+                // command line turned out to be: a caller's value is no more
+                // printable on the path that succeeded than on the one that
+                // refused.
                 prop_assert!(
                     !stdout.contains(MARKER) && !stderr.contains(MARKER),
                     "the JSON form quoted a value the caller supplied"
                 );
                 prop_assert!(stderr.is_empty(), "the JSON form writes nothing to stderr");
-                prop_assert_eq!(stdout.lines().count(), 1, "a refusal is one line of JSON");
+                prop_assert_eq!(stdout.lines().count(), 1, "the JSON form is one line");
                 let envelope: serde_json::Value =
-                    serde_json::from_str(&stdout).expect("a refusal is one JSON object");
+                    serde_json::from_str(&stdout).expect("the JSON form is one JSON object");
                 prop_assert_eq!(envelope["schema_version"].as_u64(), Some(1));
-                prop_assert_eq!(envelope["ok"].as_bool(), Some(false));
+                prop_assert_eq!(envelope["ok"].as_bool(), Some(code == 0));
                 prop_assert_eq!(envelope["verified"].as_bool(), Some(false));
                 prop_assert!(envelope["command"].is_string());
-                let error = &envelope["error"];
-                prop_assert!(error["code"].is_string(), "a refusal carries a code");
-                if let Some(argument) = error["details"]["argument"].as_str() {
-                    prop_assert!(
-                        known_names().contains(argument),
-                        "details.argument named something this build does not define"
-                    );
+                if code != 0 {
+                    let error = &envelope["error"];
+                    prop_assert!(error["code"].is_string(), "a refusal carries a code");
+                    if let Some(argument) = error["details"]["argument"].as_str() {
+                        prop_assert!(
+                            known_names().contains(argument),
+                            "details.argument named something this build does not define"
+                        );
+                    }
                 }
             }
 
