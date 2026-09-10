@@ -140,6 +140,40 @@ gh workflow run release.yml --ref <branch> -f dry_run=true
 
 The workflow never creates a tag, never pushes, and never publishes a draft.
 
+### The release notes
+
+The notes of a draft release are one [CHANGELOG.md](../CHANGELOG.md) section,
+copied verbatim. `scripts/release-notes.py` is the only thing that reads one,
+and both the job that creates the release and the dry run call it.
+
+A section runs from its `##` heading to the next `##` heading **outside a
+code fence**. A line that looks like a heading inside a fenced block, opened
+by three backticks or three tildes, is content: it neither starts nor ends a
+section. Fenced headings are
+therefore allowed in the changelog rather than forbidden by a gate, because
+the changelog holds captured output and a captured Markdown example may
+legitimately contain one. The fence rules are the ones
+`scripts/check-prose.py` applies, so both checks read the file the same way.
+A heading matches a version when it is the version, optionally in brackets,
+optionally followed by a date or other trailing text, so `## 1.2.0`,
+`## [1.2.0]`, and `## [1.2.0] - 2026-01-01` all name version `1.2.0`, while
+`## 1.2.0-rc.1` does not.
+
+A tagged run fails when the version has no section or the section is empty: a
+release nobody described is not published with an empty note.
+
+A dry run has no released version to look for, so it reads the `Unreleased`
+section, which is what a release is cut from, and prints the result into the
+run summary. The extraction runs in the verify job, under `contents: read`,
+alongside the extraction's own cases (`--self-test`). A changelog the
+extraction cannot read therefore fails a dry run rather than surfacing on the
+one run that matters. `./scripts/check.sh` runs the same two checks locally:
+
+```sh
+python3 scripts/release-notes.py --self-test
+python3 scripts/release-notes.py Unreleased
+```
+
 ## What this document is not
 
 It does not authorise a release. A pipeline that can build artefacts is not

@@ -655,6 +655,15 @@ envelope.
   carries the kind and the rule and never an identifier, and a cycle the
   deletion would not have removed is left to `archive check`. Live-record
   behaviour is unchanged.
+- The release workflow reads a changelog section with
+  `scripts/release-notes.py`, which ends a section at the next `##` heading
+  outside a code fence, so a fenced line that looks like a heading no longer
+  truncates the notes a draft release would carry. The dry run runs the same
+  extraction against the `Unreleased` section under its read-only scope and
+  shows the result in the run summary, so a changelog the extraction cannot
+  read fails a dry run instead of surfacing on a tag; a tagged run still
+  refuses a version with no section or an empty one. `./scripts/check.sh`
+  runs the extraction's own cases and the same `Unreleased` read locally.
 - `case delete`'s `record.malformed` warning now reports both counts it is
   built from. The warning is raised only where an unresolvable reference held
   a candidate object of this deletion back, and its message says "for this
