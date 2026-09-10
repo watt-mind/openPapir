@@ -21,31 +21,36 @@ The Rust edition 2024 workspace has an MSRV of 1.88 and two unpublished crates:
 | `openpapir-core` | The local archive: marker, artefact store, atomic writes, single-writer lock, input caps, path safety, import-event records, the case, submission, receipt, and association records, the read-only whole-archive integrity check, the read-only summary and its receipt-retrieval reminders, the export of one case, the import of one export back into an archive, the permission repair, and the deletion of one case with its explicit purge. |
 | `openpapir-cli` | Argument parsing, the response envelope, and the exit-code mapping. |
 
-Only these invocations are supported:
+Only these invocations are supported. `openpapir --help`,
+`openpapir --version`, and `openpapir capabilities [--json]` stand outside the
+operation list. The table below is the authoritative enumeration of the
+operations `capabilities` reports: `crates/openpapir-cli/tests/contract.rs`
+parses its operation names and fails when they and the binary's list disagree,
+so an operation added later changes this table and that test. Prose elsewhere
+in this repository defers to the list `capabilities` reports instead of
+naming a count that would go stale.
 
-```sh
-openpapir --help
-openpapir --version
-openpapir capabilities [--json]
-openpapir archive init <root> [--json]
-openpapir import --archive <root> <file>... [--json]
-openpapir case create --archive <root> --title <t> [--notes <n>] [--json]
-openpapir case list --archive <root> [--json]
-openpapir case show --archive <root> <case-id> [--json]
-openpapir submission add --archive <root> --case <case-id> --description <d> [--date <yyyy-mm-dd>] [--artefact <digest>[:<role>]]... [--json]
-openpapir receipt add --archive <root> --artefact <digest> [--import-event <id>] [--label <l>] [--json]
-openpapir receipt list --archive <root> [--json]
-openpapir association create --archive <root> --receipt <receipt-id> --outcome <outcome> [--candidate <submission-id>:<confidence>:<statement>]... [--supersedes <association-id>] [--json]
-openpapir association list --archive <root> --receipt <receipt-id> [--json]
-openpapir association retire --archive <root> <association-id> [--reason <text>] [--json]
-openpapir archive check --archive <root> [--json]
-openpapir archive status --archive <root> [--as-of <yyyy-mm-dd>] [--json]
-openpapir case export --archive <root> --case <case-id> --to <dir> [--json]
-openpapir case import --archive <root> --from <dir> [--json]
-openpapir archive repair-permissions --archive <root> [--json]
-openpapir case delete --archive <root> --case <case-id> [--purge] [--json]
-openpapir skill
-```
+| Operation | Invocation |
+| --- | --- |
+| `archive.init` | `openpapir archive init <root> [--json]` |
+| `import` | `openpapir import --archive <root> <file>... [--json]` |
+| `case.create` | `openpapir case create --archive <root> --title <t> [--notes <n>] [--tag <t>]... [--status open\|closed] [--json]` |
+| `case.list` | `openpapir case list --archive <root> [--status <s>] [--tag <t>]... [--query <text>] [--json]` |
+| `case.show` | `openpapir case show --archive <root> <case-id> [--json]` |
+| `case.update` | `openpapir case update --archive <root> <case-id> [--title <t>] [--notes <n>\|--clear-notes] [--status open\|closed] [--tag <t>]... [--untag <t>]... [--json]` |
+| `submission.add` | `openpapir submission add --archive <root> --case <case-id> --description <d> [--date <yyyy-mm-dd>] [--artefact <digest>[:<role>]]... [--json]` |
+| `receipt.add` | `openpapir receipt add --archive <root> --artefact <digest> [--import-event <id>] [--label <l>] [--json]` |
+| `receipt.list` | `openpapir receipt list --archive <root> [--json]` |
+| `association.create` | `openpapir association create --archive <root> --receipt <receipt-id> --outcome <outcome> [--candidate <submission-id>:<confidence>:<statement>]... [--supersedes <association-id>] [--json]` |
+| `association.list` | `openpapir association list --archive <root> --receipt <receipt-id> [--json]` |
+| `association.retire` | `openpapir association retire --archive <root> <association-id> [--reason <text>] [--json]` |
+| `archive.check` | `openpapir archive check --archive <root> [--json]` |
+| `archive.status` | `openpapir archive status --archive <root> [--as-of <yyyy-mm-dd>] [--json]` |
+| `case.export` | `openpapir case export --archive <root> --case <case-id> --to <dir> [--json]` |
+| `case.import` | `openpapir case import --archive <root> --from <dir> [--json]` |
+| `archive.repair_permissions` | `openpapir archive repair-permissions --archive <root> [--json]` |
+| `case.delete` | `openpapir case delete --archive <root> --case <case-id> [--purge] [--json]` |
+| `skill` | `openpapir skill` |
 
 The sections below take each implemented command in that order, and each
 states its invocation, the shape of its `data`, the codes particular to it,
@@ -70,13 +75,9 @@ is in [Implemented codes and exit codes](#implemented-codes-and-exit-codes).
 `skill` is the exception: it opens no archive, reads no input, and can refuse
 only with `usage.arguments` or `internal.unexpected`.
 
-Nineteen operations are implemented, `archive.init`, `import`, `case.create`,
-`case.list`, `case.show`, `submission.add`, `receipt.add`, `receipt.list`,
-`association.create`, `association.list`, `association.retire`,
-`archive.check`, `archive.status`, `case.export`, `case.import`,
-`archive.repair_permissions`, `case.delete`,
-`skill`, and `case.update`, and those are the nineteen names `capabilities`
-reports. Everything else in
+The operations `capabilities` reports are the ones enumerated in
+[Current implementation](#current-implementation) above, which is the
+authoritative list. Everything else in
 [local archive layout and storage design](archive-layout.md) and
 [import error, JSON, and exit-code contract](error-contract.md) remains a
 design: no derived-metadata or verification records; no automatic matching, no
@@ -99,7 +100,7 @@ never shares stdout with the JSON object.
 | --- | --- |
 | `schema_version` | The envelope's version, currently `1`, independent of `archive_schema_version`. |
 | `ok` | `true` only when the command completed its stated work. |
-| `command` | The invoked command's stable name: `capabilities`, or one of the nineteen operation names `capabilities` reports. An invocation the argument parser rejected before it recognised a subcommand carries `openpapir` instead. |
+| `command` | The invoked command's stable name: `capabilities`, or one of the operation names `capabilities` reports. An invocation the argument parser rejected before it recognised a subcommand carries `openpapir` instead. |
 | `data` | The command's result. `{}` when `ok` is `false`, except `archive check`, whose report is the result the user asked for and stays in `data` beside the error. |
 | `verified` | Always `false`. No cryptographic check is implemented. |
 | `error` | Present exactly when `ok` is `false`: `code`, `message`, `details`. |
@@ -113,17 +114,17 @@ carries `bucket`. Changes within `schema_version` are additive only.
 `stage` is a plain string that names how far the implementation has come, and
 it is one of a small closed set: `scaffold`, `alpha`, `beta`, `stable`. It is
 not a version, not a support promise, and never a verification verdict. The
-value is `alpha` today, because the nineteen operations below are implemented
-against a local archive whose on-disk layout may still change. A move to
-another value is a release decision, recorded in `CHANGELOG.md` in the pull
-request that makes it; the set itself grows or shrinks the same way. A caller
+value is `alpha` today, because the operations `capabilities` reports are
+implemented against a local archive whose on-disk layout may still change. A
+move to another value is a release decision, recorded in `CHANGELOG.md` in
+the pull request that makes it; the set itself grows or shrinks the same way. A caller
 that branches on `stage` must treat an unknown value as "at least as far as
 the last value it knows", and a caller that needs to know what the binary can
 do reads `operations`, not `stage`. Changing the value is not a
 `schema_version` change: the field's name, type, and meaning are unchanged.
 
-The capabilities response is unchanged in shape and lists the nineteen
-implemented operations:
+The capabilities response is unchanged in shape and lists the implemented
+operations:
 
 ```json
 {
@@ -810,6 +811,7 @@ question the privacy rule allows an answer to.
       { "code": "integrity.length_mismatch", "count": 0 },
       { "code": "integrity.orphan_object", "count": 0 },
       { "code": "path.symlink", "count": 0 },
+      { "code": "record.inconsistent", "count": 0 },
       { "code": "record.malformed", "count": 0 }
     ],
     "records_checked": 1,
@@ -852,9 +854,9 @@ A clean archive exits `0` with `ok` `true`. When the check finds something,
 `ok` is `false`, the report stays in `data`, and `error` names the first
 problem in this fixed precedence:
 
-`path.symlink`, `record.malformed`, `integrity.digest_mismatch`,
-`integrity.length_mismatch`, `integrity.dangling_reference`,
-`integrity.orphan_object`.
+`path.symlink`, `record.malformed`, `record.inconsistent`,
+`integrity.digest_mismatch`, `integrity.length_mismatch`,
+`integrity.dangling_reference`, `integrity.orphan_object`.
 
 The order runs from what stopped the check reading something, through what it
 read and disbelieved, to what is merely unreferenced, and it is fixed so that
@@ -862,6 +864,17 @@ one archive always reports one code. The exit code is the highest of the
 buckets' groups, as the contract requires of any command that reports several
 conditions: `4` whenever a `record` or `integrity` condition was found, and
 `3` for an archive whose only complaint is a link inside the store.
+
+`record.inconsistent` counts the `supersedes` cycles the association records
+form, archive-wide. An association supersedes at most one record, so the
+supersession graph has out-degree one and every walk along it ends, leaves the
+archive at a reference nothing stored answers, or closes on itself; a closed
+walk is a cycle. The count is of cycles rather than of the records in them,
+and the record pass keeps two fixed-size identifier keys per edge and nothing
+else, so the graph costs the check what a pair of identifiers costs. The
+`error` carries `record_kind` and rule `supersedes_cycle` and never an
+identifier, exactly as the refusal `case delete` raises for a chain holding
+one.
 
 Human output prints the same counts in the same order and no path.
 
@@ -1506,19 +1519,24 @@ would leave the newer one naming a record the archive no longer holds. The
 chain is therefore the unit in both directions
 ([archive-layout](archive-layout.md)).
 
-A chain with no live record at all is a `supersedes` cycle, which no openPapir
-command writes: `association retire` refuses a record something already
+A chain holding a `supersedes` cycle anywhere in it is refused, and the unit of
+the refusal is the chain rather than the cycle alone. No openPapir command
+writes a cycle: `association retire` refuses a record something already
 supersedes, and `association create` refuses a `--supersedes` outside the
-receipt. A cycle therefore reaches an archive only by hand. Both rules above
-read the chain's live record, and a cycle has none, so a cycle naming a
-departing submission and a remaining one would otherwise be read as history
-nobody asserts and removed whole. A deletion that would otherwise have removed
-one is refused with `record.inconsistent` and rule `supersedes_cycle`, before
-anything is touched, carrying the kind and the rule and never an identifier or
-a count. A cycle this deletion would not have touched is left alone: the scan
-reads the whole archive, so refusing on a cycle anywhere would describe the
-archive rather than the command the user ran, and finding one wherever it sits
-is `archive check`'s work.
+receipt, so a cycle reaches an archive only by hand. Inside a cycle every
+record is superseded by another, so nothing in it says what the user asserts
+today. A chain that is only a cycle has no live record for the two rules above
+to read, so one naming a departing submission and a remaining one would
+otherwise be read as history nobody asserts and removed whole; a chain whose
+live record supersedes a cycle behind it is the same anomaly one layer up,
+where the head's claim about that history cannot be checked because the
+history cannot be read in order. A deletion that would otherwise have removed
+such a chain is refused with `record.inconsistent` and rule `supersedes_cycle`,
+before anything is touched, carrying the kind and the rule and never an
+identifier or a count. A cycle this deletion would not have touched is left
+alone: the scan reads the whole archive, so refusing on a cycle anywhere would
+describe the archive rather than the command the user ran, and finding one
+wherever it sits is `archive check`'s work.
 
 The record pass is **all or nothing per case**. Before a single document is
 unlinked, every record directory the deletion would remove an entry from is

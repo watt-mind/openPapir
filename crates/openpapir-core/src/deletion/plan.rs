@@ -162,9 +162,9 @@ struct State {
     /// Whether the chain's live record still names a submission that remains.
     /// A superseded record naming one does not count: the user withdrew it.
     asserted: bool,
-    /// Whether the chain has a live record at all. A chain without one is a
-    /// `supersedes` cycle, which no openPapir command can write.
-    live: bool,
+    /// Whether any of the chain's records supersede each other in a cycle,
+    /// which no openPapir command can write.
+    holds_cycle: bool,
 }
 
 impl State {
@@ -174,16 +174,15 @@ impl State {
     }
 
     /// Whether the chain is the entanglement the deletion refuses.
-    ///
-    /// `asserted` is read from the chain's live record alone, so an entangled
-    /// chain always has one and never overlaps [`State::cyclic`].
     const fn entangled(self) -> bool {
         self.departing && self.asserted
     }
 
-    /// Whether the chain is the cycle the deletion refuses.
+    /// Whether the chain is the cycle the deletion refuses. A chain that is
+    /// both is refused as a cycle, because the cycle is what makes the live
+    /// record's meaning untrustworthy in the first place.
     const fn cyclic(self) -> bool {
-        self.departing && !self.live
+        self.departing && self.holds_cycle
     }
 }
 
@@ -200,6 +199,8 @@ struct Chains<'a> {
     chain: BTreeMap<&'a str, usize>,
     /// The associations no other association supersedes.
     live: BTreeSet<&'a str>,
+    /// The chains whose records supersede each other in a cycle somewhere.
+    cyclic: BTreeSet<usize>,
 }
 
 impl<'a> Chains<'a> {
@@ -247,9 +248,61 @@ impl<'a> Chains<'a> {
                 joined = true;
             }
             if !joined {
-                return Self { chain, live };
+                let cyclic = Self::cyclic(associations, &chain);
+                return Self {
+                    chain,
+                    live,
+                    cyclic,
+                };
             }
         }
+    }
+
+    /// The chains whose records supersede each other in a cycle.
+    ///
+    /// An association supersedes at most one other record, so every walk
+    /// along `supersedes` either ends at a record that supersedes nothing,
+    /// stops at a reference no stored record answers, or closes on itself.
+    /// A closed walk is the cycle. Every record of a cycle lies in one chain,
+    /// so the chain is what is named here.
+    ///
+    /// Each record is walked at most twice, once on the walk that reaches it
+    /// and once as a start that stops immediately, so an archive holding a
+    /// cycle settles instead of looping.
+    fn cyclic(
+        associations: &'a [Association],
+        chain: &BTreeMap<&'a str, usize>,
+    ) -> BTreeSet<usize> {
+        let edges: BTreeMap<&str, &str> = associations
+            .iter()
+            .filter_map(|association| {
+                let previous = association.supersedes.as_deref()?;
+                chain
+                    .contains_key(previous)
+                    .then_some((association.id.as_str(), previous))
+            })
+            .collect();
+        let mut settled: BTreeSet<&str> = BTreeSet::new();
+        let mut cyclic = BTreeSet::new();
+        for start in edges.keys() {
+            if settled.contains(start) {
+                continue;
+            }
+            let mut walked: BTreeSet<&str> = BTreeSet::new();
+            let mut here = *start;
+            while !settled.contains(here) {
+                if !walked.insert(here) {
+                    cyclic.insert(chain[here]);
+                    break;
+                }
+                match edges.get(here) {
+                    Some(previous) => here = previous,
+                    None => break,
+                }
+            }
+            settled.extend(walked);
+        }
+        cyclic
     }
 
     /// What each chain means to a deletion that removes `going`.
@@ -262,8 +315,9 @@ impl<'a> Chains<'a> {
         for association in associations {
             let id = association.id.as_str();
             let live = self.live.contains(id);
-            let state = states.entry(self.chain[id]).or_default();
-            state.live |= live;
+            let position = self.chain[id];
+            let state = states.entry(position).or_default();
+            state.holds_cycle = self.cyclic.contains(&position);
             for submission in named(association) {
                 if going.contains(submission) {
                     state.departing = true;
@@ -301,13 +355,22 @@ impl<'a> Supersession<'a> {
 
     /// Refuse a deletion whose history contains a `supersedes` cycle.
     ///
-    /// A cycle has no live record, because every record in it is superseded
-    /// by another, so there is nothing that says what the user asserts today.
-    /// The entanglement rule reads exactly that record, so it can never fire
-    /// for a cycle: a cycle naming both a departing submission and one that
+    /// Inside a cycle every record is superseded by another, so nothing in it
+    /// says what the user asserts today. The unit of the refusal is the whole
+    /// supersession chain, not the cycle alone, because the chain is the unit
+    /// of the removal: a cycle anywhere in a chain means the chain's history
+    /// cannot be read in order, and a live record at its head is a claim
+    /// about a history whose shape is not trustworthy.
+    ///
+    /// A chain that is nothing but a cycle has no live record at all, so the
+    /// entanglement rule, which reads exactly that record, can never fire for
+    /// it: such a chain naming both a departing submission and one that
     /// remains would otherwise be taken as history nobody asserts and removed
     /// whole, silently taking with it a record about a case the user did not
-    /// ask to delete.
+    /// ask to delete. A chain whose live record supersedes a cycle behind it
+    /// is the same anomaly one layer up, and is refused for the same reason
+    /// rather than resolved by reading a head the cycle has already made
+    /// unreliable.
     ///
     /// No openPapir command can write a cycle: `association retire` refuses a
     /// record another one supersedes already, and `association create`
@@ -353,6 +416,9 @@ impl<'a> Supersession<'a> {
     ///
     /// The count is of live records, the ones a retirement can name, so it
     /// counts what the user has to act on rather than the history behind it.
+    // The live filter below is what makes `retained_count` per-record rather
+    // than per-chain: without it every superseded record of the chain would
+    // be counted too.
     ///
     /// # Errors
     ///

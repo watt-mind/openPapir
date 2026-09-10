@@ -75,7 +75,7 @@ fn problems(data: &Value) -> BTreeMap<String, u64> {
     let entries = data["problems"].as_array().expect("problems is an array");
     assert_eq!(
         entries.len(),
-        6,
+        7,
         "every code the check can report is listed"
     );
     let mut codes = Vec::new();
@@ -375,6 +375,61 @@ fn every_kind_of_reference_a_record_holds_is_resolved() {
     assert_eq!(envelope["error"]["details"]["reference_kind"], "case_id");
     assert_eq!(envelope["data"]["records_checked"], 4);
     assert_private(&output, &[ABSENT_ID]);
+}
+
+/// A `supersedes` cycle cannot be written through the CLI, which refuses a
+/// retirement of a record something already supersedes and a `--supersedes`
+/// outside the receipt, so the records are hand-written here. The check finds
+/// the cycle wherever it sits, which is what makes it safe for `case delete`
+/// to refuse only the cycles a deletion would otherwise have touched. The
+/// count is of cycles and names no record.
+#[test]
+fn supersession_cycles_among_the_association_records_are_counted() {
+    let (_home, root) = archive();
+    let first = "6666666666666666666666666666666f";
+    let second = "7777777777777777777777777777777f";
+    for (id, supersedes) in [(first, second), (second, first)] {
+        write_record(
+            &root,
+            "records/associations",
+            id,
+            &serde_json::json!({
+                "archive_schema_version": 1,
+                "candidates": [],
+                "created_at": "2026-01-14T09:12:33Z",
+                "created_by": "user",
+                "id": id,
+                "outcome": "unresolved",
+                "receipt_id": ABSENT_ID,
+                "record_kind": "association",
+                "supersedes": supersedes
+            }),
+        );
+    }
+    let output = check(&root);
+    let envelope = assert_report(&output, false, Some("record.inconsistent"), 4);
+    let counts = problems(&envelope["data"]);
+    assert_eq!(
+        counts["record.inconsistent"], 1,
+        "two records that supersede each other are one cycle"
+    );
+    assert_eq!(
+        counts["integrity.dangling_reference"], 2,
+        "the receipt each names is the fixture's own loose end"
+    );
+    assert_eq!(
+        counts["record.malformed"], 0,
+        "a cycle is read from records the check could read"
+    );
+    let details = &envelope["error"]["details"];
+    assert_eq!(details["record_kind"], "association");
+    assert_eq!(details["rule"], "supersedes_cycle");
+    assert_private(&output, &[first, second, ABSENT_ID, "records/associations"]);
+
+    let human = run(&["archive", "check", "--archive", &root.to_string_lossy()]);
+    let text = String::from_utf8(human.stdout).expect("stdout is UTF-8");
+    assert!(text.contains("record.inconsistent 1"));
+    assert!(!text.contains(first) && !text.contains(second));
 }
 
 #[test]
@@ -686,7 +741,7 @@ fn a_large_archive_reports_counters_and_nothing_per_object() {
             "the report holds counters only, never a list of objects"
         );
     }
-    assert_eq!(problems(&envelope["data"]).len(), 6);
+    assert_eq!(problems(&envelope["data"]).len(), 7);
 }
 
 #[test]

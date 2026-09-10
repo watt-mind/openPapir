@@ -399,3 +399,58 @@ fn a_cycle_this_deletion_does_not_touch_is_left_to_the_integrity_check() {
     assert!(supersession.refuse_cycle().is_ok());
     assert!(supersession.doomed(&associations).is_empty());
 }
+
+/// A chain may hold a cycle and still have a live record: a live record `D`
+/// supersedes `A`, `A` supersedes `B`, and `B` supersedes `A` again. Reading
+/// `D` alone would say the history behind it is withdrawn and the whole
+/// chain, cycle and all, goes with the case. The chain is refused instead:
+/// the cycle means the history `D` sits on cannot be read in order, so what
+/// `D` withdraws cannot be told either, and the refusal leaves the archive as
+/// it was for the user to repair.
+#[test]
+fn a_live_record_over_a_cycle_is_refused_rather_than_read_as_withdrawn() {
+    let going = BTreeSet::from([id(1)]);
+    let going: BTreeSet<&str> = going.iter().map(String::as_str).collect();
+    let mut live = association(0x12, 0x20, &[]);
+    let mut first = association(0x10, 0x20, &[1]);
+    let mut second = association(0x11, 0x20, &[2]);
+    live.supersedes = Some(id(0x10));
+    first.supersedes = Some(id(0x11));
+    second.supersedes = Some(id(0x10));
+    let associations = vec![live, first, second];
+    let supersession = Supersession::read(&associations, &going);
+    assert_eq!(
+        supersession.doomed(&associations).len(),
+        3,
+        "the live record asserts nothing, so the whole chain would otherwise go"
+    );
+    assert!(
+        supersession.refuse_entangled(&associations).is_ok(),
+        "the live record names no remaining submission, so entanglement cannot fire"
+    );
+    let refusal = supersession.refuse_cycle().unwrap_err();
+    assert_eq!(refusal.code, codes::RECORD_INCONSISTENT);
+    let json = serde_json::to_value(&refusal).unwrap();
+    assert_eq!(json["details"]["rule"], "supersedes_cycle");
+    let text = serde_json::to_string(&refusal).unwrap();
+    assert!(!text.contains(&id(0x10)) && !text.contains(&id(0x11)) && !text.contains(&id(0x12)));
+}
+
+/// The same shape, one case over: a chain with a live record and no cycle in
+/// it is read exactly as before, so the new rule costs an ordinary archive
+/// nothing.
+#[test]
+fn a_live_record_over_an_ordinary_history_still_takes_the_chain_with_the_case() {
+    let going = BTreeSet::from([id(1)]);
+    let going: BTreeSet<&str> = going.iter().map(String::as_str).collect();
+    let mut live = association(0x12, 0x20, &[]);
+    let mut first = association(0x10, 0x20, &[1]);
+    let second = association(0x11, 0x20, &[1]);
+    live.supersedes = Some(id(0x10));
+    first.supersedes = Some(id(0x11));
+    let associations = vec![live, first, second];
+    let supersession = Supersession::read(&associations, &going);
+    assert!(supersession.refuse_cycle().is_ok());
+    assert!(supersession.refuse_entangled(&associations).is_ok());
+    assert_eq!(supersession.doomed(&associations).len(), 3);
+}
