@@ -60,6 +60,24 @@ const IMPORT_BATCH: usize = 1_000;
 /// reads four times what a listing reads and is given its own ceiling.
 const SEARCH_CEILING: Duration = Duration::from_secs(10);
 
+/// Files in each of the repeated imports that follow it.
+///
+/// The repeats are there to time an import that follows many others rather
+/// than to time a batch, so the batch is small: twenty of the full cap would
+/// double the archive and measure the growth rather than the repetition.
+const REPEAT_BATCH: usize = 100;
+
+/// How many imports run back to back, the last of which is timed.
+const REPEATS: usize = 20;
+
+/// The ceiling for resolving an artefact to its earliest import event.
+///
+/// It is the listing ceiling: `receipt add` without `--import-event` asks one
+/// question about the import events, and whether it is answered from the
+/// rebuildable index or from a scan of the records, it stays a read of what
+/// the archive holds.
+const RECEIPT_CEILING: Duration = Duration::from_secs(5);
+
 /// The exit code of the usage bucket, which an unimplemented subcommand is.
 const USAGE_EXIT: i32 = 2;
 
@@ -163,7 +181,31 @@ fn the_linear_scans_stay_under_their_documented_ceilings() {
         ],
     ));
 
+    // `receipt add` without `--import-event` resolves the artefact to its
+    // earliest import event. The first one runs against no index, because the
+    // setup names the event on every receipt it writes and an import of new
+    // files leaves no index behind, so it is the rebuilding one; the second
+    // runs against the index the first left. Both are timed, because the
+    // first is the cost a user pays once and the second the cost of every
+    // later one.
+    for name in ["receipt add", "receipt add, index current"] {
+        measurements.push(measure(
+            name,
+            RECEIPT_CEILING,
+            &[
+                "receipt",
+                "add",
+                "--archive",
+                &root,
+                "--artefact",
+                &archive.artefact_digest,
+                "--json",
+            ],
+        ));
+    }
+
     measurements.push(measure_import(&archive));
+    measurements.push(measure_repeated_imports(&archive));
 
     report(cases, setup, &measurements);
     // A scan that matched nothing would be fast for the wrong reason, so what
@@ -237,14 +279,58 @@ fn measure_in(
 /// thousand absolute temporary paths exceeds what some platforms accept at
 /// process spawn.
 fn measure_import(archive: &bench_support::Synthetic) -> Measurement {
-    let directory = PathBuf::from(archive.destination("import-inputs"));
+    import_batch(
+        archive,
+        "import of one batch",
+        "import-inputs",
+        "late",
+        IMPORT_BATCH,
+    )
+}
+
+/// Time the last of twenty imports run back to back.
+///
+/// Each of them writes its own import events and leaves the archive one
+/// batch larger, so the twentieth runs against everything the nineteen before
+/// it wrote. It is timed because the rebuildable index is written by a write
+/// as well as read by one: an import that had to rebuild it from every record
+/// each time would show here as a cost that grew batch by batch, and one that
+/// does not is the cost of the batch alone.
+fn measure_repeated_imports(archive: &bench_support::Synthetic) -> Measurement {
+    let mut last = None;
+    for repeat in 0..REPEATS {
+        last = Some(import_batch(
+            archive,
+            "twentieth import batch",
+            &format!("repeat-inputs-{repeat:02}"),
+            &format!("repeat-{repeat:02}"),
+            REPEAT_BATCH,
+        ));
+    }
+    last.expect("twenty imports leave a last one")
+}
+
+/// Write `count` distinct inputs into a directory of their own and time one
+/// import of all of them.
+///
+/// The binary is run from the input directory, because a command line of a
+/// thousand absolute temporary paths exceeds what some platforms accept at
+/// process spawn.
+fn import_batch(
+    archive: &bench_support::Synthetic,
+    name: &'static str,
+    folder: &str,
+    prefix: &str,
+    count: usize,
+) -> Measurement {
+    let directory = PathBuf::from(archive.destination(folder));
     fs::create_dir(&directory).expect("create the import input directory");
-    let names: Vec<String> = (0..IMPORT_BATCH)
+    let names: Vec<String> = (0..count)
         .map(|index| {
-            let name = format!("late-{index:07}.bin");
+            let name = format!("{prefix}-{index:07}.bin");
             fs::write(
                 directory.join(&name),
-                format!("benchmark import {index:07}\n"),
+                format!("benchmark import {prefix} {index:07}\n"),
             )
             .expect("write a synthetic input");
             name
@@ -253,17 +339,12 @@ fn measure_import(archive: &bench_support::Synthetic) -> Measurement {
     let root = archive.archive_string();
     let mut arguments = vec!["import", "--archive", root.as_str(), "--json"];
     arguments.extend(names.iter().map(String::as_str));
-    let measurement = measure_in(
-        "import of one batch",
-        IMPORT_CEILING,
-        Some(&directory),
-        &arguments,
-    );
+    let measurement = measure_in(name, IMPORT_CEILING, Some(&directory), &arguments);
     let envelope: serde_json::Value =
         serde_json::from_slice(&measurement.stdout).expect("import prints one envelope");
     assert_eq!(
         envelope["data"]["imported"].as_u64(),
-        Some(IMPORT_BATCH as u64),
+        Some(count as u64),
         "the timed import did not store every input"
     );
     assert_eq!(

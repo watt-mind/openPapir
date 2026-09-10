@@ -3,4 +3,5 @@ Problems found:
 integrity.digest_mismatch 1
 Orphan object(s): 0. Object(s) not digested: 0. Record directory(ies) not read: 0. Leftover staging file(s): 0 incoming, 0 in record directories.
 Derived-metadata record(s): 0, of which 0 name(s) an object the store no longer holds. A missing one is not a problem, and neither is one of those: the next derivation discards it.
+Cache file(s): 1. A cache is rebuildable and never a problem.
 The check read the archive and changed nothing. A digest identifies bytes only: a passing check is storage integrity, never authenticity, delivery, or legal effect.

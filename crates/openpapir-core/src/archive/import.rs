@@ -10,7 +10,6 @@
 //! is never joined into a path and never reported, so a traversal segment in
 //! an imported name cannot escape the root and cannot reach the output.
 
-use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -19,6 +18,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::archive::lock::WriterLock;
 use crate::archive::{Archive, IMPORTS_DIR, SUPPORTED_SCHEMA_VERSION, limits, objects, paths};
+use crate::cache;
 use crate::clock;
 use crate::error::{Details, Diagnostic, Failure, Outcome, Result, Warning, codes};
 use crate::ident;
@@ -211,7 +211,7 @@ pub(crate) fn store_named(
 ) -> std::result::Result<Imported, Diagnostic> {
     let planned = plan(inputs, names)?;
     let mut read_total = 0_u64;
-    let mut histories = Histories::default();
+    let mut histories = Histories::opened(root);
     let mut artefacts = Vec::new();
     for (index, input) in planned.iter().enumerate() {
         artefacts.push(store_one(
@@ -223,6 +223,7 @@ pub(crate) fn store_named(
             warnings,
         )?);
     }
+    histories.store(root);
     let imported = artefacts
         .iter()
         .filter(|artefact| artefact.created_object)
@@ -375,40 +376,67 @@ struct History {
 }
 
 impl History {
-    /// Fold one further event for the same digest into the history.
-    fn add(&mut self, imported_at: &str) {
-        self.count += 1;
-        if self
-            .first_imported_at
-            .as_ref()
-            .is_none_or(|earliest| imported_at < earliest.as_str())
-        {
-            self.first_imported_at = Some(imported_at.to_owned());
+    /// The history one digest has in the index.
+    ///
+    /// The earliest is the smallest `imported_at`, exactly as folding the
+    /// events one at a time computed it, so the reported history is the same
+    /// value a scan of the records reported before there was an index.
+    fn of(index: &cache::ImportEvents, digest: &str) -> Self {
+        let events = index.of(digest);
+        Self {
+            count: events.len() as u64,
+            first_imported_at: events
+                .iter()
+                .map(|event| event.imported_at.as_str())
+                .min()
+                .map(str::to_owned),
         }
     }
 }
 
 /// The import events one operation has to know about, keyed by digest.
 ///
-/// Only a duplicate reports a history, so the records are read at most once
-/// for a whole operation and not at all when every input is new: importing a
-/// directory costs one pass over the events rather than one per file. Every
-/// event the same operation writes is folded in as it is written, so the
-/// second duplicate of one digest counts the first exactly as it did when
-/// each input re-read the directory.
+/// The events come from the archive's rebuildable index (`crate::cache`),
+/// which answers from `cache/import-events-by-digest.json` when that file can
+/// be proved current and from the records themselves when it cannot, so the
+/// answer is the scan's answer either way and losing the file changes
+/// nothing.
+///
+/// The index is taken once for a whole operation and never once per input:
+/// importing a directory costs one read rather than one per file. Only a
+/// duplicate reports a history, so an operation that meets no duplicate and
+/// finds no current cache never reads the events at all. Every event the same
+/// operation writes is folded in as it is written, so the second duplicate of
+/// one digest counts the first exactly as it did when each input re-read the
+/// directory.
+///
+/// What the operation folded in is written back when the operation succeeds,
+/// which keeps a current cache current across an import instead of leaving
+/// the next reader to rebuild it. Nothing is written when the operation never
+/// held an index, because writing one would mean scanning for it, and an
+/// import of new files is not the place to pay for that.
 #[derive(Debug, Default)]
 struct Histories {
-    by_digest: Option<HashMap<String, History>>,
+    index: Option<cache::ImportEvents>,
+    folded: bool,
 }
 
 impl Histories {
-    /// The history of one digest, reading the stored events on first use.
+    /// Take the index the archive already holds, if it holds a current one.
+    ///
+    /// Nothing is rebuilt here: an archive with no usable cache leaves this
+    /// empty, and the first duplicate, if there is one, pays for the scan.
+    fn opened(root: &Path) -> Self {
+        Self {
+            index: cache::read_import_events(root),
+            folded: false,
+        }
+    }
+
+    /// The history of one digest, reading the events on first use.
     fn of(&mut self, root: &Path, digest: &str) -> History {
-        self.by_digest
-            .get_or_insert_with(|| stored_histories(root))
-            .get(digest)
-            .cloned()
-            .unwrap_or_default()
+        let index = self.index.get_or_insert_with(|| cache::import_events(root));
+        History::of(index, digest)
     }
 
     /// Fold an event this operation has just written into what was read.
@@ -416,42 +444,23 @@ impl Histories {
     /// Nothing is folded in when the events have not been read: the record is
     /// already on disk, so a later read sees it once and only once.
     fn record(&mut self, event: &ImportEvent) {
-        if let Some(by_digest) = self.by_digest.as_mut() {
-            by_digest
-                .entry(event.digest.clone())
-                .or_default()
-                .add(&event.imported_at);
+        if let Some(index) = self.index.as_mut() {
+            index.record(event);
+            self.folded = true;
         }
     }
-}
 
-/// Read every stored import-event record into a history per digest.
-///
-/// A record that cannot be parsed is not counted. Reporting a malformed
-/// record is `record.malformed`, which the error contract reserves and this
-/// build does not implement.
-fn stored_histories(root: &Path) -> HashMap<String, History> {
-    let mut histories: HashMap<String, History> = HashMap::new();
-    let Ok(entries) = fs::read_dir(root.join(IMPORTS_DIR)) else {
-        return histories;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.extension() != Some(OsStr::new("json")) {
-            continue;
+    /// Write the operation's own view back as the archive's index.
+    ///
+    /// The caller holds the writer lock and has written every record the
+    /// operation writes. A failure is dropped inside the cache module: an
+    /// import that stored what the user asked for does not fail because an
+    /// accelerator could not be saved.
+    fn store(&self, root: &Path) {
+        if let Some(index) = self.index.as_ref().filter(|_| self.folded) {
+            cache::write_import_events(root, index);
         }
-        let Ok(text) = fs::read_to_string(&path) else {
-            continue;
-        };
-        let Ok(event) = serde_json::from_str::<ImportEvent>(&text) else {
-            continue;
-        };
-        histories
-            .entry(event.digest)
-            .or_default()
-            .add(&event.imported_at);
     }
-    histories
 }
 
 #[cfg(test)]
@@ -551,8 +560,7 @@ mod tests {
         import(root.path(), &[inputs.path().join("b.txt")]).unwrap();
         let outcome = import(root.path(), &[inputs.path().join("a.txt")]).unwrap();
         let artefact = &outcome.data.artefacts[0];
-        let indexed = stored_histories(root.path());
-        let history = indexed.get(&artefact.digest).unwrap();
+        let history = History::of(&cache::import_events(root.path()), &artefact.digest);
         assert_eq!(artefact.previous_import_count, Some(2));
         assert_eq!(history.count, 3, "the third event is stored as well");
         assert_eq!(artefact.first_imported_at, history.first_imported_at);

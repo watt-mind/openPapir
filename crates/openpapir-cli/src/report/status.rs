@@ -37,6 +37,10 @@ pub fn integrity(report: &Report) -> Vec<String> {
         "Derived-metadata record(s): {}, of which {} name(s) an object the store no longer holds. A missing one is not a problem, and neither is one of those: the next derivation discards it.",
         report.derived_records, report.derived_orphans
     ));
+    lines.push(format!(
+        "Cache file(s): {}. A cache is rebuildable and never a problem.",
+        report.cache_files
+    ));
     lines.push(
         "The check read the archive and changed nothing. A digest identifies bytes only: a passing check is storage integrity, never authenticity, delivery, or legal effect."
             .to_owned(),

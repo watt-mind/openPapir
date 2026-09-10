@@ -53,6 +53,9 @@ pub struct Synthetic {
     root: PathBuf,
     /// Every case identifier, in the order the cases were created.
     pub case_ids: Vec<String>,
+    /// The digest of one stored artefact that has an import event, for the
+    /// measurement of resolving an artefact to its earliest one.
+    pub artefact_digest: String,
 }
 
 impl Synthetic {
@@ -134,6 +137,7 @@ pub fn build(cases: usize) -> Synthetic {
     Synthetic {
         directory,
         root,
+        artefact_digest: digests[0].digest.clone(),
         case_ids,
     }
 }
