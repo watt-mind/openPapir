@@ -1021,3 +1021,94 @@ fn a_record_conflict_refuses_the_whole_archive_import() {
     );
     assert_eq!(tree(&other), before, "a refused import writes nothing");
 }
+
+/// The restore ceiling of `docs/architecture.md`, and the object count that
+/// crosses it at the single-file cap: 257 objects of 64 MiB come to 16.06
+/// GiB, which is the smallest whole number of full-sized objects above it.
+const MAX_RESTORE_BYTES: u64 = 16 * 1024 * 1024 * 1024;
+const FULL_OBJECT_BYTES: u64 = 64 * 1024 * 1024;
+const OBJECTS_OVER_THE_CEILING: u64 = 257;
+
+/// Replace the manifest's object rows with rows that come to more than the
+/// restore ceiling.
+///
+/// Nothing is written into the export beside the manifest, and no copy is
+/// planted: the ceiling is checked from the sum the manifest names, before a
+/// single copy is opened, which is exactly what these cases assert. Every
+/// row stays inside the single-file cap, so the only cap the sum crosses is
+/// the restore one.
+fn overstate_the_objects(source: &Path) -> u64 {
+    let path = source.join("manifest.json");
+    let mut manifest: Value =
+        serde_json::from_str(&fs::read_to_string(&path).expect("read the manifest"))
+            .expect("the manifest is JSON");
+    let objects: Vec<Value> = (0..OBJECTS_OVER_THE_CEILING)
+        .map(|index| {
+            serde_json::json!({
+                "algorithm": "sha256",
+                "byte_length": FULL_OBJECT_BYTES,
+                "digest": format!("{index:064x}"),
+            })
+        })
+        .collect();
+    manifest["objects"] = Value::Array(objects);
+    fs::write(
+        &path,
+        serde_json::to_string(&manifest).expect("serialise it"),
+    )
+    .expect("write the manifest back");
+    OBJECTS_OVER_THE_CEILING * FULL_OBJECT_BYTES
+}
+
+/// Both restores are bounded by `input.cap.restore_bytes` rather than by the
+/// per-operation import cap, the refusal keeps the shape every cap refusal
+/// has, and it comes before anything is written.
+///
+/// One target archive serves both cases, because a refused restore writes
+/// nothing: it is still empty when the second one runs.
+#[test]
+fn a_restore_over_its_own_ceiling_is_refused_before_anything_is_written() {
+    let fixture = Fixture::build();
+    let other = fixture.other_archive();
+    let case_source = fixture.export("case-out");
+    let archive_source = export_whole(&fixture, "archive-out");
+    let observed = OBJECTS_OVER_THE_CEILING * FULL_OBJECT_BYTES;
+    assert!(observed > MAX_RESTORE_BYTES);
+
+    for source in [&case_source, &archive_source] {
+        assert_eq!(overstate_the_objects(source), observed);
+        let output = if source == &case_source {
+            fixture.import_into(&other, source)
+        } else {
+            import_whole(&other, source)
+        };
+
+        assert_eq!(code(&output), "input.cap.restore_bytes");
+        assert_eq!(output.status.code(), Some(3), "an input refusal exits 3");
+        let error = &stdout_json(&output)["error"];
+        let details = error["details"]
+            .as_object()
+            .expect("a refusal carries its details")
+            .clone();
+        assert_eq!(details["bucket"], "input");
+        assert_eq!(details["cap_bytes"], MAX_RESTORE_BYTES);
+        assert_eq!(details["observed_bytes"], observed);
+        assert_eq!(
+            details.len(),
+            3,
+            "the sum is over the whole manifest, so no position is named"
+        );
+        assert!(
+            !serde_json::to_string(error)
+                .expect("the refusal serialises")
+                .contains("out"),
+            "no user-supplied path reaches the envelope"
+        );
+
+        let check = run(&["archive", "check", "--archive", &text(&other), "--json"]);
+        assert_eq!(check.status.code(), Some(0));
+        let report = stdout_json(&check);
+        assert_eq!(report["data"]["objects_checked"], 0);
+        assert_eq!(report["data"]["records_checked"], 0);
+    }
+}

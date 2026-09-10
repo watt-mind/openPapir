@@ -129,7 +129,7 @@ pub fn verify(source: &Path, manifest: &Manifest) -> Result<(), Diagnostic> {
 ///
 /// Returns the refusals of [`verify`], plus the store's own
 /// `integrity.length_mismatch`, `path.overwrite`, `archive.permissions_wide`,
-/// `input.cap.import_bytes`, and `write.interrupted`.
+/// `input.cap.restore_bytes`, and `write.interrupted`.
 pub fn store_all(
     root: &Path,
     source: &Path,
@@ -139,7 +139,13 @@ pub fn store_all(
     let mut read_total = 0_u64;
     for (index, object) in manifest.objects.iter().enumerate() {
         let mut copy = open(source, &object.digest)?;
-        let stored = objects::store(root, &mut copy, index as u64, &mut read_total)?;
+        let stored = objects::store(
+            root,
+            &mut copy,
+            index as u64,
+            &mut read_total,
+            limits::Ceiling::Restore,
+        )?;
         if stored.digest != object.digest {
             // The copy changed between the check and the store, which is the
             // one thing the pre-flight check cannot promise. The object is

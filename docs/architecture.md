@@ -2305,6 +2305,7 @@ environment variable, or configuration relaxes a cap.
 | Single file | 64 MiB | `input.cap.file_size` |
 | Total bytes per import | 512 MiB | `input.cap.import_bytes` |
 | Files per import | 1000 | `input.cap.import_files` |
+| Total bytes per restore | 16 GiB | `input.cap.restore_bytes` |
 | Record document | 1 MiB | `input.cap.record_size` |
 | Original filename | 255 bytes | `input.cap.filename_length` |
 | Case title | 200 bytes | `input.cap.field_length` |
@@ -2316,18 +2317,37 @@ environment variable, or configuration relaxes a cap.
 | Case tag | 64 bytes | `input.cap.tag_length` |
 | Case tags per record | 32 distinct | `input.cap.tag_count` |
 
-The caps bind `case import` and `archive import` as they bind `import`, and
-the per-operation cap is the one that binds a restore: an import reads every
-object the manifest lists in one operation, so an export whose objects come to
-more than 512 MiB in total is refused with `input.cap.import_bytes` and cannot
-be restored by this build, even though several smaller imports were able to
-build the archive it came from. A whole archive reaches that ceiling sooner
-than one case does, which is the practical limit of `archive import` in this
-build and the reason a backup stays a plain copy of the archive root. The cap is
-deliberately not scoped per object to make that case succeed: a cap is never
-relaxed for one particular input ([AGENTS.md](../AGENTS.md)), and raising the
-ceiling is a decision about the cap itself rather than about the command that
-met it.
+`input.cap.import_bytes` bounds `import` and `submission add --file`, the two
+commands that read files the user has just named. A restore is a different
+thing: `case import` and `archive import` replay objects the archive already
+accepted one command at a time, and every one of them is re-digested from the
+export's own bytes before anything is published, so the per-operation import
+ceiling would refuse an export that several smaller imports were able to build.
+Both restores are bounded by `input.cap.restore_bytes` instead, applied to the
+sum of the object bytes the manifest names and checked before a single copy is
+opened and before the writer lock is taken. `case import` follows the same
+ceiling as `archive import`: one case is a subset of an archive, the two are
+one code path, and a bound that refused the part while allowing the whole would
+be the same inversion in the other direction. The single-file cap still binds
+every copy a restore reads, because every object in an archive was imported
+under it.
+
+The default is 16 GiB. It is 256 objects at the single-file cap of 64 MiB, or
+32 imports at the per-operation ceiling of 512 MiB, so an archive whose objects
+come to more than it took at least thirty-two full imports to build. The export
+shape is what makes that sum knowable in advance: an export copies each stored
+object exactly once and its manifest names the byte length of every copy, so
+the whole read is known from one bounded document before any of it happens. The
+benchmark archive the Performance section below measures, of ten thousand cases
+and twenty thousand stored objects, holds about 5 MB of object bytes, so the
+ceiling is more than three thousand times the largest archive this repository
+measures and is not a bound a realistic archive meets. Above it the answer is
+the one it always was: a backup is a plain copy of the archive root
+([archive-layout](archive-layout.md)), which no cap bounds because openPapir
+does not read it back in. Neither cap is scoped per object to make one export
+succeed: a cap is never relaxed for one particular input
+([AGENTS.md](../AGENTS.md)), and raising a ceiling is a decision about the cap
+itself rather than about the command that met it.
 
 `input.cap.record_size` bounds a whole document and reports one cap, the
 record cap. A per-field cap has to say which field it refused and which of the
@@ -2387,7 +2407,7 @@ emitted.
 | --- | --- | --- |
 | `0` | Success, including a duplicate import and a warning | |
 | `2` | `usage` | `usage.arguments`, `usage.archive_root_missing` |
-| `3` | `input`, `path` | the eight cap codes above, `path.symlink`, `path.overwrite`, `path.cross_device` |
+| `3` | `input`, `path` | the nine cap codes above, `path.symlink`, `path.overwrite`, `path.cross_device` |
 | `4` | `archive`, `lock`, `write`, `record`, `integrity`, `export`, `delete` | `record.not_found`, `record.malformed`, `record.inconsistent`, `archive.marker_missing`, `archive.marker_malformed`, `archive.adopt_refused`, `archive.schema_newer`, `archive.schema_older`, `archive.permissions_wide`, `archive.multiple_filesystems`, `lock.held`, `write.interrupted`, `integrity.digest_mismatch`, `integrity.length_mismatch`, `integrity.dangling_reference`, `integrity.orphan_object`, `export.destination_conflict`, `export.copy_mismatch`, `export.manifest_missing`, `export.manifest_malformed`, `export.object_mismatch`, `export.record_missing`, `export.record_conflict`, `delete.objects_retained`, `delete.records_retained`, `delete.record_entangled` |
 | `5` | `platform` | `platform.filesystem_unsupported`, for a filesystem that reports it cannot create the hard link the publish step needs. A link refused without saying so is `write.interrupted` at `4` instead. The named degradations are warnings, and the owner-only condition of the same code is not detected yet. |
 | `6` | `internal` | `internal.unexpected` |

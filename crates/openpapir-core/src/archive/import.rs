@@ -317,7 +317,13 @@ fn store_one(
             unusable_input(index)
         }
     })?;
-    let stored = objects::store(root, &mut source, index, read_total)?;
+    let stored = objects::store(
+        root,
+        &mut source,
+        index,
+        read_total,
+        limits::Ceiling::Import,
+    )?;
     warnings.extend(stored.warnings);
 
     let digest = format!("{}:{}", objects::ALGORITHM, stored.digest);

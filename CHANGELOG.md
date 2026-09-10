@@ -579,6 +579,19 @@ envelope.
 
 ### Changed
 
+- `case import` and `archive import` are bounded by their own ceiling,
+  `input.cap.restore_bytes`, over the sum of the object bytes the export's
+  manifest names, checked before any copy is opened and before the writer lock
+  is taken. The default is 16 GiB, which is 256 objects at the single-file cap
+  or 32 imports at the per-operation ceiling; `docs/architecture.md` gives the
+  reasoning. `input.cap.import_bytes` is unchanged and still bounds `import`
+  and `submission add --file`, so an export several smaller imports were able
+  to build is no longer refused for exceeding a cap that was never about
+  restores. The refusal keeps the shape every cap refusal has, with `bucket`,
+  `cap_bytes`, and `observed_bytes` and no `input_index`, because the sum is
+  over the whole manifest. Above the ceiling the answer is unchanged: a backup
+  is a plain copy of the archive root.
+
 - An export manifest now carries `export_scope`, `case` for a directory
   `case export` wrote and `archive` for one `archive export` wrote. The field
   is additive and the manifest format version stays `1`: a manifest written
