@@ -46,6 +46,7 @@ fn ready(_: &World) {}
 
 fn cases() -> Vec<Case> {
     let mut cases = archive_cases();
+    cases.extend(derived_cases());
     cases.extend(transfer_cases());
     cases.extend(record_cases());
     cases.extend(association_cases());
@@ -180,13 +181,6 @@ fn archive_cases() -> Vec<Case> {
             },
         },
         Case {
-            name: "archive.derive",
-            stage: Stage::Associated,
-            second_submission: false,
-            prepare: ready,
-            arguments: |world| world.command(&["archive", "derive"]),
-        },
-        Case {
             name: "archive.repair-permissions",
             stage: Stage::Associated,
             second_submission: false,
@@ -208,6 +202,18 @@ fn archive_cases() -> Vec<Case> {
             arguments: |world| world.delete_arguments(true),
         },
     ]
+}
+
+/// The case that computes the derived-metadata records. The commands that
+/// show them sit with the record cases.
+fn derived_cases() -> Vec<Case> {
+    vec![Case {
+        name: "archive.derive",
+        stage: Stage::Associated,
+        second_submission: false,
+        prepare: ready,
+        arguments: |world| world.command(&["archive", "derive"]),
+    }]
 }
 
 /// The cases that copy an archive, or one case of it, outward and back in.
