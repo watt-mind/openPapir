@@ -50,7 +50,10 @@ follow today.
    Keep a Changelog categories. From the first published crate version,
    changes to `openpapir-core`'s public Rust API are logged as well, which the
    changelog rules in [contributing](../CONTRIBUTING.md) waive while no
-   version is published.
+   version is published. `Unreleased` is left empty by the cut, which is
+   expected: the checks tolerate an empty `Unreleased` (see
+   [the release notes](#the-release-notes)) and the next pull request fills
+   it again.
 4. **A green baseline.** `./scripts/check.sh`, the release build, and the
    full CI matrix pass on the promotion pull request, not only on `develop`.
 5. **A tag.** Tag the merge commit on `master`. Tags are not created on
@@ -139,6 +142,47 @@ gh workflow run release.yml --ref <branch> -f dry_run=true
   pull requests that change the pipeline and nothing at all on the rest.
 
 The workflow never creates a tag, never pushes, and never publishes a draft.
+
+### The release notes
+
+The notes of a draft release are one [CHANGELOG.md](../CHANGELOG.md) section,
+copied verbatim. `scripts/release-notes.py` is the only thing that reads one,
+and both the job that creates the release and the dry run call it.
+
+A section runs from its `##` heading to the next `##` heading **outside a
+code fence**. A line that looks like a heading inside a fenced block, opened
+by three backticks or three tildes, is content: it neither starts nor ends a
+section. Fenced headings are
+therefore allowed in the changelog rather than forbidden by a gate, because
+the changelog holds captured output and a captured Markdown example may
+legitimately contain one. The fence rules are the ones
+`scripts/check-prose.py` applies, so both checks read the file the same way.
+A heading matches a version when it is the version, optionally in brackets,
+optionally followed by a date or other trailing text, so `## 1.2.0`,
+`## [1.2.0]`, and `## [1.2.0] - 2026-01-01` all name version `1.2.0`, while
+`## 1.2.0-rc.1` does not.
+
+A tagged run fails when the version has no section or the section is empty: a
+release nobody described is not published with an empty note.
+
+A dry run has no released version to look for, so it reads the `Unreleased`
+section, which is what a release is cut from, and prints the result into the
+run summary. The extraction runs in the verify job, under `contents: read`,
+alongside the extraction's own cases (`--self-test`). A changelog the
+extraction cannot read therefore fails a dry run rather than surfacing on the
+one run that matters.
+
+The dry run passes `--allow-empty`, and only for `Unreleased`. Between a
+changelog cut and the next entry that section legitimately holds nothing, and
+an empty `Unreleased` is not a broken changelog. The flag never reaches a
+tagged run, so a version section that is missing or empty still fails.
+
+`./scripts/check.sh` runs the same two checks locally:
+
+```sh
+python3 scripts/release-notes.py --self-test
+python3 scripts/release-notes.py --allow-empty Unreleased
+```
 
 ## What this document is not
 
