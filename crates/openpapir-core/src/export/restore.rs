@@ -68,14 +68,14 @@ pub struct Restored {
     pub objects_present: u64,
     /// How many of those this import stored.
     pub objects_stored: u64,
-    /// How many of the export's own records this import wrote. The import
-    /// events it recorded of its own are counted in `events_recorded`.
-    pub record_count: u64,
     /// One entry per record kind the manifest lists, including the empty
     /// ones, in the fixed order of the kinds.
     pub records: Vec<KindCount>,
     /// How many records the archive already held, byte for byte.
     pub records_present: u64,
+    /// How many of the export's own records this import wrote. The import
+    /// events it recorded of its own are counted in `events_recorded`.
+    pub records_written: u64,
     /// The source exactly as the user supplied it, never serialised.
     #[serde(skip)]
     pub source: String,
@@ -120,7 +120,14 @@ fn run(
 
     let _lock = WriterLock::acquire(archive.root())?;
     let plan = records::probe(archive.root(), held)?;
-    let stored = objects::store_all(archive.root(), &source, &manifest)?;
+    // The set is carried out of the object pass whether it finished or not,
+    // so a refusal half way through it removes the objects already placed
+    // rather than leaving them behind as orphans.
+    let mut stored = objects::Placements::default();
+    if let Err(error) = objects::store_all(archive.root(), &source, &manifest, &mut stored) {
+        publish::discard(archive.root(), &stored);
+        return Err(error);
+    }
     let published = match publish::run(archive.root(), &plan, &stored, warnings) {
         Ok(published) => published,
         Err(error) => {
@@ -138,9 +145,9 @@ fn run(
         object_count: manifest.objects.len() as u64,
         objects_present: stored.present(),
         objects_stored: stored.created(),
-        record_count: published.records,
         records: manifest.counts,
         records_present: plan.present,
+        records_written: published.records,
         source: supplied,
     })
 }
@@ -188,8 +195,21 @@ fn unusable_source() -> Diagnostic {
 pub enum Unreadable {
     /// Nothing is there at all.
     Absent,
+    /// A symbolic link is there, which is refused rather than followed.
+    Link,
     /// Something is there that is not a readable, bounded regular file.
     Malformed,
+}
+
+/// The refusal for a symbolic link anywhere inside the export source.
+///
+/// Every path in the source obeys one rule, so a linked manifest, a linked
+/// record, and a linked object are refused the same way and with the same
+/// scope. The path itself is user-supplied and is never echoed
+/// (`docs/error-contract.md`).
+#[must_use]
+pub fn linked() -> Diagnostic {
+    paths::symlink_refusal(Details::new().text("scope", SOURCE_SCOPE))
 }
 
 /// Read one bounded document out of the export, without following a link.
@@ -203,9 +223,13 @@ pub enum Unreadable {
 ///
 /// # Errors
 ///
-/// Returns [`Unreadable::Absent`] when nothing is there and
-/// [`Unreadable::Malformed`] for anything that is not a bounded regular file.
+/// Returns [`Unreadable::Absent`] when nothing is there,
+/// [`Unreadable::Link`] for a symbolic link, and [`Unreadable::Malformed`]
+/// for anything else that is not a bounded regular file.
 pub fn read_document(path: &Path) -> std::result::Result<String, Unreadable> {
+    if paths::is_symlink(path) {
+        return Err(Unreadable::Link);
+    }
     let file = paths::open_no_follow_nonblocking(path).map_err(|error| match error.kind() {
         io::ErrorKind::NotFound => Unreadable::Absent,
         _ => Unreadable::Malformed,
@@ -235,12 +259,12 @@ mod tests {
             object_count: 1,
             objects_present: 0,
             objects_stored: 1,
-            record_count: 2,
             records: vec![KindCount {
                 count: 1,
                 kind: "case",
             }],
             records_present: 0,
+            records_written: 2,
             source: "/home/someone/export".to_owned(),
         };
         let json = serde_json::to_string(&restored).unwrap();

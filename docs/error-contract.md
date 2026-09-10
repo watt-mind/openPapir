@@ -543,13 +543,16 @@ followed ([archive-layout](archive-layout.md)).
   it is not valid JSON, its own format version is not the supported one, or an
   entry names a digest, an identifier, or a record kind this build cannot use.
   Details: as above. A manifest written under another archive schema version
-  is not this code: it is `archive.schema_newer` or `archive.schema_older`.
+  is not this code: it is `archive.schema_newer` or `archive.schema_older`,
+  and a manifest whose path is a symbolic link is `path.symlink`, like every
+  other linked path inside an export source.
 - **`export.object_mismatch`**: archive, not retryable. **Decided by
   `case import`.** An exported copy is not the object the manifest describes,
-  because the export does not hold it or because its bytes disagree with the
-  digest or the byte length recorded for it. Details: `bucket`, `scope`,
-  `digest` (the manifest's own name for the object), `conflict_count`, and the
-  additive `reason`, whose closed set is `absent`, `digest`, and `length`.
+  because the export does not hold it, because the path is not a regular file
+  at all, or because its bytes disagree with the digest or the byte length
+  recorded for it. Details: `bucket`, `scope`, `digest` (the manifest's own
+  name for the object), `conflict_count`, and the additive `reason`, whose
+  closed set is `absent`, `digest`, `length`, and `unusable`.
 - **`export.record_missing`**: archive, not retryable. **Decided by
   `case import`.** The manifest names a record document the export does not
   hold. Details: `bucket`, `scope`, `record_kind`, `path_count`. Nothing else:

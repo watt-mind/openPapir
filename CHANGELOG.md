@@ -42,8 +42,12 @@ envelope.
   `export.record_missing`, and `export.record_conflict`. `capabilities` now
   reports nineteen operations, and human output echoes the `--from` argument
   the user typed exactly as `case export` echoes `--to`; no JSON field carries
-  either. Goldens added for `case.import` and `case.import.manifest-missing`,
-  and `capabilities` regenerated.
+  either. A symbolic link anywhere in the source is `path.symlink` with
+  `scope` `export_source`, every path there is opened without following a link
+  and without waiting, and the per-operation byte cap binds a restore as it
+  binds an import, so a case over 512 MiB in total is refused with
+  `input.cap.import_bytes`. Goldens added for `case.import` and
+  `case.import.manifest-missing`, and `capabilities` regenerated.
 
 - `openpapir archive status --archive <root> [--as-of <yyyy-mm-dd>] [--json]`
   (operation `archive.status`) summarises one archive without changing it and

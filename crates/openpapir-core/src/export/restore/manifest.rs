@@ -21,7 +21,7 @@ use crate::error::{Details, Diagnostic, codes};
 use crate::export::KindCount;
 use crate::export::destination::MANIFEST_FILE;
 use crate::export::manifest::MANIFEST_SCHEMA_VERSION;
-use crate::export::restore::{SOURCE_SCOPE, Unreadable, read_document, records};
+use crate::export::restore::{SOURCE_SCOPE, Unreadable, linked, read_document, records};
 use crate::records::{document, is_digest};
 
 /// One object the manifest lists.
@@ -78,11 +78,13 @@ pub struct Manifest {
 ///
 /// Returns `export.manifest_missing` when the export holds no manifest,
 /// `export.manifest_malformed` when it holds one this build cannot read as a
-/// manifest, and `archive.schema_newer` or `archive.schema_older` when the
-/// export was taken from an archive of another schema version.
+/// manifest, `path.symlink` when the manifest's path is a symbolic link, and
+/// `archive.schema_newer` or `archive.schema_older` when the export was taken
+/// from an archive of another schema version.
 pub fn read(source: &Path) -> Result<Manifest, Diagnostic> {
     let text = read_document(&source.join(MANIFEST_FILE)).map_err(|why| match why {
         Unreadable::Absent => missing(),
+        Unreadable::Link => linked(),
         Unreadable::Malformed => malformed(),
     })?;
     let document: Document = serde_json::from_str(&text).map_err(|_| malformed())?;

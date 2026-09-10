@@ -7,7 +7,6 @@
     "object_count": 2,
     "objects_present": 1,
     "objects_stored": 1,
-    "record_count": 4,
     "records": [
       {
         "count": 1,
@@ -30,7 +29,8 @@
         "kind": "import_event"
       }
     ],
-    "records_present": 2
+    "records_present": 2,
+    "records_written": 4
   },
   "ok": true,
   "schema_version": 1,

@@ -142,7 +142,7 @@ pub fn restored(restored: &Restored) -> Vec<String> {
         ),
         format!(
             "Wrote {} record(s); {} already present.",
-            restored.record_count, restored.records_present
+            restored.records_written, restored.records_present
         ),
     ];
     for kind in &restored.records {

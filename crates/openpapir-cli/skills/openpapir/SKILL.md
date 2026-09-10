@@ -415,8 +415,10 @@ already holds is not an error and is not written again, and each object the
 import stores gets one new import event with `source` `export`. Importing one
 export twice therefore leaves the same archive. `data` holds `case_id`,
 `object_count`, `objects_stored`, `objects_present`, `bytes_stored`,
-`record_count`, `records_present`, `records[]` per kind, and
-`events_recorded`; it never holds the source.
+`records_written`, `records_present`, `records[]` per kind, and
+`events_recorded`; it never holds the source. A case whose objects come to
+more than 512 MiB in total meets `input.cap.import_bytes`: the per-operation
+cap binds a restore as it binds an import.
 
 `export.manifest_missing` and `export.manifest_malformed` mean the directory
 is not an export this build can read, `export.object_mismatch` that a copy is

@@ -320,7 +320,7 @@ fn a_case_survives_an_export_a_purging_deletion_and_an_import() {
     assert_eq!(imported["data"]["case_id"], fixture.case_id);
     assert_eq!(imported["data"]["objects_stored"], 2);
     assert_eq!(imported["data"]["objects_present"], 0);
-    assert_eq!(imported["data"]["record_count"], 6);
+    assert_eq!(imported["data"]["records_written"], 6);
     assert_eq!(imported["data"]["records_present"], 0);
     assert_eq!(imported["data"]["events_recorded"], 2);
 
@@ -374,7 +374,7 @@ fn a_second_import_of_one_export_changes_nothing() {
     assert_eq!(again["ok"], true);
     assert_eq!(again["data"]["objects_stored"], 0);
     assert_eq!(again["data"]["objects_present"], 2);
-    assert_eq!(again["data"]["record_count"], 0);
+    assert_eq!(again["data"]["records_written"], 0);
     assert_eq!(again["data"]["records_present"], 6);
     assert_eq!(again["data"]["events_recorded"], 0);
     assert_eq!(
@@ -393,7 +393,7 @@ fn an_export_moves_a_case_into_another_archive() {
     let imported = stdout_json(&fixture.import_into(&other, &source));
     assert_eq!(imported["ok"], true);
     assert_eq!(imported["data"]["objects_stored"], 2);
-    assert_eq!(imported["data"]["record_count"], 6);
+    assert_eq!(imported["data"]["records_written"], 6);
     let shown = stdout_json(&run(&[
         "case",
         "show",
@@ -583,6 +583,132 @@ fn an_exported_copy_whose_bytes_changed_is_refused_and_changes_nothing() {
         "absent"
     );
     assert_eq!(tree(&fixture.root), before, "the archive is unchanged");
+}
+
+/// The digests the export's manifest lists, in the order it lists them.
+///
+/// Only the cases that plant something at an object's own path need it, and
+/// those need a mode change or a named pipe, so they run on Unix alone.
+#[cfg(unix)]
+fn manifest_digests(source: &Path) -> Vec<String> {
+    let manifest: Value =
+        serde_json::from_str(&fs::read_to_string(source.join("manifest.json")).expect("read it"))
+            .expect("the manifest is JSON");
+    manifest["objects"]
+        .as_array()
+        .expect("the manifest lists its objects")
+        .iter()
+        .map(|object| object["digest"].as_str().expect("a digest").to_owned())
+        .collect()
+}
+
+/// An object pass that stops part way leaves nothing of itself behind, so the
+/// archive is not left holding an orphan the integrity check would report.
+///
+/// The refusal is induced with a fan-out directory that is wider than
+/// owner-only, which the store refuses before it publishes into it. That is a
+/// mode change, so the case runs on Unix.
+#[cfg(unix)]
+#[test]
+fn an_import_that_cannot_store_every_object_removes_the_ones_it_stored() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let fixture = Fixture::build();
+    let source = fixture.export("out");
+    let other = fixture.other_archive();
+    let digests = manifest_digests(&source);
+    assert_eq!(digests.len(), 2, "the fixture exports two objects");
+    assert_ne!(
+        digests[0][0..2],
+        digests[1][0..2],
+        "the two objects fan out into different directories"
+    );
+    let wide = other.join("objects/sha256").join(&digests[1][0..2]);
+    fs::create_dir_all(&wide).expect("create the fan-out directory");
+    fs::set_permissions(&wide, fs::Permissions::from_mode(0o755)).expect("widen it");
+
+    let refused = fixture.import_into(&other, &source);
+    fs::set_permissions(&wide, fs::Permissions::from_mode(0o700)).expect("narrow it again");
+    assert_eq!(code(&refused), "archive.permissions_wide");
+    assert_eq!(refused.status.code(), Some(4));
+
+    let check = run(&["archive", "check", "--archive", &text(&other), "--json"]);
+    assert_eq!(check.status.code(), Some(0), "the archive is still clean");
+    let report = stdout_json(&check);
+    assert_eq!(
+        report["data"]["objects_checked"], 0,
+        "the object stored before the refusal was removed again"
+    );
+    assert_eq!(report["data"]["records_checked"], 0);
+    assert_eq!(
+        report["data"]["problems"]
+            .as_array()
+            .expect("the problem counts")
+            .iter()
+            .map(|problem| problem["count"].as_u64().expect("a count"))
+            .sum::<u64>(),
+        0
+    );
+}
+
+/// A named pipe planted at an object's path would hold a blocking open open
+/// for ever. The import opens without waiting and refuses it on its kind.
+#[cfg(unix)]
+#[test]
+fn a_named_pipe_in_the_export_is_refused_rather_than_waited_on() {
+    let fixture = Fixture::build();
+    let source = fixture.export("out");
+    let digests = manifest_digests(&source);
+    let copy = source.join("objects").join(&digests[0]);
+    fs::remove_file(&copy).expect("remove the copy");
+    let made = Command::new("mkfifo")
+        .arg(&copy)
+        .status()
+        .is_ok_and(|status| status.success());
+    if !made {
+        eprintln!("skipped the named-pipe case: this system has no usable mkfifo command");
+        return;
+    }
+    let refused = fixture.import_into(&fixture.other_archive(), &source);
+    assert_eq!(code(&refused), "export.object_mismatch");
+    assert_eq!(refused.status.code(), Some(4));
+    assert_eq!(
+        stdout_json(&refused)["error"]["details"]["reason"],
+        "unusable"
+    );
+}
+
+/// A symbolic link anywhere in the export is refused rather than followed,
+/// and every one of them is refused the same way.
+#[cfg(unix)]
+#[test]
+fn a_linked_path_in_the_export_is_refused_wherever_it_is() {
+    let fixture = Fixture::build();
+    let elsewhere = fixture.home.path().join("elsewhere");
+    fs::write(&elsewhere, b"not an export\n").expect("write the target");
+    // One target archive serves both cases: each refusal comes before
+    // anything is written, so the archive it was pointed at is untouched.
+    let other = fixture.other_archive();
+
+    for (name, relative) in [
+        ("linked-manifest", "manifest.json".to_owned()),
+        (
+            "linked-record",
+            format!("records/case/{}.json", fixture.case_id),
+        ),
+    ] {
+        let source = fixture.export(name);
+        let path = source.join(&relative);
+        fs::remove_file(&path).expect("remove the real file");
+        std::os::unix::fs::symlink(&elsewhere, &path).expect("plant the link");
+        let refused = fixture.import_into(&other, &source);
+        assert_eq!(code(&refused), "path.symlink", "refused: {relative}");
+        assert_eq!(refused.status.code(), Some(3));
+        assert_eq!(
+            stdout_json(&refused)["error"]["details"]["scope"],
+            "export_source"
+        );
+    }
 }
 
 /// A second writer is refused, because an import writes under the lock.

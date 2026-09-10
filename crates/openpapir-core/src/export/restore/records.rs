@@ -22,7 +22,7 @@ use crate::archive::import::{EVENT_KIND, ImportEvent};
 use crate::error::{Details, Diagnostic, codes};
 use crate::export::destination::RECORDS_DIR;
 use crate::export::restore::manifest::Manifest;
-use crate::export::restore::{SOURCE_SCOPE, Unreadable, read_document};
+use crate::export::restore::{SOURCE_SCOPE, Unreadable, linked, read_document};
 use crate::records::association::Association;
 use crate::records::case::Case;
 use crate::records::document::{self, Record};
@@ -167,8 +167,9 @@ fn present<R: Record>(root: &Path, record: &R) -> Result<bool, Diagnostic> {
 /// # Errors
 ///
 /// Returns `export.record_missing` when the export does not hold a record the
-/// manifest names, and `record.malformed` when a document it holds cannot be
-/// read as a record of its kind.
+/// manifest names, `path.symlink` when a record's path is a symbolic link,
+/// and `record.malformed` when a document it holds cannot be read as a record
+/// of its kind.
 pub fn read_all(source: &Path, manifest: &Manifest) -> Result<Vec<Held>, Diagnostic> {
     let mut held = Vec::with_capacity(manifest.records.len());
     for row in &manifest.records {
@@ -179,6 +180,7 @@ pub fn read_all(source: &Path, manifest: &Manifest) -> Result<Vec<Held>, Diagnos
             .join(format!("{}.json", row.id));
         let text = read_document(&path).map_err(|why| match why {
             Unreadable::Absent => missing(kind),
+            Unreadable::Link => linked(),
             Unreadable::Malformed => document::malformed(kind, 1),
         })?;
         held.push(parse(kind, &text, &row.id).ok_or_else(|| document::malformed(kind, 1))?);

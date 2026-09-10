@@ -1195,9 +1195,20 @@ published. A refusal in any of those passes leaves the archive exactly as
 The source must be an existing directory that is not a symbolic link and does
 not lie inside the archive root. Both paths are resolved before they are
 compared, and a path that cannot be resolved at all is refused rather than let
-through. Inside the source the rules the archive applies inward are applied
-outward: nothing is opened through a symbolic link, and a path that is not a
-bounded regular file is refused rather than read.
+through.
+
+Inside the source the rules the archive applies inward are applied outward,
+and one rule covers every path there. A symbolic link is refused as
+`path.symlink` carrying `scope` `export_source`, wherever it is: the manifest,
+a record, and an object are all refused the same way rather than each
+reporting the condition of its own reader. Every path is opened with the
+platform's non-blocking no-follow open, so a named pipe planted in a
+user-supplied directory cannot hold the open call open, and the file kind is
+then taken from the opened handle rather than from a second look at the path.
+A record document that is not a bounded regular file is `record.malformed`,
+the condition of the document, and an object path that is not a regular file
+is `export.object_mismatch` with `reason` `unusable`, because it holds no
+copy at all.
 
 An export written under another archive schema version is refused by the
 schema rules that refuse such an archive, `archive.schema_newer` or
@@ -1218,8 +1229,11 @@ manifest of another one is `export.manifest_malformed`.
 The record pass is all or nothing. Every document is staged in the directory
 it will be published into, and only then is the set published, so an import
 that cannot be finished removes the records it had already published and the
-objects it had just created. An interrupted import therefore leaves the whole
-case or nothing of it, and the archive stays clean.
+objects it had just created. The object pass is undone the same way: an
+object placed before a later one is refused is removed again, so a refusal
+part way through storing never leaves an object no record names. An
+interrupted import therefore leaves the whole case or nothing of it, and the
+archive stays clean.
 
 A restored import event is a record like any other, so the history of the
 user's own import survives the round trip. The event openPapir writes for a
@@ -1243,7 +1257,7 @@ and again while they are stored.
 | The source holds no manifest. | `export.manifest_missing` |
 | The manifest cannot be read as a manifest of this format. | `export.manifest_malformed` |
 | The export was written under another archive schema version. | `archive.schema_newer`, `archive.schema_older` |
-| A copy is absent, or its bytes disagree with the manifest. | `export.object_mismatch` |
+| A copy is absent, is not a regular file, or its bytes disagree with the manifest. | `export.object_mismatch` |
 | The manifest names a record document the export does not hold. | `export.record_missing` |
 | A document the export holds cannot be read as a record of its kind. | `record.malformed` |
 | A record identifier is held in the archive by a different record. | `export.record_conflict` |
@@ -1264,7 +1278,6 @@ and again while they are stored.
     "object_count": 2,
     "objects_present": 1,
     "objects_stored": 1,
-    "record_count": 4,
     "records": [
       { "count": 1, "kind": "case" },
       { "count": 1, "kind": "submission" },
@@ -1272,17 +1285,18 @@ and again while they are stored.
       { "count": 1, "kind": "association" },
       { "count": 2, "kind": "import_event" }
     ],
-    "records_present": 2
+    "records_present": 2,
+    "records_written": 4
   },
   "verified": false
 }
 ```
 
 `records` describes the case the manifest holds, one count per kind including
-the empty ones. `record_count` and `records_present` split those between what
-this import wrote and what the archive already held, and `events_recorded`
-counts the import events openPapir wrote of its own, which are not part of the
-export.
+the empty ones. `records_written` and `records_present` split those between
+what this import wrote and what the archive already held, and
+`events_recorded` counts the import events openPapir wrote of its own, which
+are not part of the export.
 
 Human output adds one thing the JSON does not carry, the source the user
 supplied, because the line repeats the argument they just typed.
@@ -1700,6 +1714,16 @@ environment variable, or configuration relaxes a cap.
 | Case tag | 64 bytes | `input.cap.tag_length` |
 | Case tags per record | 32 distinct | `input.cap.tag_count` |
 
+The caps bind `case import` as they bind `import`, and the per-operation cap
+is the one that binds a restore: an import reads every object the manifest
+lists in one operation, so a case whose objects come to more than 512 MiB in
+total is refused with `input.cap.import_bytes` and cannot be restored by this
+build, even though several smaller imports were able to build it. The cap is
+deliberately not scoped per object to make that case succeed: a cap is never
+relaxed for one particular input ([AGENTS.md](../AGENTS.md)), and raising the
+ceiling is a decision about the cap itself rather than about the command that
+met it.
+
 `input.cap.record_size` bounds a whole document and reports one cap, the
 record cap. A per-field cap has to say which field it refused and which of the
 six bounds applied, which that code cannot carry, so the field caps use the
@@ -1898,7 +1922,8 @@ are conditions of a directory outside the archive rather than of the archive:
    as well as one whose bytes disagree with the manifest, because the manifest
    is authoritative and both say the export is not what it claims to be. Its
    `details` carry `scope`, the expected `digest`, a `conflict_count`, and the
-   additive `reason`, whose closed set is `absent`, `digest`, and `length`.
+   additive `reason`, whose closed set is `absent`, `digest`, `length`, and
+   `unusable`, the last for a path that is there and is not a regular file.
    The digest is the manifest's own name for the object, which the privacy
    rule already permits; nothing about the bytes actually found is reported.
 3. `export.record_missing` names a record document the manifest lists and the

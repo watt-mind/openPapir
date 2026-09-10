@@ -22,8 +22,8 @@ use sha2::{Digest as _, Sha256};
 use crate::archive::{limits, objects, paths};
 use crate::error::{Details, Diagnostic, codes};
 use crate::export::destination::OBJECTS_DIR;
-use crate::export::restore::SOURCE_SCOPE;
 use crate::export::restore::manifest::Manifest;
+use crate::export::restore::{SOURCE_SCOPE, linked};
 use crate::ident;
 
 /// How many bytes are read from an exported copy at a time.
@@ -39,6 +39,8 @@ mod reasons {
     pub const DIGEST: &str = "digest";
     /// The copy holds a different number of bytes than the manifest says.
     pub const LENGTH: &str = "length";
+    /// The path is there and is not a regular file, so it holds no copy.
+    pub const UNUSABLE: &str = "unusable";
 }
 
 /// One object this import put into the store, or found already there.
@@ -117,6 +119,12 @@ pub fn verify(source: &Path, manifest: &Manifest) -> Result<(), Diagnostic> {
 
 /// Store every object the manifest lists, under the writer lock.
 ///
+/// `placed` collects what was actually put in the store, and it collects it
+/// whether the pass finished or not: an object placed before a refusal is
+/// still in the archive, and the caller has to be able to remove it. Handing
+/// the set back only on success would leave those objects behind as orphans
+/// that `archive check` then reports.
+///
 /// # Errors
 ///
 /// Returns the refusals of [`verify`], plus the store's own
@@ -126,41 +134,58 @@ pub fn store_all(
     root: &Path,
     source: &Path,
     manifest: &Manifest,
-) -> Result<Placements, Diagnostic> {
-    let mut placements = Placements::default();
+    placed: &mut Placements,
+) -> Result<(), Diagnostic> {
     let mut read_total = 0_u64;
     for (index, object) in manifest.objects.iter().enumerate() {
         let mut copy = open(source, &object.digest)?;
         let stored = objects::store(root, &mut copy, index as u64, &mut read_total)?;
         if stored.digest != object.digest {
             // The copy changed between the check and the store, which is the
-            // one thing the pre-flight check cannot promise.
+            // one thing the pre-flight check cannot promise. The object is
+            // recorded before it is refused, so it is removed with the rest.
+            placed.0.push(Placed {
+                byte_length: stored.byte_length,
+                created: stored.created_object,
+                digest: stored.digest,
+            });
             return Err(mismatch(&object.digest, reasons::DIGEST));
         }
-        placements.0.push(Placed {
+        placed.0.push(Placed {
             byte_length: stored.byte_length,
             created: stored.created_object,
             digest: stored.digest,
         });
     }
-    Ok(placements)
+    Ok(())
 }
 
-/// Open one exported copy read-only, refusing a link and a missing copy.
+/// Open one exported copy read-only, refusing everything that is not one.
+///
+/// The source is a directory the user named, so it is untrusted input like a
+/// record directory is. A symbolic link is refused rather than followed, and
+/// the open is the non-blocking no-follow one, because a named pipe planted
+/// at an object's path would otherwise hold a blocking open open forever and
+/// hang the import. The file kind is then taken from the opened handle rather
+/// than from a second look at the path, so the file that passes the check is
+/// the file whose bytes are read, and anything that is not a regular file is
+/// refused as holding no copy at all.
 fn open(source: &Path, digest: &str) -> Result<File, Diagnostic> {
     let path = source.join(OBJECTS_DIR).join(digest);
     if paths::is_symlink(&path) {
-        return Err(paths::symlink_refusal(
-            Details::new().text("scope", SOURCE_SCOPE),
-        ));
+        return Err(linked());
     }
-    paths::open_no_follow(&path).map_err(|error| {
+    let file = paths::open_no_follow_nonblocking(&path).map_err(|error| {
         if error.kind() == std::io::ErrorKind::NotFound {
             mismatch(digest, reasons::ABSENT)
         } else {
             read_refusal()
         }
-    })
+    })?;
+    if !file.metadata().is_ok_and(|metadata| metadata.is_file()) {
+        return Err(mismatch(digest, reasons::UNUSABLE));
+    }
+    Ok(file)
 }
 
 /// Read one copy in bounded chunks, digesting and counting as it goes.
@@ -285,7 +310,8 @@ mod tests {
         fs::create_dir(&source).unwrap();
         export_with(&source, PAYLOAD);
 
-        let placed = store_all(&root, &source, &manifest(16)).unwrap();
+        let mut placed = Placements::default();
+        store_all(&root, &source, &manifest(16), &mut placed).unwrap();
         assert_eq!(placed.created(), 1);
         assert_eq!(placed.present(), 0);
         assert_eq!(placed.bytes_stored(), 16);
@@ -294,7 +320,8 @@ mod tests {
             PAYLOAD
         );
 
-        let again = store_all(&root, &source, &manifest(16)).unwrap();
+        let mut again = Placements::default();
+        store_all(&root, &source, &manifest(16), &mut again).unwrap();
         assert_eq!(again.created(), 0);
         assert_eq!(again.present(), 1);
         assert_eq!(again.bytes_stored(), 0);
