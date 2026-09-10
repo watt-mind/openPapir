@@ -830,6 +830,12 @@ envelope.
   `README.md`, `docs/architecture.md`, and `docs/specification.md` and
   compares the array it holds with the list the binary reports, so a sample
   cannot go invalid or stale unnoticed.
+- The usage-walker property test reads the argument names a refusal may carry
+  from the command definition, through `openpapir manpage`, rather than from a
+  hand-kept list that `archive import --from` had already fallen out of. A
+  generated command line naming that flag failed the suite; the case is now
+  pinned by name as well, and adding a flag to the parser no longer means
+  editing the test.
 - `case export` no longer succeeds with fewer records than the case holds when
   a record directory cannot be listed. Reading such a directory as empty made
   the export describe a smaller case than the archive holds; it is now a
