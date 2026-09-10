@@ -37,6 +37,8 @@ pub struct Counts {
     pub symlink: u64,
     /// Record documents that could not be read as a record of their kind.
     pub malformed: u64,
+    /// Cycles among the `supersedes` references of the association records.
+    pub supersedes_cycle: u64,
     /// Objects whose bytes no longer digest to their own path, and object
     /// entries whose name is not a digest or is filed under the wrong
     /// fan-out directories.
@@ -55,6 +57,7 @@ impl Counts {
     pub const fn total(&self) -> u64 {
         self.symlink
             + self.malformed
+            + self.supersedes_cycle
             + self.digest_mismatch
             + self.length_mismatch
             + self.dangling
@@ -138,6 +141,7 @@ impl Report {
     #[must_use]
     pub fn exit_code(&self) -> i32 {
         let record_or_integrity = self.counts.malformed
+            + self.counts.supersedes_cycle
             + self.counts.digest_mismatch
             + self.counts.length_mismatch
             + self.counts.dangling
@@ -154,10 +158,12 @@ impl Report {
     /// The first problem, in the fixed precedence the contract documents.
     ///
     /// The order is `path.symlink`, `record.malformed`,
-    /// `integrity.digest_mismatch`, `integrity.length_mismatch`,
-    /// `integrity.dangling_reference`, `integrity.orphan_object`: the
-    /// conditions that stop the check from reading something come before the
-    /// ones it read and disbelieved, and a reference that resolves nowhere
+    /// `record.inconsistent`, `integrity.digest_mismatch`,
+    /// `integrity.length_mismatch`, `integrity.dangling_reference`,
+    /// `integrity.orphan_object`: the conditions that stop the check from
+    /// reading something come before the ones it read and disbelieved, a
+    /// record the check read and could not make sense of comes before the
+    /// objects the records describe, and a reference that resolves nowhere
     /// comes before an object nothing references. The choice is fixed so that
     /// one archive always reports the same code.
     ///
@@ -179,6 +185,12 @@ impl Report {
             return Some(crate::records::document::malformed(
                 self.malformed_kind.unwrap_or("record"),
                 counts.malformed,
+            ));
+        }
+        if counts.supersedes_cycle > 0 {
+            return Some(crate::records::inconsistent(
+                "association",
+                "supersedes_cycle",
             ));
         }
         if counts.digest_mismatch > 0 {
@@ -257,6 +269,7 @@ fn run(root: &Path) -> Report {
     let (dangling, first_dangling) = references::dangling(root, &found, &store);
     counts.dangling = dangling;
     counts.malformed = found.malformed.iter().sum();
+    counts.supersedes_cycle = found.supersedes_cycles();
     let malformed_kind = references::KINDS
         .iter()
         .zip(found.malformed)
@@ -303,6 +316,10 @@ fn problems(counts: &Counts) -> Vec<Problem> {
             count: counts.symlink,
         },
         Problem {
+            code: codes::RECORD_INCONSISTENT,
+            count: counts.supersedes_cycle,
+        },
+        Problem {
             code: codes::RECORD_MALFORMED,
             count: counts.malformed,
         },
@@ -321,7 +338,7 @@ mod tests {
         assert!(report.is_clean());
         assert_eq!(report.first_problem(), None);
         assert_eq!(report.exit_code(), 0);
-        assert_eq!(report.problems.len(), 6);
+        assert_eq!(report.problems.len(), 7);
         assert!(report.problems.iter().all(|problem| problem.count == 0));
         let codes: Vec<&str> = report.problems.iter().map(|problem| problem.code).collect();
         let mut sorted = codes.clone();
@@ -347,6 +364,13 @@ mod tests {
                     ..Counts::default()
                 },
                 codes::RECORD_MALFORMED,
+            ),
+            (
+                Counts {
+                    supersedes_cycle: 7,
+                    ..Counts::default()
+                },
+                codes::RECORD_INCONSISTENT,
             ),
             (
                 Counts {
@@ -402,16 +426,18 @@ mod tests {
         let every = Counts {
             symlink: 1,
             malformed: 1,
+            supersedes_cycle: 1,
             digest_mismatch: 1,
             length_mismatch: 1,
             dangling: 1,
             orphan: 1,
         };
-        assert_eq!(every.total(), 6);
+        assert_eq!(every.total(), 7);
         let mut counts = every;
         for expected in [
             codes::PATH_SYMLINK,
             codes::RECORD_MALFORMED,
+            codes::RECORD_INCONSISTENT,
             codes::INTEGRITY_DIGEST_MISMATCH,
             codes::INTEGRITY_LENGTH_MISMATCH,
             codes::INTEGRITY_DANGLING_REFERENCE,
@@ -425,6 +451,7 @@ mod tests {
             match expected {
                 codes::PATH_SYMLINK => counts.symlink = 0,
                 codes::RECORD_MALFORMED => counts.malformed = 0,
+                codes::RECORD_INCONSISTENT => counts.supersedes_cycle = 0,
                 codes::INTEGRITY_DIGEST_MISMATCH => counts.digest_mismatch = 0,
                 codes::INTEGRITY_LENGTH_MISMATCH => counts.length_mismatch = 0,
                 codes::INTEGRITY_DANGLING_REFERENCE => counts.dangling = 0,

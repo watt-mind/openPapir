@@ -688,19 +688,30 @@ Superseded history is therefore held by the case its live record names, and
 `association list` shows the whole chain, so the user can read what a deletion
 would take before running it.
 
-A chain with **no live record at all** is a `supersedes` cycle, and a deletion
-that would otherwise remove it is refused with `record.inconsistent` and rule
-`supersedes_cycle`. No openPapir command writes a cycle: a retirement of a
-record something already supersedes is refused, and a superseded record outside
-the receipt is refused, so a cycle reaches an archive only by hand. Both rules
-above read the chain's live record, and a cycle has none, so a cycle naming a
-departing submission and a remaining one would otherwise be read as history
-nobody asserts and removed whole. A deletion that cannot tell which record is
-the live one must not guess, so the anomaly is reported as what it is and
-nothing is touched. Only a cycle this deletion would otherwise have removed is
-refused, because the scan reads the whole archive and refusing on a cycle
-anywhere would describe the archive rather than the command the user ran;
-finding one wherever it sits is `archive check`'s work.
+A chain holding a **`supersedes` cycle** anywhere in it is refused with
+`record.inconsistent` and rule `supersedes_cycle`, and the unit of the refusal
+is the whole chain rather than the cycle alone. No openPapir command writes a
+cycle: a retirement of a record something already supersedes is refused, and a
+superseded record outside the receipt is refused, so a cycle reaches an archive
+only by hand.
+
+Inside a cycle every record is superseded by another, so nothing in it says
+what the user asserts today. A chain that is nothing but a cycle has no live
+record at all, and both rules above read exactly that record, so a cycle naming
+a departing submission and a remaining one would otherwise be read as history
+nobody asserts and removed whole. A chain whose live record supersedes a cycle
+behind it is the same anomaly one layer up: reading the head alone would say
+the history is withdrawn and take the cycle with it, but the cycle is what
+makes that history unreadable in order, so what the head withdraws cannot be
+told either. A deletion that cannot read the history it would remove must not
+guess, so the anomaly is reported as what it is and nothing is touched.
+
+Only a cycle this deletion would otherwise have removed is refused, because the
+scan reads the whole archive and refusing on a cycle anywhere would describe
+the archive rather than the command the user ran. Finding one wherever it sits
+is `archive check`'s work: the check counts the cycles the association records
+form, archive-wide and as a count alone, and reports them under the same code
+and rule.
 
 Deletion is real: the record files are removed. The deletion summary (counts
 and record kinds only, no filenames, digests, or titles) is reported to the
