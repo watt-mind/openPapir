@@ -165,8 +165,8 @@ each. All but the last three can process input:
   adds nothing. It takes no file and no `--json`, touches no archive, and
   processes no input.
 - `completions` writes one shell's completion script to stdout, for `bash`,
-  `zsh`, `fish`, `powershell`, or `elvish`. A shell it cannot generate for is
-  a usage refusal naming the `shell` argument.
+  `zsh`, `fish`, `powershell`, or `elvish`. A value outside those five is a
+  usage refusal, exit `2`, printed as the argument parser's own usage text.
 - `manpage` writes the man page for the whole command tree to stdout as one
   roff stream: the page for `openpapir` first, then one page for each
   subcommand. Both are generated from the same command definition the parser

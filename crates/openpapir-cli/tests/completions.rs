@@ -97,6 +97,29 @@ fn the_man_stream_holds_a_page_for_every_command() {
         let filed = format!("openpapir-{}", path.join("-"));
         assert!(page.contains(&filed), "the stream omits {filed}");
     }
+
+    // A page read on its own still names the build it describes, so every
+    // title line carries the version the binary reports.
+    let version = document(&["--version"])
+        .split_whitespace()
+        .last()
+        .expect("the version line names a version")
+        .to_owned();
+    let titles: Vec<&str> = page
+        .lines()
+        .filter(|line| line.starts_with(".TH "))
+        .collect();
+    assert_eq!(
+        titles.len(),
+        command_paths().len() + 1,
+        "one title line for the binary and one for each command"
+    );
+    for title in titles {
+        assert!(
+            title.contains(&version),
+            "a title without a version: {title}"
+        );
+    }
 }
 
 /// Neither command takes a `--json` form, and a shell this build cannot

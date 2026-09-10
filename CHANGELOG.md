@@ -60,12 +60,16 @@ envelope.
   build does not have. Like `skill`, both take no file, no archive, and no
   `--json`, and follow its stdout rule: a reader that closed the pipe exits
   `0`, and any other failing write exits `4` with one line on stderr that
-  names no path. A shell outside the five is `usage.arguments` naming the
-  `shell` argument, and the value typed is never echoed. `capabilities` now
-  reports both operations. Neither output is pinned byte for byte, because
-  both move with the generator's version; the tests pin that every shell's
-  script names every subcommand and that the man stream holds a page for
-  every command. `clap_complete` and `clap_mangen` are added as workspace
+  names no path. A shell outside the five is `usage.arguments`, exit `2`,
+  reported as the argument parser's own usage text on stderr, which names
+  `<SHELL>`, lists the five values, and repeats the value typed; because
+  `completions` defines no `--json`, no envelope is printed there and none
+  carries an `argument` detail, exactly as `openpapir skill --json` behaves
+  today. `capabilities` now reports both operations. Neither output is pinned
+  byte for byte, because both move with the generator's version; the tests
+  pin that every shell's script names every subcommand and that the man
+  stream holds a page for every command, each page's title line naming the
+  version the binary reports. `clap_complete` and `clap_mangen` are added as workspace
   dependencies, and `clap`'s `string` feature with them. Release archives
   carry neither file; see `docs/releasing.md`.
 - An ignored benchmark, `crates/openpapir-cli/tests/bench.rs`, times the

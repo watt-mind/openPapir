@@ -83,8 +83,10 @@ mod tests {
     }
 
     /// A shell this build cannot generate for is refused by the parser, and
-    /// the refusal names the `shell` argument rather than the value typed,
-    /// which is what the usage envelope is allowed to carry.
+    /// the argument the refusal names is this command's own `shell`. The
+    /// parser's usage text repeats the value typed, as it does for every
+    /// invocation it rejects; nothing openPapir prints about an archive
+    /// does.
     #[test]
     fn an_unknown_shell_is_refused_and_names_the_shell_argument() {
         let error = <Parser as clap::Parser>::try_parse_from(["openpapir", "completions", "sh"])
@@ -97,7 +99,7 @@ mod tests {
         assert_eq!(
             format!("{named}").trim_matches(|c| matches!(c, '<' | '>')),
             "SHELL",
-            "the argument is the shell, and the value typed is not echoed"
+            "the refusal names this command's own argument"
         );
         for shell in shells() {
             assert!(

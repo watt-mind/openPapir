@@ -34,8 +34,9 @@ pub fn emit<Parser: CommandFactory>() -> i32 {
 /// Render the whole tree as one roff stream.
 fn page<Parser: CommandFactory>(out: &mut dyn Write) -> io::Result<()> {
     let root = Parser::command();
+    let version = root.get_version().unwrap_or_default().to_owned();
     Man::new(root.clone()).render(out)?;
-    for command in tree(&root, root.get_name()) {
+    for command in tree(&root, root.get_name(), &version) {
         Man::new(command).render(out)?;
     }
     Ok(())
@@ -48,7 +49,11 @@ fn page<Parser: CommandFactory>(out: &mut dyn Write) -> io::Result<()> {
 /// a page's synopsis reads as the command a user types while its own name is
 /// the dashed form a manual page is filed under. Both are built from names
 /// this build defines and never from a value the caller supplied.
-fn tree(command: &clap::Command, invocation: &str) -> Vec<clap::Command> {
+///
+/// `version` is the binary's own, which a subcommand does not carry in the
+/// parser and every page needs: it is what a title line says the page
+/// describes, so a page read on its own still names the build it came from.
+fn tree(command: &clap::Command, invocation: &str, version: &str) -> Vec<clap::Command> {
     let mut pages = Vec::new();
     for sub in command.get_subcommands().filter(|sub| !sub.is_hide_set()) {
         let invoked = format!("{invocation} {}", sub.get_name());
@@ -57,9 +62,10 @@ fn tree(command: &clap::Command, invocation: &str) -> Vec<clap::Command> {
             sub.clone()
                 .name(filed.clone())
                 .display_name(filed)
-                .bin_name(invoked.clone()),
+                .bin_name(invoked.clone())
+                .version(version.to_owned()),
         );
-        pages.extend(tree(sub, &invoked));
+        pages.extend(tree(sub, &invoked, version));
     }
     pages
 }
@@ -79,9 +85,17 @@ mod tests {
         String::from_utf8(written).expect("a generated man page is UTF-8")
     }
 
+    /// The version every page in the stream is expected to name.
+    fn version() -> String {
+        Parser::command()
+            .get_version()
+            .expect("the binary carries a version")
+            .to_owned()
+    }
+
     /// Every command in the tree, as the dashed name its page is filed under.
     fn filed_names() -> Vec<String> {
-        tree(&Parser::command(), "openpapir")
+        tree(&Parser::command(), "openpapir", &version())
             .iter()
             .map(|command| command.get_name().to_owned())
             .collect()
@@ -117,6 +131,18 @@ mod tests {
             "the first page is the binary's own"
         );
         assert!(text.contains(".SH SYNOPSIS"), "a page carries its sections");
+        let version = version();
+        let titles: Vec<&str> = text
+            .lines()
+            .filter(|line| line.starts_with(".TH "))
+            .collect();
+        assert_eq!(titles.len(), filed_names().len() + 1);
+        for title in titles {
+            assert!(
+                title.contains(&version),
+                "a title line names the build it describes: {title}"
+            );
+        }
         assert!(
             !text.contains(env!("CARGO_MANIFEST_DIR")),
             "the page carries a build path"
