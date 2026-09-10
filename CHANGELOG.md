@@ -66,8 +66,14 @@ envelope.
   `docs/architecture.md`. It takes `--title`, `--notes` or `--clear-notes`,
   `--status`, and repeatable `--tag` and `--untag`, refuses with
   `usage.arguments` and `argument` `update` when nothing would change, and
-  reports the changed fields by name only. `capabilities` lists it as the
-  seventeenth operation.
+  reports the changed fields by name only. A tag both added and removed in one
+  invocation stays on the case, and a `--untag` value is checked against the
+  record rather than against the tag caps, because a value no case could carry
+  is simply not on this one. `capabilities` lists it as the seventeenth
+  operation. The rewrite is reachable only for a record kind that implements
+  the `Rewritable` marker in `openpapir-core`, which the case record alone
+  does, so the append-only rule holds at compile time rather than by
+  convention.
 - The case record gains `status`, `open` or `closed`, and `tags`, stored
   sorted and deduplicated. Both read through a serde default, so a case
   record an earlier build wrote reads as `open` with no tag and no archive

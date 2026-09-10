@@ -436,6 +436,94 @@ fn an_update_may_not_push_the_tags_past_the_count_cap() {
     );
 }
 
+/// The rewrite is reachable for the case record and, by the bound on
+/// `document::replace_record`, for nothing else. A generic function that
+/// takes any `Rewritable` accepts a case here; a submission, a receipt, or an
+/// association does not implement the marker, so the same call for one of
+/// them does not compile and cannot be written as a test at all. That is the
+/// point of the marker: the rule is enforced by the type system rather than
+/// by a check at run time.
+#[test]
+fn only_the_case_record_is_declared_rewritable() {
+    fn rewritable<R: crate::records::document::Rewritable>(record: &R) -> &str {
+        record.record_kind()
+    }
+    let root = archive_root();
+    let case = create(root.path(), "Rewritable", None).unwrap().data.case;
+    assert_eq!(rewritable(&case), KIND);
+}
+
+#[test]
+fn a_tag_both_added_and_removed_in_one_invocation_stays_on_the_case() {
+    let root = archive_root();
+    let case = create_with(root.path(), "Both", None, Status::Open, &tags(&["tax"]))
+        .unwrap()
+        .data
+        .case;
+    let updated = update(
+        root.path(),
+        &case.id,
+        &Change {
+            add_tags: &tags(&["appeal", "tax"]),
+            remove_tags: &tags(&["tax"]),
+            ..Change::default()
+        },
+    )
+    .unwrap()
+    .data;
+    assert_eq!(
+        updated.case.tags,
+        tags(&["appeal", "tax"]),
+        "the add is the more specific request and wins"
+    );
+    assert_eq!(updated.changed, vec!["tags".to_owned()]);
+}
+
+#[test]
+fn a_tag_to_remove_is_checked_against_the_record_and_not_against_the_caps() {
+    let root = archive_root();
+    let case = create_with(root.path(), "Untag", None, Status::Open, &tags(&["tax"]))
+        .unwrap()
+        .data
+        .case;
+    // A value no case could carry is simply not on this one, so removing it
+    // changes nothing rather than being refused for its length or its shape.
+    let long = "t".repeat(65);
+    for absent in [long.as_str(), " ", "with\tcontrol", "never-applied"] {
+        let refusal = update(
+            root.path(),
+            &case.id,
+            &Change {
+                remove_tags: &tags(&[absent]),
+                ..Change::default()
+            },
+        )
+        .unwrap_err()
+        .error;
+        assert_eq!(
+            refusal.code,
+            codes::USAGE_ARGUMENTS,
+            "removing a tag the case cannot carry changes nothing"
+        );
+        assert_eq!(
+            serde_json::to_value(&refusal).unwrap()["details"]["argument"],
+            "update"
+        );
+    }
+    let updated = update(
+        root.path(),
+        &case.id,
+        &Change {
+            remove_tags: &tags(&["tax", &long]),
+            ..Change::default()
+        },
+    )
+    .unwrap()
+    .data;
+    assert!(updated.case.tags.is_empty());
+    assert_eq!(updated.changed, vec!["tags".to_owned()]);
+}
+
 #[test]
 fn a_filter_keeps_only_the_cases_that_match_every_supplied_part() {
     let root = archive_root();

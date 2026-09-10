@@ -51,6 +51,22 @@ pub trait Record: Serialize + DeserializeOwned {
     fn record_kind(&self) -> &str;
 }
 
+/// One kind of record that may be rewritten in place.
+///
+/// The marker exists so that the rewrite cannot be reached for a kind that is
+/// append-only: [`replace_record`] is bound by this trait, not by [`Record`],
+/// so a call for any other kind does not compile. Exactly one kind implements
+/// it, the case record, and adding a second implementation is a change to the
+/// storage design in `docs/archive-layout.md` rather than a local decision.
+///
+/// The reason the case record is the one is what each record is for. A
+/// submission, a receipt, and an association are the user's evidence of what
+/// they recorded at the time, and evidence that can be edited is no longer
+/// evidence, so a change to one of those writes a new record superseding the
+/// earlier one. A case is the user's own folder label, carries no evidence,
+/// and keeps the same identifier for the life of the archive.
+pub trait Rewritable: Record {}
+
 /// Whether a value can name a record: 32 lowercase hexadecimal characters.
 ///
 /// Every path openPapir uses is derived from the archive root plus its own
@@ -145,13 +161,10 @@ pub fn write_record<R: Record>(root: &Path, record: &R) -> Result<Vec<Warning>, 
 
 /// Rewrite one record in place, replacing the document already stored.
 ///
-/// Only the case record may be rewritten. Every other kind is append-only,
-/// because its value is being evidence of what the user recorded at the time,
-/// and evidence that can be edited is no longer evidence. A case is the
-/// user's own folder label, carries no evidence, and is named by the same
-/// identifier for the life of the archive, so a new record for every retitling
-/// would leave the user's own references pointing at a document that is no
-/// longer current. The rule and the reason are in `docs/archive-layout.md`.
+/// The bound is [`Rewritable`] rather than [`Record`], so this is reachable
+/// only for a kind that has been declared rewritable, which today is the case
+/// record alone. Every other kind is append-only, and the rule and the reason
+/// are in `docs/archive-layout.md`.
 ///
 /// The caller holds the writer lock, exactly as for a first write. The
 /// publish step is a rename rather than a link, so a concurrent reader sees
@@ -162,7 +175,7 @@ pub fn write_record<R: Record>(root: &Path, record: &R) -> Result<Vec<Warning>, 
 /// Returns `input.cap.record_size`, `internal.unexpected`, or any refusal of
 /// the atomic write procedure: `path.symlink`, `path.cross_device`, or
 /// `write.interrupted`.
-pub fn replace_record<R: Record>(root: &Path, record: &R) -> Result<Vec<Warning>, Diagnostic> {
+pub fn replace_record<R: Rewritable>(root: &Path, record: &R) -> Result<Vec<Warning>, Diagnostic> {
     let content = document(record)?;
     let file_name = format!("{}.json", record.id());
     let archive_path = format!("{}/{file_name}", R::DIRECTORY);

@@ -226,7 +226,10 @@ the case record. The record keeps its `id` and its `created_at` and gains an
 `updated_at`. What may change is the user's own filing: `--title`, `--notes`
 or `--clear-notes` (never both), `--status`, and `--tag` and `--untag`, both
 repeatable. Removing a tag the case does not carry changes nothing and is not
-an error.
+an error, and a `--untag` value is never held to the tag caps, because a value
+no case could carry is simply not on this one. A tag both added and removed in
+one invocation stays on the case: the removal is applied first and the
+additions after it, so the add is the request that wins.
 
 `data` holds `case`, the whole record as it now stands, and `changed`, the
 sorted names of the fields that changed and nothing more: report the names,

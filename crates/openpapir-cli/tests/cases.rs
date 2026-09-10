@@ -231,6 +231,36 @@ fn an_update_rewrites_the_case_and_names_the_fields_it_changed() {
 }
 
 #[test]
+fn an_archive_whose_case_was_rewritten_still_checks_clean() {
+    let root = archive();
+    let id = create(root.path(), &["--title", "Tax matter", "--tag", "tax"]);
+    let output = run(&[
+        "case",
+        "update",
+        "--archive",
+        path(root.path()),
+        &id,
+        "--title",
+        "Tax appeal",
+        "--status",
+        "closed",
+        "--json",
+    ]);
+    assert_eq!(stdout_json(&output)["ok"], true, "the case is updated");
+
+    let output = run(&["archive", "check", "--archive", path(root.path()), "--json"]);
+    let envelope = stdout_json(&output);
+    assert_eq!(envelope["ok"], true, "the rewrite left nothing to report");
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(
+        envelope["data"]["records_staging_files"], 0,
+        "the rewrite leaves no staging file behind"
+    );
+    assert_eq!(envelope["data"]["staging_files"], 0);
+    assert_eq!(envelope["data"]["records_checked"], 1);
+}
+
+#[test]
 fn an_update_that_would_change_nothing_is_refused_as_usage() {
     let root = archive();
     let id = create(root.path(), &["--title", "Same", "--status", "open"]);

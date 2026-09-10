@@ -30,7 +30,7 @@ use crate::archive::{Archive, SUPPORTED_SCHEMA_VERSION, limits};
 use crate::clock;
 use crate::error::{Details, Diagnostic, Failure, Outcome, Result, Warning, codes};
 use crate::ident;
-use crate::records::document::{self, Record};
+use crate::records::document::{self, Record, Rewritable};
 use crate::records::submission::Submission;
 use crate::records::{CASES_DIR, checked_notes, checked_title};
 
@@ -126,6 +126,14 @@ impl Record for Case {
     }
 }
 
+/// The case record is the one kind openPapir rewrites in place.
+///
+/// This is the only implementation of the marker, and it is what makes
+/// `document::replace_record` reachable at all. A second implementation would
+/// be a change to the storage design in `docs/archive-layout.md`, not a local
+/// decision, so the marker is deliberately empty and deliberately here.
+impl Rewritable for Case {}
+
 /// What creating a case reports.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CaseCreated {
@@ -182,7 +190,30 @@ pub struct Filter<'a> {
     pub query: Option<&'a str>,
 }
 
-impl Filter<'_> {
+impl<'a> Filter<'a> {
+    /// The filter with its query folded once, ready to test many cases.
+    fn matcher(&self) -> Matcher<'a> {
+        Matcher {
+            status: self.status,
+            tags: self.tags,
+            query: self.query.map(str::to_lowercase),
+        }
+    }
+}
+
+/// One filter prepared for a scan.
+///
+/// The query is folded to lower case once, when the matcher is built, rather
+/// than once per case: the filter is applied to every record the listing read,
+/// and folding the same short string again for each of them is work the scan
+/// does not need.
+struct Matcher<'a> {
+    status: Option<Status>,
+    tags: &'a [String],
+    query: Option<String>,
+}
+
+impl Matcher<'_> {
     /// Whether one case matches every supplied part of the filter.
     fn matches(&self, case: &Case) -> bool {
         if self.status.is_some_and(|status| status != case.status) {
@@ -191,15 +222,14 @@ impl Filter<'_> {
         if !self.tags.iter().all(|tag| case.tags.contains(tag)) {
             return false;
         }
-        match self.query {
+        match &self.query {
             None => true,
             Some(query) => {
-                let query = query.to_lowercase();
-                case.title.to_lowercase().contains(&query)
+                case.title.to_lowercase().contains(query)
                     || case
                         .notes
                         .as_deref()
-                        .is_some_and(|notes| notes.to_lowercase().contains(&query))
+                        .is_some_and(|notes| notes.to_lowercase().contains(query))
             }
         }
     }
@@ -409,7 +439,11 @@ fn update_record(
         NotesChange::Clear => Some(None),
     };
     let added = checked_tags(change.add_tags)?;
-    let removed = checked_tags(change.remove_tags)?;
+    // A tag to remove is checked against the record rather than against the
+    // caps: a value that breaks a cap or a shape cannot be on the case, so
+    // removing it is a no-op, and refusing it would refuse an invocation that
+    // asks for nothing openPapir cannot do.
+    let removed: Vec<&str> = change.remove_tags.iter().map(String::as_str).collect();
 
     let mut archive = Archive::open(root)?;
     warnings.extend(archive.take_warnings());
@@ -426,7 +460,10 @@ fn update_record(
     if let Some(status) = change.status {
         case.status = status;
     }
-    case.tags.retain(|tag| !removed.contains(tag));
+    case.tags.retain(|tag| !removed.contains(&tag.as_str()));
+    // The add is applied after the removal, so a tag both added and removed
+    // in one invocation stays on the case: the user named it as something the
+    // case should carry, and that is the more specific of the two requests.
     case.tags.extend(added);
     case.tags.sort();
     case.tags.dedup();
@@ -492,7 +529,8 @@ fn list_records(
     let mut archive = Archive::open(root)?;
     warnings.extend(archive.take_warnings());
     let mut cases = document::list_records::<Case>(archive.root())?;
-    cases.retain(|case| filter.matches(case));
+    let matcher = filter.matcher();
+    cases.retain(|case| matcher.matches(case));
     Ok(cases)
 }
 

@@ -106,8 +106,11 @@ impl Staging {
 
     /// Put the staged file at `destination`, replacing the document there.
     ///
-    /// This is the one publish step that may replace a file, and the only
-    /// caller allowed to use it is the rewrite of a case record, which
+    /// This is the one publish step that may replace a file. It is
+    /// `pub(crate)` and its only caller is `records::document::replace_record`,
+    /// which is itself bound to the kinds declared rewritable, so nothing
+    /// outside this crate can replace a stored document and nothing inside it
+    /// can replace one of an append-only kind. The case record is the kind
     /// `docs/archive-layout.md` singles out. The step is a rename rather than
     /// the link the never-overwrite publish uses, because a rename is the
     /// only way to put one whole document where another one is without a
@@ -122,7 +125,7 @@ impl Staging {
     ///
     /// Returns `path.symlink`, `path.cross_device`, or `write.interrupted`,
     /// as the condition requires.
-    pub fn replace(
+    pub(crate) fn replace(
         mut self,
         destination: &Path,
         archive_path: &str,
@@ -180,12 +183,14 @@ pub fn write_document(
 /// Write one document into `directory`, replacing the one already there.
 ///
 /// The name is one openPapir derived itself, exactly as in
-/// [`write_document`]; only the publish step differs.
+/// [`write_document`]; only the publish step differs. It is `pub(crate)`
+/// because replacing a stored document is not something a caller outside this
+/// crate may ask for.
 ///
 /// # Errors
 ///
 /// Returns the same refusals as [`Staging::replace`].
-pub fn replace_document(
+pub(crate) fn replace_document(
     directory: &Path,
     file_name: &str,
     archive_path: &str,
@@ -263,6 +268,19 @@ mod tests {
         );
         let remaining = fs::read_dir(directory.path()).unwrap().count();
         assert_eq!(remaining, 1, "no staging file survives a replacement");
+        // The replacement is the staging file renamed into place, so the mode
+        // the archive requires has to be the staging file's own rather than
+        // something inherited from the document it replaced.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            let mode = fs::metadata(directory.path().join("case.json"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777;
+            assert_eq!(mode, 0o600, "a replaced document stays owner-only");
+        }
     }
 
     #[test]

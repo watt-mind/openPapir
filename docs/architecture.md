@@ -470,9 +470,22 @@ is stored sorted and deduplicated. Removing a tag the case does not carry is
 not an error and changes nothing. `--notes` and `--clear-notes` may not be
 given together.
 
-Every supplied field is checked before the archive is opened, so a field over
-its cap is refused before the writer lock is even asked for. The command then
-takes the lock and reads the record.
+The removal is applied first and the additions after it, so a tag both added
+and removed in one invocation **stays on the case**: the user named it as
+something the case should carry, and that is the more specific of the two
+requests.
+
+A `--untag` value is checked against the record rather than against the caps.
+A value that breaks the tag length cap or its shape cannot be on a case at
+all, so removing it is a no-op rather than a refusal; only a `--tag` value is
+held to `input.cap.tag_length`, `input.cap.tag_count`, and the no-control-
+character rule. An invocation whose every `--untag` names a tag the case does
+not carry therefore changes nothing, and is the `usage.arguments` refusal
+above rather than a cap refusal.
+
+Every other supplied field is checked before the archive is opened, so a field
+over its cap is refused before the writer lock is even asked for. The command
+then takes the lock and reads the record.
 
 An update that would leave the record exactly as it is, either because the
 invocation named nothing at all or because it named only values the record
