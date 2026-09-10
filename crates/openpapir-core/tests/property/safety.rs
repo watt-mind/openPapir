@@ -17,7 +17,7 @@ use std::fs;
 use proptest::prelude::*;
 
 use openpapir_core::error::codes;
-use openpapir_core::records::case::{Case, KIND};
+use openpapir_core::records::case::{Case, KIND, Status};
 use openpapir_core::records::document::{self, Record};
 use openpapir_core::records::{self, is_digest};
 
@@ -31,7 +31,10 @@ fn case(id: &str) -> Case {
         id: id.to_owned(),
         notes: None,
         record_kind: KIND.to_owned(),
+        status: Status::Open,
+        tags: Vec::new(),
         title: "Title".to_owned(),
+        updated_at: None,
     }
 }
 

@@ -14,13 +14,14 @@ use proptest::test_runner::Config as ProptestConfig;
 
 use openpapir_core::archive::SUPPORTED_SCHEMA_VERSION;
 use openpapir_core::archive::import::ImportEvent;
+use openpapir_core::archive::limits;
 use openpapir_core::error::Diagnostic;
 use openpapir_core::records::MAX_STATEMENT_BYTES;
 use openpapir_core::records::association::{
     Association, CONFIDENCES, CREATED_BY, Candidate, EVIDENCE_KIND, EVIDENCE_SOURCE, Evidence,
     OUTCOMES,
 };
-use openpapir_core::records::case::Case;
+use openpapir_core::records::case::{Case, Status};
 use openpapir_core::records::receipt::Receipt;
 use openpapir_core::records::submission::{ArtefactRef, Submission};
 
@@ -150,12 +151,21 @@ pub fn digest() -> impl Strategy<Value = String> {
 }
 
 /// A short text field: printable, inside every field cap this suite uses.
+///
+/// The first character is never a space, so a generated value is never blank
+/// and a required field the write path checks would accept it. The pool
+/// carries two multi-byte characters and the two characters JSON escapes, so
+/// a byte cap and a character cap disagree on the value and a round-trip has
+/// to survive escaping.
 pub fn text(max: usize) -> impl Strategy<Value = String> {
-    proptest::collection::vec(
-        proptest::sample::select(vec![' ', 'a', 'Z', '9', '.', ',', 'é', '中', '"', '\\']),
-        1..max,
+    (
+        proptest::sample::select(vec!['a', 'Z', '9', '.', 'é', '中', '"', '\\']),
+        proptest::collection::vec(
+            proptest::sample::select(vec![' ', 'a', 'Z', '9', '.', ',', 'é', '中', '"', '\\']),
+            0..max,
+        ),
     )
-    .prop_map(|characters| characters.into_iter().collect::<String>())
+        .prop_map(|(first, rest)| std::iter::once(first).chain(rest).collect::<String>())
 }
 
 /// An RFC 3339 instant of the shape the clock module writes.
@@ -167,22 +177,75 @@ pub fn timestamp() -> impl Strategy<Value = String> {
     )
 }
 
+/// A generated case status.
+pub fn status() -> impl Strategy<Value = Status> {
+    prop_oneof![Just(Status::Open), Just(Status::Closed)]
+}
+
+/// A tag list the write path would accept, at and under both of its caps.
+///
+/// A tag is at most 64 bytes and a case carries at most 32 of them, and the
+/// stored list is sorted and deduplicated. The generator covers ordinary tags,
+/// multi-byte tags where a byte cap and a character cap disagree, one tag
+/// sitting exactly on the length cap, and exactly 32 tags each sitting exactly
+/// on it, which is both caps at once.
+pub fn tags() -> impl Strategy<Value = Vec<String>> {
+    let length = usize::try_from(limits::MAX_TAG_BYTES).expect("the cap fits in memory");
+    let count = usize::try_from(limits::MAX_TAG_COUNT).expect("the cap fits in memory");
+    prop_oneof![
+        Just(Vec::new()),
+        proptest::collection::vec(
+            proptest::string::string_regex("[a-z0-9][a-z0-9 ._-]{0,20}")
+                .expect("a tag pattern compiles"),
+            1..6,
+        ),
+        proptest::collection::vec(
+            proptest::string::string_regex("[éÁ中]{1,20}").expect("a multi-byte pattern compiles"),
+            1..4,
+        ),
+        Just(vec!["a".repeat(length)]),
+        Just(
+            (0..count)
+                .map(|index| format!("{index:0length$}"))
+                .collect::<Vec<String>>()
+        ),
+    ]
+    .prop_map(|mut tags| {
+        tags.sort();
+        tags.dedup();
+        tags
+    })
+}
+
 /// A generated case record whose fields are all within their caps.
+///
+/// `status` and `tags` are written by every build that has them, and a record
+/// an earlier build wrote carries neither, so both have a serde default and
+/// the reader properties cover their absence. `updated_at` is absent until
+/// `case update` rewrites the record, so it is generated as an option.
 pub fn case_record() -> impl Strategy<Value = Case> {
     (
         identifier(),
         timestamp(),
         text(40),
         proptest::option::of(text(40)),
+        status(),
+        tags(),
+        proptest::option::of(timestamp()),
     )
-        .prop_map(|(id, created_at, title, notes)| Case {
-            archive_schema_version: SUPPORTED_SCHEMA_VERSION,
-            created_at,
-            id,
-            notes,
-            record_kind: openpapir_core::records::case::KIND.to_owned(),
-            title,
-        })
+        .prop_map(
+            |(id, created_at, title, notes, status, tags, updated_at)| Case {
+                archive_schema_version: SUPPORTED_SCHEMA_VERSION,
+                created_at,
+                id,
+                notes,
+                record_kind: openpapir_core::records::case::KIND.to_owned(),
+                status,
+                tags,
+                title,
+                updated_at,
+            },
+        )
 }
 
 /// A generated submission record, with between zero and three artefacts.
@@ -445,18 +508,48 @@ pub const REQUIRED_KEYS: [&str; 3] = ["archive_schema_version", "id", "record_ki
 /// An identifier no generated record uses, for the foreign-identifier damage.
 pub const FOREIGN_ID: &str = "ffffffffffffffffffffffffffffffff";
 
+/// A top-level capped field of one record kind, and the shape it holds.
+///
+/// The two field-length damages need to know the shape, because setting a
+/// list-valued field to a string would change the document's type rather than
+/// its length and would land in the wrong half of [`Damage`].
+#[derive(Debug, Clone, Copy)]
+pub enum Capped {
+    /// One text value, with a byte cap.
+    Text(&'static str, usize),
+    /// A list of text values, with a byte cap on each and a cap on the count.
+    TextList(&'static str, usize, usize),
+}
+
+impl Capped {
+    /// The value this field takes at its cap, or one step over it.
+    fn filled(self, over: bool) -> (&'static str, serde_json::Value) {
+        let step = usize::from(over);
+        match self {
+            Self::Text(field, cap) => (field, serde_json::Value::String("a".repeat(cap + step))),
+            Self::TextList(field, cap, count) => {
+                let width = cap + step;
+                let entries: Vec<serde_json::Value> = (0..count + step)
+                    .map(|index| serde_json::Value::String(format!("{index:0width$}")))
+                    .collect();
+                (field, serde_json::Value::Array(entries))
+            }
+        }
+    }
+}
+
 /// Render one record as the document that would be stored at `id`, damaged.
 ///
-/// `capped` names a top-level text field of this kind and its cap, for the
-/// two field-length damages; a kind whose only capped text lives inside a
-/// nested value passes `None` and those two damages leave the document alone.
-/// `key` and `swap` are generated, so the choice of which required key goes
-/// missing and which value takes the wrong type shrinks like any other input.
+/// `capped` lists this kind's top-level capped fields, for the two
+/// field-length damages; a kind whose only capped text lives inside a nested
+/// value passes an empty slice and those two damages leave the document alone.
+/// `key` is generated, so the choice of which required key goes missing and
+/// which value takes the wrong type shrinks like any other input.
 pub fn damaged_document<R: serde::Serialize>(
     record: &R,
     id: &str,
     damage: Damage,
-    capped: Option<(&str, usize)>,
+    capped: &[Capped],
     key: &str,
 ) -> String {
     let mut value = serde_json::to_value(record).expect("a record serialises");
@@ -471,16 +564,9 @@ pub fn damaged_document<R: serde::Serialize>(
             );
         }
         Damage::FieldAtCap | Damage::FieldOverCap => {
-            if let Some((field, cap)) = capped {
-                let length = if damage == Damage::FieldAtCap {
-                    cap
-                } else {
-                    cap + 1
-                };
-                object.insert(
-                    field.to_owned(),
-                    serde_json::Value::String("a".repeat(length)),
-                );
+            for field in capped {
+                let (name, filled) = field.filled(damage == Damage::FieldOverCap);
+                object.insert(name.to_owned(), filled);
             }
         }
         Damage::MissingKey => {

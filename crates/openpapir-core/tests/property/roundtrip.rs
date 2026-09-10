@@ -12,6 +12,7 @@ use std::fs;
 use proptest::prelude::*;
 use serde::de::DeserializeOwned;
 
+use openpapir_core::records::case;
 use openpapir_core::records::document::{self, Record};
 
 use super::support;
@@ -69,9 +70,37 @@ fn keys_are_sorted(rendered: &str) -> bool {
 proptest! {
     #![proptest_config(support::config(256))]
 
-    /// A case carries an optional notes field, so the round-trip has to survive a key that is written only when it is there.
+    /// A case carries an optional notes field and an optional `updated_at`,
+    /// so the round-trip has to survive keys that are written only when they
+    /// are there, and a status and a tag list that are written always and
+    /// default when a record an earlier build wrote does not carry them. The
+    /// generated title, status and tags are put through the write path itself,
+    /// so the round-trip covers a case the archive would really store rather
+    /// than one only this test would accept.
     #[test]
     fn a_case_record_round_trips(record in support::case_record()) {
+        let root = tempfile::tempdir().expect("a temporary archive root");
+        openpapir_core::archive::init(root.path()).expect("an archive is created");
+        let written = case::create_with(
+            root.path(),
+            &record.title,
+            record.notes.as_deref(),
+            record.status,
+            &record.tags,
+        )
+        .expect("the write path accepts a generated case")
+        .data
+        .case;
+        prop_assert_eq!(&written.title, &record.title);
+        prop_assert_eq!(&written.notes, &record.notes);
+        prop_assert_eq!(written.status, record.status);
+        prop_assert_eq!(
+            &written.tags,
+            &record.tags,
+            "the write path stores the generated tags sorted and deduplicated"
+        );
+        prop_assert_eq!(written.updated_at, None, "a new case has not been updated");
+
         round_trips(&record)?;
     }
 

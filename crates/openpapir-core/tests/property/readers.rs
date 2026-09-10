@@ -29,7 +29,7 @@ use openpapir_core::records::document::{self, Record};
 use openpapir_core::records::receipt::Receipt;
 use openpapir_core::records::submission::Submission;
 
-use super::support;
+use super::support::{self, Capped};
 
 /// The identifier every generated document is stored under.
 const ID: &str = "0123456789abcdef0123456789abcdef";
@@ -41,17 +41,20 @@ const READER_CODES: [&str; 3] = [
     codes::INPUT_CAP_RECORD_SIZE,
 ];
 
-/// The top-level capped text field of each kind, where it has one.
+/// The top-level capped fields of each kind.
 ///
-/// The field-length damages set it to exactly its cap and to one byte over,
-/// which the reader must tolerate either way: a cap belongs to the write path.
-/// A kind whose only capped text is nested inside a list would pass `None`
-/// here and the two damages would leave its document alone.
-const CASE_FIELD: Option<(&str, usize)> = Some(("title", 200));
-const SUBMISSION_FIELD: Option<(&str, usize)> = Some(("description", 1024));
-const RECEIPT_FIELD: Option<(&str, usize)> = Some(("label", 200));
-const ASSOCIATION_FIELD: Option<(&str, usize)> = Some(("statement", 512));
-const EVENT_FIELD: Option<(&str, usize)> = Some(("original_filename", 255));
+/// The field-length damages set every one of them to exactly its cap and then
+/// to one step over, which the reader must tolerate either way: a length cap
+/// belongs to the write path and the read path does not re-check it. A case's
+/// tags carry two caps at once, 64 bytes each and 32 of them, so the list is
+/// filled to both and then to one past both. A kind whose only capped text is
+/// nested inside a list would pass an empty slice here and the two damages
+/// would leave its document alone.
+const CASE_FIELDS: [Capped; 2] = [Capped::Text("title", 200), Capped::TextList("tags", 64, 32)];
+const SUBMISSION_FIELDS: [Capped; 1] = [Capped::Text("description", 1024)];
+const RECEIPT_FIELDS: [Capped; 1] = [Capped::Text("label", 200)];
+const ASSOCIATION_FIELDS: [Capped; 1] = [Capped::Text("statement", 512)];
+const EVENT_FIELDS: [Capped; 1] = [Capped::Text("original_filename", 255)];
 
 /// Store one document at this kind's record path and read it back.
 ///
@@ -152,23 +155,23 @@ proptest! {
         let root = layout();
         prop_assert!(stored_and_read::<Case>(
             root.path(),
-            &support::damaged_document(&case, ID, damage, CASE_FIELD, key),
+            &support::damaged_document(&case, ID, damage, &CASE_FIELDS, key),
         )?);
         prop_assert!(stored_and_read::<Submission>(
             root.path(),
-            &support::damaged_document(&submission, ID, damage, SUBMISSION_FIELD, key),
+            &support::damaged_document(&submission, ID, damage, &SUBMISSION_FIELDS, key),
         )?);
         prop_assert!(stored_and_read::<Receipt>(
             root.path(),
-            &support::damaged_document(&receipt, ID, damage, RECEIPT_FIELD, key),
+            &support::damaged_document(&receipt, ID, damage, &RECEIPT_FIELDS, key),
         )?);
         prop_assert!(stored_and_read::<Association>(
             root.path(),
-            &support::damaged_document(&association, ID, damage, ASSOCIATION_FIELD, key),
+            &support::damaged_document(&association, ID, damage, &ASSOCIATION_FIELDS, key),
         )?);
         prop_assert!(stored_and_read::<ImportEvent>(
             root.path(),
-            &support::damaged_document(&event, ID, damage, EVENT_FIELD, key),
+            &support::damaged_document(&event, ID, damage, &EVENT_FIELDS, key),
         )?);
     }
 
@@ -188,23 +191,23 @@ proptest! {
         let root = layout();
         prop_assert!(!stored_and_read::<Case>(
             root.path(),
-            &support::damaged_document(&case, ID, damage, CASE_FIELD, key),
+            &support::damaged_document(&case, ID, damage, &CASE_FIELDS, key),
         )?);
         prop_assert!(!stored_and_read::<Submission>(
             root.path(),
-            &support::damaged_document(&submission, ID, damage, SUBMISSION_FIELD, key),
+            &support::damaged_document(&submission, ID, damage, &SUBMISSION_FIELDS, key),
         )?);
         prop_assert!(!stored_and_read::<Receipt>(
             root.path(),
-            &support::damaged_document(&receipt, ID, damage, RECEIPT_FIELD, key),
+            &support::damaged_document(&receipt, ID, damage, &RECEIPT_FIELDS, key),
         )?);
         prop_assert!(!stored_and_read::<Association>(
             root.path(),
-            &support::damaged_document(&association, ID, damage, ASSOCIATION_FIELD, key),
+            &support::damaged_document(&association, ID, damage, &ASSOCIATION_FIELDS, key),
         )?);
         prop_assert!(!stored_and_read::<ImportEvent>(
             root.path(),
-            &support::damaged_document(&event, ID, damage, EVENT_FIELD, key),
+            &support::damaged_document(&event, ID, damage, &EVENT_FIELDS, key),
         )?);
     }
 
