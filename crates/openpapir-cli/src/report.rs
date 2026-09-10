@@ -9,8 +9,9 @@ use openpapir_core::Report;
 use openpapir_core::archive::Created;
 use openpapir_core::archive::import::Imported;
 use openpapir_core::{
-    Association, AssociationCreated, AssociationHistory, Case, CaseCreated, CaseList, CaseView,
-    Deleted, Exported, Receipt, ReceiptAdded, ReceiptList, Repaired, Submission, SubmissionAdded,
+    Association, AssociationCreated, AssociationHistory, Case, CaseCreated, CaseList, CaseUpdated,
+    CaseView, Deleted, Exported, Receipt, ReceiptAdded, ReceiptList, Repaired, Submission,
+    SubmissionAdded,
 };
 
 /// The lines `archive init` prints when it succeeds.
@@ -148,6 +149,9 @@ pub fn repaired(repaired: &Repaired) -> Vec<String> {
 const RECORD_DISCLAIMER: &str = "Cases and submissions are the user's own local records. Nothing here is verified, matched, or delivered.";
 
 /// The lines describing one case, without its submissions.
+///
+/// `updated_at` is printed only once there is one: a case nobody has changed
+/// has never been updated.
 fn case_lines(case: &Case) -> Vec<String> {
     let mut lines = vec![
         format!("Case {}, recorded {}.", case.id, case.created_at),
@@ -155,6 +159,15 @@ fn case_lines(case: &Case) -> Vec<String> {
     ];
     if let Some(notes) = &case.notes {
         lines.push(format!("Notes: {notes}"));
+    }
+    lines.push(format!("Status: {}", case.status.as_str()));
+    let tags = case.tags.join(", ");
+    lines.push(format!(
+        "Tags: {}",
+        if tags.is_empty() { "none" } else { &tags }
+    ));
+    if let Some(updated_at) = &case.updated_at {
+        lines.push(format!("Updated: {updated_at}"));
     }
     lines
 }
@@ -195,12 +208,33 @@ pub fn case_created(created: &CaseCreated) -> Vec<String> {
 }
 
 /// The lines `case list` prints when it succeeds.
+///
+/// The count is what the listing holds, so under a filter what matched. The
+/// filter is not echoed back: the query is the user's own text.
 #[must_use]
 pub fn case_list(list: &CaseList) -> Vec<String> {
-    let mut lines = vec![format!("{} case(s) in this archive.", list.count)];
+    let mut lines = vec![format!("{} case(s) listed.", list.count)];
     for case in &list.cases {
-        lines.push(format!("{} {} {}", case.id, case.created_at, case.title));
+        lines.push(format!(
+            "{} {} {} {}",
+            case.id,
+            case.created_at,
+            case.status.as_str(),
+            case.title
+        ));
     }
+    lines.push(RECORD_DISCLAIMER.to_owned());
+    lines
+}
+
+/// The lines `case update` prints when it succeeds.
+///
+/// The changed fields are named and no former value is printed: the record
+/// above already carries what each value is now.
+#[must_use]
+pub fn case_updated(updated: &CaseUpdated) -> Vec<String> {
+    let mut lines = case_lines(&updated.case);
+    lines.push(format!("Changed: {}.", updated.changed.join(", ")));
     lines.push(RECORD_DISCLAIMER.to_owned());
     lines
 }
@@ -535,7 +569,10 @@ mod tests {
             id: CASE_ID.to_owned(),
             notes: Some("A note the user wrote.".to_owned()),
             record_kind: "case".to_owned(),
+            status: openpapir_core::CaseStatus::Open,
+            tags: vec!["appeal".to_owned(), "tax".to_owned()],
             title: "Tax matter".to_owned(),
+            updated_at: None,
         }
     }
 
@@ -575,7 +612,7 @@ mod tests {
             count: 1,
         })
         .join("\n");
-        assert!(listed.contains("1 case(s) in this archive."));
+        assert!(listed.contains("1 case(s) listed."));
         assert!(listed.contains("Tax matter"));
         assert!(!listed.contains('/'));
 
@@ -583,8 +620,34 @@ mod tests {
             cases: Vec::new(),
             count: 0,
         });
-        assert_eq!(empty.len(), 2, "an empty archive still says so");
+        assert_eq!(empty.len(), 2, "an empty listing still says so");
         assert!(empty[0].starts_with("0 case(s)"));
+    }
+
+    #[test]
+    fn human_case_output_carries_the_status_the_tags_and_any_update_time() {
+        let text = case_created(&CaseCreated { case: case() }).join("\n");
+        assert!(text.contains("Status: open"));
+        assert!(text.contains("Tags: appeal, tax"));
+        assert!(
+            !text.contains("Updated:"),
+            "a case nobody changed has no update time"
+        );
+
+        let mut changed = case();
+        changed.tags.clear();
+        changed.status = openpapir_core::CaseStatus::Closed;
+        changed.updated_at = Some("2026-02-01T08:00:00Z".to_owned());
+        let text = case_updated(&CaseUpdated {
+            case: changed,
+            changed: vec!["status".to_owned(), "tags".to_owned()],
+        })
+        .join("\n");
+        assert!(text.contains("Status: closed"));
+        assert!(text.contains("Tags: none"));
+        assert!(text.contains("Updated: 2026-02-01T08:00:00Z"));
+        assert!(text.contains("Changed: status, tags."));
+        assert!(!text.contains('/'), "no path ever reaches human output");
     }
 
     #[test]

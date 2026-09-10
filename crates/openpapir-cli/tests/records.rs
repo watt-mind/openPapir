@@ -839,7 +839,7 @@ fn human_output_reports_the_same_records_without_a_path() {
 
     let output = run(&["case", "list", "--archive", path(root.path())]);
     let text = String::from_utf8(output.stdout).unwrap();
-    assert!(text.contains("1 case(s) in this archive."));
+    assert!(text.contains("1 case(s) listed."));
     assert!(!text.contains(path(root.path())));
 
     let output = run(&["case", "show", "--archive", path(root.path()), ABSENT_ID]);
@@ -872,7 +872,8 @@ fn capabilities_report_exactly_the_implemented_operations() {
             "case.export",
             "archive.repair_permissions",
             "case.delete",
-            "skill"
+            "skill",
+            "case.update"
         ])
     );
 }

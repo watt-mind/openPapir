@@ -33,7 +33,8 @@ cargo run --locked -p openpapir-cli -- capabilities --json
 cargo run --locked -p openpapir-cli -- archive init ./my-archive --json
 cargo run --locked -p openpapir-cli -- import --archive ./my-archive ./a-file --json
 cargo run --locked -p openpapir-cli -- case create --archive ./my-archive --title "Tax matter" --json
-cargo run --locked -p openpapir-cli -- case list --archive ./my-archive --json
+cargo run --locked -p openpapir-cli -- case list --archive ./my-archive --status open --tag tax --json
+cargo run --locked -p openpapir-cli -- case update --archive ./my-archive <case-id> --status closed --tag appeal --json
 cargo run --locked -p openpapir-cli -- submission add --archive ./my-archive --case <case-id> --description "Posted the form." --json
 cargo run --locked -p openpapir-cli -- case show --archive ./my-archive <case-id> --json
 cargo run --locked -p openpapir-cli -- receipt add --archive ./my-archive --artefact sha256:<digest> --label "Envelope" --json
@@ -68,11 +69,13 @@ The capabilities command reports the current implementation honestly:
       "receipt.list",
       "association.create",
       "association.list",
+      "association.retire",
       "archive.check",
       "case.export",
       "archive.repair_permissions",
       "case.delete",
-      "skill"
+      "skill",
+      "case.update"
     ]
   },
   "verified": false
@@ -88,10 +91,16 @@ each. All but the last can process input:
   input, and reports a re-import of the same bytes as a duplicate rather than
   an error.
 - `case create` records one case, the user's own folder of related
-  correspondence.
-- `case list` lists every case in the archive.
-- `case show` shows one case with the submissions recorded against it and
-  their artefact references.
+  correspondence, with the status and the tags the user gave it.
+- `case list` lists the cases that match every filter given: `--status`,
+  every `--tag`, and a `--query` matched as a case-insensitive substring of
+  the title or notes in one linear scan, with no index. The query is never
+  echoed back.
+- `case show` shows one case, with its status, tags, and update time, and the
+  submissions recorded against it and their artefact references.
+- `case update` rewrites one case record in place, keeping its identifier and
+  creation time and reporting the names of the fields it changed. It is the
+  one invocation that rewrites a stored record.
 - `submission add` records one submission the user states they sent, against
   a case.
 - `receipt add` records that the user believes one stored artefact to be a

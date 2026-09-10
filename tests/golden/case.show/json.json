@@ -7,6 +7,8 @@
       "id": "<id>",
       "notes": "First contact with the office.",
       "record_kind": "case",
+      "status": "open",
+      "tags": [],
       "title": "Tax matter"
     },
     "submission_count": 1,

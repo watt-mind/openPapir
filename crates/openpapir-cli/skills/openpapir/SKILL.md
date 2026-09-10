@@ -4,9 +4,10 @@ description: >-
   Keep Hungarian government correspondence in one local, offline archive with
   the openpapir CLI: create the archive, import files with their bytes
   preserved, record cases, submissions, receipts and the user's own assertions
-  about them, withdraw an assertion, check the archive against its records,
-  copy one case out, delete one case, and narrow a restored archive back to
-  owner-only. Use whenever a
+  about them, withdraw an assertion, update a case's title, notes, status and
+  tags, search and filter the case list, check the archive against its
+  records, copy one case out, delete one case, and narrow a restored archive
+  back to owner-only. Use whenever a
   task involves organising what was sent to an authority and what came back,
   without uploading anything.
 license: MIT
@@ -34,8 +35,10 @@ Use it to build or inspect a local archive of correspondence: importing files,
 recording what the user says they sent, recording an artefact the user
 believes to be a receipt, recording the user's own link between the two,
 withdrawing such a link when the user says it no longer stands,
-checking storage integrity, exporting one case, and deleting one case when
-the user asks for that by name.
+keeping a case's own title, notes, status, and tags current, finding a case
+again by status, tag, or a substring of its title or notes, checking storage
+integrity, exporting one case, and deleting one case when the user asks for
+that by name.
 
 Do not use it to send anything, to decide whether a document is genuine, to
 read what a receipt says, or to match a receipt to a submission
@@ -181,18 +184,60 @@ in no output.
 
 ```sh
 openpapir case create --archive ./archive --title "Tax matter" \
-  --notes "First contact." --json
-openpapir case list --archive ./archive --json
+  --notes "First contact." --tag tax --status open --json
+openpapir case list --archive ./archive --status open --tag tax \
+  --query "office" --json
 openpapir case show --archive ./archive <case-id> --json
 ```
 
 A case is the user's own folder. It corresponds to nothing any authority
 issues. `case create` returns `data.case` with `id`, `title`, optional
-`notes`, `created_at`, `record_kind`, and `archive_schema_version`.
-`case list` returns `cases[]` ordered by identifier and `count`; an empty
-archive is `count` `0` and exit `0`. `case show` returns `case`,
-`submissions[]` ordered by identifier, and `submission_count`. An identifier
-that names no case is `record.not_found`.
+`notes`, `status`, `tags`, `created_at`, `record_kind`, and
+`archive_schema_version`. `--status` is `open` or `closed` and is `open` when
+it is not given; `--tag` is repeatable, and the tags are stored sorted and
+deduplicated.
+
+`case list` returns `cases[]` ordered by identifier and `count`, which is how
+many the listing holds and so, under a filter, how many matched; an empty
+archive and a filter that matched nothing are both `count` `0` and exit `0`.
+`--status` keeps one status, `--tag` is repeatable and every tag given must be
+on the case, and `--query` keeps cases whose title or notes contain the text,
+compared without regard to case. There is no index: `--query` is a substring
+match in one linear scan, so its cost grows with the number of cases. The
+query is the user's own text and appears in no output, so never quote it back
+from a result.
+
+`case show` returns `case`, `submissions[]` ordered by identifier, and
+`submission_count`. An identifier that names no case is `record.not_found`.
+
+A case record written by an earlier build reads as `open` with no tag, and
+`updated_at` is absent until an update sets it.
+
+### 3a. Update a case
+
+```sh
+openpapir case update --archive ./archive <case-id> --title "Tax appeal" \
+  --status closed --tag appeal --untag tax --json
+openpapir case update --archive ./archive <case-id> --clear-notes --json
+```
+
+This is the one invocation that rewrites a stored record, and it rewrites only
+the case record. The record keeps its `id` and its `created_at` and gains an
+`updated_at`. What may change is the user's own filing: `--title`, `--notes`
+or `--clear-notes` (never both), `--status`, and `--tag` and `--untag`, both
+repeatable. Removing a tag the case does not carry changes nothing and is not
+an error, and a `--untag` value is never held to the tag caps, because a value
+no case could carry is simply not on this one. A tag both added and removed in
+one invocation stays on the case: the removal is applied first and the
+additions after it, so the add is the request that wins.
+
+`data` holds `case`, the whole record as it now stands, and `changed`, the
+sorted names of the fields that changed and nothing more: report the names,
+and read the new values from `case` rather than describing what they were.
+
+An update that would leave the record exactly as it is, whether it named
+nothing at all or only values the record already holds, is `usage.arguments`
+with `argument` `update` and exit `2`; nothing is written.
 
 ### 4. Record a submission
 
@@ -256,7 +301,8 @@ never a number, because no calibration data exists.
 `data.association` holds `outcome`, `candidates[]` with their `evidence[]`,
 `created_by` (always `user`), `submission_id` (the confirmed submission, set
 only for `associated`, otherwise `null`), and `supersedes`. Records are
-append-only: `--supersedes` names an earlier association for the same
+append-only, as every record kind but the case record is: `--supersedes` names
+an earlier association for the same
 receipt, and the superseded record is never modified or removed.
 `association list` returns the whole history newest first, superseded records
 included, with `associations[]`, `count`, and `receipt_id`.
@@ -382,6 +428,8 @@ No flag, environment variable, or configuration relaxes any of these.
 | Artefact role | 64 bytes | `input.cap.field_length` |
 | Receipt label | 200 bytes | `input.cap.field_length` |
 | Evidence statement | 512 bytes | `input.cap.field_length` |
+| Case tag | 64 bytes | `input.cap.tag_length` |
+| Case tags per record | 32 distinct | `input.cap.tag_count` |
 
 One writer at a time: a second writer refuses with `lock.held` rather than
 waiting, and there is no takeover. Symbolic links inside the archive are
@@ -395,7 +443,8 @@ create a hard link cannot host one (`platform.filesystem_unsupported`).
 - It submits nothing and delivers nothing. No government integration exists.
 - It verifies no signature and asserts no authenticity or legal effect.
 - It parses no receipt, derives no metadata, and matches nothing on its own.
-- It never edits or migrates a stored record, never deletes a single
+- It edits no stored record but the case record, which `case update` rewrites
+  in place; it migrates nothing, never deletes a single
   submission, receipt, or archive, and never imports an export back into an
   archive. `case delete` is the one removal it performs, and only when asked
   for by name.
@@ -417,9 +466,14 @@ openpapir archive init ROOT --json
 openpapir archive check --archive ROOT --json
 openpapir archive repair-permissions --archive ROOT --json
 openpapir import --archive ROOT FILE... --json
-openpapir case create --archive ROOT --title T [--notes N] --json
-openpapir case list --archive ROOT --json
+openpapir case create --archive ROOT --title T [--notes N] [--tag TAG]... \
+  [--status open|closed] --json
+openpapir case list --archive ROOT [--status open|closed] [--tag TAG]... \
+  [--query TEXT] --json
 openpapir case show --archive ROOT CASE_ID --json
+openpapir case update --archive ROOT CASE_ID [--title T] \
+  [--notes N | --clear-notes] [--status open|closed] [--tag TAG]... \
+  [--untag TAG]... --json
 openpapir case export --archive ROOT --case CASE_ID --to DIR --json
 openpapir case delete --archive ROOT --case CASE_ID [--purge] --json
 openpapir submission add --archive ROOT --case CASE_ID --description D \

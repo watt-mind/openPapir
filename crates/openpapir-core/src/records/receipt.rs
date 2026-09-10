@@ -7,8 +7,9 @@
 //! artefact bytes, so nothing here inspects what the file contains.
 //!
 //! Adding a receipt takes the archive's single-writer lock and runs the
-//! archive's permission checks first. Listing takes no lock, because no
-//! record file is ever modified in place.
+//! archive's permission checks first. Listing takes no lock, because every
+//! record file is written whole, so a reader sees one complete document or
+//! another and never a partial one.
 
 use std::path::Path;
 

@@ -49,6 +49,10 @@ pub mod codes {
     pub const INPUT_CAP_FILENAME_LENGTH: &str = "input.cap.filename_length";
     /// A user-supplied record field exceeds its own length cap.
     pub const INPUT_CAP_FIELD_LENGTH: &str = "input.cap.field_length";
+    /// A case would carry more distinct tags than the per-record cap allows.
+    pub const INPUT_CAP_TAG_COUNT: &str = "input.cap.tag_count";
+    /// One case tag exceeds the per-tag length cap.
+    pub const INPUT_CAP_TAG_LENGTH: &str = "input.cap.tag_length";
 
     /// A path that must not be a symbolic link is one.
     pub const PATH_SYMLINK: &str = "path.symlink";

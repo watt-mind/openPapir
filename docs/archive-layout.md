@@ -179,7 +179,28 @@ timestamp. Records reference each other by identifier only.
 
 **Case**: a user-created folder of related correspondence. Purely local; it
 corresponds to nothing any government service issues. Fields: identifier,
-user-supplied title, optional notes, creation timestamp.
+user-supplied title, optional notes, a status of `open` or `closed`,
+user-supplied tags stored sorted and deduplicated, creation timestamp, and an
+update timestamp once there has been an update. A record written before the
+status and tags existed reads as `open` with no tag, so an archive an earlier
+build wrote needs no migration.
+
+**The case record is the one kind that may be rewritten in place.**
+`case update` writes the whole record again through the atomic write
+procedure, keeping the identifier and the creation timestamp and setting the
+update timestamp. Every other kind stays append-only, and a change to one of
+those writes a new record that supersedes the earlier one. The reason is what
+each record is for. A submission, a receipt, and an association are the user's
+evidence of what they recorded at the time, and evidence that can be edited is
+no longer evidence: their whole value is that the history is inspectable. A
+case is the user's own folder label, carries no evidence of anything, and is
+named by the same identifier for the life of the archive, so writing a second
+record for a retitling would leave every reference the user already holds,
+and every submission that names the case, pointing at a document that is no
+longer current. The rewrite is the same atomic write procedure with a rename
+in place of the link the never-overwrite publish uses, so a concurrent reader
+sees the whole old document or the whole new one and never a partial file; the
+writer lock is held for it exactly as for a first write.
 
 **Submission**: something the user states they sent, recorded from what the
 user has locally. openPapir sends nothing, so a submission is always imported
@@ -247,7 +268,9 @@ object or nothing.
 
 A single advisory `lock` file admits one writer at a time; a second writer
 refuses rather than waiting indefinitely. Concurrent readers are safe because
-no file is ever modified in place. Staging files are removed only by a process
+every write puts a whole file in place: a reader sees one complete document or
+another and never a partial one, including the one rewrite there is, the case
+record's. Staging files are removed only by a process
 that already holds the writer lock, after acquiring it, never on startup by any
 process that happens to open the archive: a reader must not delete a file the
 current writer is still filling. The lock file records the holder's process
@@ -370,9 +393,10 @@ Each evidence entry records its kind, the derived record and extractor version
 it came from or that the user asserted it, and a readable statement of what was
 observed. A candidate's confidence is an ordinal label from a closed set
 (`weak`, `moderate`, `strong`) and explicitly not a probability, because no
-calibration data exists and a number would imply one. Records are append-only:
-a change writes a new record superseding the previous one, so history is
-inspectable. An association never implies delivery, receipt by an authority,
+calibration data exists and a number would imply one. Association records are
+append-only, as every record kind but the case record is: a change writes a new
+record superseding the previous one, so history is inspectable. An association
+never implies delivery, receipt by an authority,
 authenticity, or legal effect ([architecture](architecture.md)).
 
 Withdrawing an assertion is that same supersession rather than an edit or a

@@ -52,12 +52,13 @@ agent skill document it carries. These invocations exist and nothing else:
 | --- | --- |
 | `openpapir --help` | Usage text from the argument parser. |
 | `openpapir --version` | The crate version. |
-| `openpapir capabilities [--json]` | The project, its stage, and the sixteen implemented operations. |
+| `openpapir capabilities [--json]` | The project, its stage, and the seventeen implemented operations. |
 | `openpapir archive init <root> [--json]` | Creates an archive in an existing, empty directory: the marker first, then the owner-only layout. |
 | `openpapir import --archive <root> <file>... [--json]` | Stores each file's original bytes in the content-addressed artefact store and records one import event per input. |
-| `openpapir case create --archive <root> --title <t> [--notes <n>] [--json]` | Records one case, the user's own folder of related correspondence. |
-| `openpapir case list --archive <root> [--json]` | Lists every case in the archive. |
-| `openpapir case show --archive <root> <case-id> [--json]` | Shows one case with the submissions recorded against it and their artefact references. |
+| `openpapir case create --archive <root> --title <t> [--notes <n>] [--tag <t>]... [--status open\|closed] [--json]` | Records one case, the user's own folder of related correspondence, with its status and its tags. |
+| `openpapir case list --archive <root> [--status <s>] [--tag <t>]... [--query <text>] [--json]` | Lists the cases in the archive that match every filter given. `--query` is a case-insensitive substring of the title or notes, matched in one linear scan with no index, and is never echoed back. |
+| `openpapir case show --archive <root> <case-id> [--json]` | Shows one case, with its status, tags, and update time, and the submissions recorded against it and their artefact references. |
+| `openpapir case update --archive <root> <case-id> [--title <t>] [--notes <n>\|--clear-notes] [--status open\|closed] [--tag <t>]... [--untag <t>]... [--json]` | Rewrites one case record in place, keeping its identifier and creation time, and reports the names of the fields it changed. It is the one invocation that rewrites a stored record. |
 | `openpapir submission add --archive <root> --case <case-id> --description <d> [--date <yyyy-mm-dd>] [--artefact <digest>[:<role>]]... [--json]` | Records one submission the user states they sent, against a case. |
 | `openpapir receipt add --archive <root> --artefact <digest> [--import-event <id>] [--label <l>] [--json]` | Records that the user believes one stored artefact to be a receipt. |
 | `openpapir receipt list --archive <root> [--json]` | Lists every receipt in the archive. |
@@ -97,7 +98,8 @@ Deletion is the one destructive operation, and it is explicit twice over: it
 names one case, and it removes an object only when `--purge` says so. It
 unlinks files openPapir created, reports counts and record kinds, persists no
 summary, and does not erase data from the storage medium. No derived-metadata
-or verification record exists, and there is no editing of a stored record, no
+or verification record exists, and there is no editing of a stored record
+other than the case record `case update` rewrites, no
 deletion of a single submission or receipt, no deletion of an archive, and no
 migration, receipt parsing, signature verification, or government delivery. An
 export is a plain copy outward: it converts nothing, and importing an export

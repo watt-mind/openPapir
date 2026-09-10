@@ -1,2 +1,2 @@
 openPapir: alpha
-Implemented operations: archive.init, import, case.create, case.list, case.show, submission.add, receipt.add, receipt.list, association.create, association.list, association.retire, archive.check, case.export, archive.repair_permissions, case.delete, skill. Nothing is verified.
+Implemented operations: archive.init, import, case.create, case.list, case.show, submission.add, receipt.add, receipt.list, association.create, association.list, association.retire, archive.check, case.export, archive.repair_permissions, case.delete, skill, case.update. Nothing is verified.

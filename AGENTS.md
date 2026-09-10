@@ -33,10 +33,11 @@ of each kind of content, and the style are in the Documentation section of
 
 ## Boundaries
 
-- Help, version, `capabilities`, and sixteen operations exist today: archive
+- Help, version, `capabilities`, and seventeen operations exist today: archive
   creation, the read-only integrity check, permission repair, artefact import
   with the original bytes preserved, the case, submission, receipt, and
-  association records, the withdrawal of one assertion, the export of one
+  association records, the withdrawal of one assertion, the update of one
+  case record, the export of one
   case, the deletion of one case with an explicit purge, and `skill`.
   [Architecture and CLI contract](docs/architecture.md) is the contract of
   what is implemented, and the

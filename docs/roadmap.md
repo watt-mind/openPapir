@@ -84,7 +84,7 @@ page's last update.
 - Case lifecycle and search (`case update` and `case list` filters) let a case
   change the fields its record already carries and let the list narrow by
   them, gated on those fields and their write stages being the ones
-  [architecture and CLI contract](architecture.md) documents: planned.
+  [architecture and CLI contract](architecture.md) documents: implemented.
 - The receipt-retrieval reminder (`archive status`) reports how long ago each
   recorded receipt was dated so that the operator can decide for themselves
   what to retrieve from their delivery storage, gated on the operator's own
