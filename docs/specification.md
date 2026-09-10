@@ -158,8 +158,8 @@ discover supported inputs, design local cases, implement one offline import
 workflow, then associate one supported receipt type. The roadmap records design
 sequencing, not queue status.
 
-[Releasing](releasing.md) records the current release position: there is no
-release pipeline and no published version.
+[Releasing](releasing.md) records the current release position: the artefact
+policy and the release workflow exist, and no version is published.
 
 ## Every document
 

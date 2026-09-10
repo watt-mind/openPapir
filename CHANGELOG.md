@@ -24,6 +24,25 @@ envelope.
 
 ### Added
 
+- `.github/workflows/release.yml` builds the release artefacts described in
+  `docs/releasing.md`: prebuilt binaries for `x86_64-unknown-linux-musl`,
+  `aarch64-unknown-linux-musl`, `aarch64-apple-darwin`, `x86_64-apple-darwin`,
+  and `x86_64-pc-windows-msvc`, each as an archive with a `.sha256` file that
+  `sha256sum --check` reads. Every Linux and Windows artefact is built on a
+  runner of its own architecture, so no cross-compilation tooling is involved,
+  and every artefact the runner can execute is smoke tested by running
+  `capabilities --json` on it. A `v*` tag whose commit is on `master` gives a
+  draft GitHub release, attested with `actions/attest-build-provenance`, whose
+  notes are the changelog section for that version; a manual dispatch with
+  `dry_run` builds the same artefacts, uploads them to the run, and creates
+  nothing. The workflow never tags, never pushes, and never publishes a draft.
+  Nothing is released, and no crate is published: `publish = false` stays.
+- The Format and lint job additionally runs clippy for
+  `x86_64-pc-windows-msvc` from its Linux runner, so the platform-specific
+  code paths are linted on every pull request instead of only in the Windows
+  test job. `docs/testing.md` records how to run the same lint locally. The
+  required-check names are unchanged.
+
 - `openpapir skill` writes the agent skill document the binary carries to
   stdout, byte for byte and with nothing added. It takes no file and no
   `--json`, touches no archive, and exits `0`, so an agent can install the

@@ -30,7 +30,7 @@ are in the Documentation section of [contributing](../CONTRIBUTING.md).
 | [error-contract.md](error-contract.md) | Specification for review of the import and association error model: the extended JSON envelope, the stable error-code catalogue, and the exit-code mapping. Partly implemented; architecture.md is authoritative for the implemented part. |
 | [testing.md](testing.md) | Test layout, the coverage expectation, the synthetic public fixture policy, and the rules for any future private input. |
 | [references.md](references.md) | Related independent projects, discovery entry points, and the evidence policy every future format decision must satisfy. |
-| [releasing.md](releasing.md) | The current release position, which is that no release process exists, and the checklist a first release would need. |
+| [releasing.md](releasing.md) | The current release position, which is that nothing is published, the artefact policy the release workflow follows, and the checklist a first release still needs. |
 | [factory.md](factory.md) | Runner setup for an explicitly launched orchestration run: tools, credentials, and checkout expectations. |
 | [orchestrator.md](orchestrator.md) | Portable master orchestrator instructions, copied to an ignored local file before use. |
 | [index.md](index.md) | This page: the purpose of every document and root policy file. |
