@@ -630,6 +630,19 @@ envelope.
   Python 3 and no new workspace dependency, and `./scripts/check.sh` and CI
   run the generator in `--check` mode, so a dependency change that leaves the
   committed notice stale fails the pull request that made it.
+- The end-to-end guide (`docs/guide.md`) matches the binary again. Every
+  output block comes from one walk of the page against the release binary,
+  and a maintainer note at the top names the commit that walk was taken at.
+  Step 2 creates the synthetic files the walk imports, step 4 gains the
+  `submission add --file` shortcut, step 6 says which import event a receipt
+  records and how `--import-event` picks another, and step 14 no longer says
+  the tool has no way to copy an archive out: it walks `archive export` and
+  `archive import`, says why they beat a plain copy, and keeps the plain copy
+  as the answer above the restore ceiling. A new Other commands section covers
+  `archive derive` and the derived metadata `case show` reports once it has
+  run, `capabilities`, `completions`, and `manpage`. The JSON section states
+  that `skill`, `manpage`, and `completions` write bytes rather than an
+  envelope and refuse `--json`.
 - `scripts/package-release.sh` derives the listing it prints from the same
   table of shells its staging loop reads, so adding or removing a shell
   changes the staging and the description together, and `--describe --paths`
@@ -934,6 +947,25 @@ envelope.
 
 ### Fixed
 
+- A long flag written before the subcommand that takes it is now told where it
+  belongs instead of being refused as merely unexpected. `--archive` and
+  `--json` are defined per subcommand rather than globally, so
+  `openpapir --archive <root> case list` and `openpapir --json capabilities`
+  are the likeliest flag-order mistakes and the parser on its own said no more
+  than that the token was unexpected. Both forms now add the sentence that the
+  argument belongs after the subcommand: with `--json` as the refusal's
+  `message`, alongside `details.argument` and the new `details.placement`
+  `after_subcommand`; without it as one line after the parser's own usage
+  text. The flag's name is read from the command definition, so the value
+  written beside it is never echoed, the envelope's shape and its
+  `usage.arguments` code are unchanged, and both forms still exit `2`. A flag
+  written where a flag belongs and refused anyway is unaffected.
+- `receipt add` now documents how it picks an import event when two imports of
+  the same bytes share an `imported_at`: the tie goes to the lowest
+  identifier, which is deterministic but is not necessarily the earlier import
+  or the one `import` last reported, and `--import-event` is the way to name
+  one explicitly. Behaviour is unchanged; only
+  [architecture](docs/architecture.md) is.
 - `import` no longer reads every stored import event once per file, so
   importing a directory costs the batch rather than the history behind it.
   Duplicate detection reads the import events at most once for a whole

@@ -1,0 +1,6 @@
+error: unexpected argument '--archive' found
+
+Usage: openpapir <COMMAND>
+
+For more information, try '--help'.
+note: --archive: The argument belongs after the subcommand, not before it. Write the subcommand first and the flag after it.

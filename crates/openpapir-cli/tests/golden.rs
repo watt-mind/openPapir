@@ -46,12 +46,44 @@ fn ready(_: &World) {}
 
 fn cases() -> Vec<Case> {
     let mut cases = archive_cases();
+    cases.extend(usage_cases());
     cases.extend(derived_cases());
     cases.extend(transfer_cases());
     cases.extend(record_cases());
     cases.extend(association_cases());
     cases.extend(search_cases());
     cases
+}
+
+/// The cases that pin what a refused invocation looks like, before any
+/// archive is touched.
+fn usage_cases() -> Vec<Case> {
+    vec![
+        Case {
+            name: "usage.arguments",
+            stage: Stage::Empty,
+            second_submission: false,
+            prepare: ready,
+            arguments: |_| vec!["import".to_owned()],
+        },
+        // `--archive` is defined per subcommand, so writing it before the
+        // subcommand is the likeliest flag-order mistake. Both forms say
+        // where the flag belongs and neither echoes the root beside it.
+        Case {
+            name: "usage.flag-order",
+            stage: Stage::Empty,
+            second_submission: false,
+            prepare: ready,
+            arguments: |world| {
+                vec![
+                    "--archive".to_owned(),
+                    world.archive_string(),
+                    "case".to_owned(),
+                    "list".to_owned(),
+                ]
+            },
+        },
+    ]
 }
 
 /// The cases that exercise the archive itself: creation, import, the check,
@@ -66,13 +98,6 @@ fn archive_cases() -> Vec<Case> {
             second_submission: false,
             prepare: ready,
             arguments: |_| vec!["capabilities".to_owned()],
-        },
-        Case {
-            name: "usage.arguments",
-            stage: Stage::Empty,
-            second_submission: false,
-            prepare: ready,
-            arguments: |_| vec!["import".to_owned()],
         },
         Case {
             name: "archive.init",
