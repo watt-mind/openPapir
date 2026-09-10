@@ -614,6 +614,16 @@ envelope.
 
 ### Changed
 
+- `scripts/package-release.sh` derives the listing it prints from the same
+  table of shells its staging loop reads, so adding or removing a shell
+  changes the staging and the description together, and `--describe --paths`
+  prints those contents as one relative path per line. The CI packaging step
+  diffs the staged tree against that listing, so a file staged but not
+  described, or described but not staged, fails the pull request. The script
+  refuses a staging path that is a symbolic link or a directory that already
+  holds files before it writes anything, and it refuses a staged entry that is
+  a symbolic link. `staging/`, where the CI step stages, is ignored by Git, so
+  running that step locally leaves no untracked tree.
 - The documentation states the fifth milestone as it stands rather than as it
   was planned. `docs/roadmap.md` marks the release pipeline and the
   Windows-target lint, the shell completions and the man page, and the
