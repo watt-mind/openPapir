@@ -72,6 +72,22 @@ proptest! {
             );
         }
 
+        // An index whose stamp collides with the directory it no longer
+        // describes: a leftover staging file exchanged for a real import
+        // event, so the entry count is what it was, and every modification
+        // time set back to what the newest one was, so that figure is what it
+        // was too. Only the entry names differ, and every event the index
+        // names is still on disk, so the existence check cannot notice it
+        // either: the digest of the entry names is the only thing that can.
+        // The event it does not know is one the plan has to list, and a plan
+        // that left it out would leave that record behind after the purge.
+        let collided = collide(&built);
+        prop_assert_eq!(
+            &plan::build(root, &built.case_id, true).expect("a plan is built"),
+            &collided,
+            "an index whose count and newest time collide is still not used"
+        );
+
         for digest in &built.digests {
             let mut resolved = Vec::new();
             for state in states() {
@@ -107,6 +123,85 @@ proptest! {
         }
         drop(built.directory);
     }
+}
+
+/// Force a stamp collision, and answer what the records say.
+///
+/// A leftover staging file is exchanged for a real import event. A staging
+/// file is counted by the stamp and is not a record, so the exchange leaves
+/// the entry count where it was and adds an event the index does not know;
+/// every modification time is then set to what the newest one was, which
+/// leaves that figure where it was too. A stamp of the count and the newest
+/// time alone cannot tell the two directories apart.
+///
+/// Nothing the index names has gone, so confirming each named record against
+/// the store cannot notice this one: only the digest of the entry names can.
+///
+/// The plan returned is the one the records give with no index at all, which
+/// is what the caller then requires the collided index to have produced.
+fn collide(built: &Built) -> plan::Plan {
+    let events = built.root.join("records").join("imports");
+    let repeated = built.directory.path().join("inputs").join("input-0.bin");
+
+    // A staging file, which the stamp counts and no reader treats as a
+    // record. Writing one is what an interrupted write leaves behind.
+    let staging = events.join(".papir-staging-0123456789abcdef0123456789abcdef");
+    fs::write(&staging, b"an interrupted write").expect("a staging file is written");
+    owner_only(&staging, 0o600);
+
+    // Warm an index that describes the directory exactly as it is now,
+    // staging file included. A duplicate import warms it and writes no record
+    // but its own event, which a receipt would not: a receipt naming an
+    // object would keep that object from being purged at all.
+    openpapir_core::import(&built.root, std::slice::from_ref(&repeated))
+        .expect("a duplicate is imported");
+    let warmed = fs::read(built.root.join(INDEX_FILE)).expect("the warmed index is there");
+    let newest = newest_modified(&events);
+
+    // Exchange the staging file for one more import event.
+    fs::remove_file(&staging).expect("the staging file is removed");
+    openpapir_core::import(&built.root, &[repeated]).expect("a duplicate is imported");
+
+    // Put every modification time back, so the count and the newest time are
+    // exactly what the warmed index recorded.
+    for name in sorted_names(&events) {
+        let file = fs::File::options()
+            .write(true)
+            .open(events.join(name))
+            .expect("a record opens for its times to be set");
+        file.set_times(
+            fs::FileTimes::new()
+                .set_modified(newest)
+                .set_accessed(newest),
+        )
+        .expect("a record's times are set");
+    }
+
+    absent(built);
+    let scanned = plan::build(&built.root, &built.case_id, true).expect("a plan is built");
+    write_index(&built.root, &warmed);
+    scanned
+}
+
+/// Every entry name the directory holds, sorted.
+fn sorted_names(directory: &Path) -> Vec<std::ffi::OsString> {
+    let mut names: Vec<std::ffi::OsString> = fs::read_dir(directory)
+        .expect("the record directory lists")
+        .flatten()
+        .map(|entry| entry.file_name())
+        .collect();
+    names.sort();
+    names
+}
+
+/// The newest modification time among a directory's entries.
+fn newest_modified(directory: &Path) -> std::time::SystemTime {
+    fs::read_dir(directory)
+        .expect("the record directory lists")
+        .flatten()
+        .filter_map(|entry| entry.metadata().ok()?.modified().ok())
+        .max()
+        .expect("the directory holds an entry")
 }
 
 /// The four cache states a reader has to give the same answer in.
@@ -194,7 +289,10 @@ fn build(payloads: &[u8]) -> Built {
     // edited into looking stale. The later import repeats the first input, so
     // the event it records is one the copy does not know and one the deletion
     // plan has to list, which is what makes a stale index a wrong answer.
-    plan::build(&root, &case.id, true).expect("a plan is built");
+    //
+    // `receipt add` is what warms it. The deletion plan reads an index and
+    // never writes one, because it does not take the writer lock itself.
+    records::receipt::add(&root, &digests[0], None, None).expect("a receipt is recorded");
     let stale = fs::read(root.join(INDEX_FILE)).expect("the warmed index is there");
     openpapir_core::import(&root, &[inputs.join("input-0.bin")])
         .expect("the first input is imported again");

@@ -2492,18 +2492,18 @@ associations, and 20000 imported objects of 256 bytes each.
 
 | Invocation | Wall time | Ceiling |
 | --- | --- | --- |
-| `case list` | 0.08 s | 5 s |
-| `case list --query` | 0.08 s | 5 s |
-| `case show` of one case | 0.16 s | 5 s |
-| `archive check` | 0.60 s | 10 s |
+| `case list` | 0.06 s | 5 s |
+| `case list --query` | 0.06 s | 5 s |
+| `case show` of one case | 0.13 s | 5 s |
+| `archive check` | 0.56 s | 10 s |
 | `search` | 0.17 s | 10 s |
 | `archive status` | 0.26 s | 5 s |
-| `case export` of one case | 0.22 s | 5 s |
-| `case delete --purge` of one case | 0.48 s | 10 s |
-| `receipt add`, rebuilding the index | 0.17 s | 5 s |
-| `receipt add`, index current | 0.04 s | 5 s |
-| `import` of a batch of 1000 new files | 0.62 s | 10 s |
-| the twentieth `import` of 100 new files | 0.17 s | 10 s |
+| `case export` of one case | 0.20 s | 5 s |
+| `case delete --purge` of one case | 0.39 s | 10 s |
+| `receipt add`, rebuilding the index | 0.18 s | 5 s |
+| `receipt add`, index current | 0.05 s | 5 s |
+| `import` of a batch of 1000 new files | 0.87 s | 10 s |
+| the twentieth `import` of 100 new files | 0.15 s | 10 s |
 
 The ceiling is what `crates/openpapir-cli/tests/bench.rs` asserts. It is loose
 on purpose: the same assertion has to hold on an unoptimised build, on a
@@ -2519,7 +2519,7 @@ file, so a directory of new files costs no read of them at all. The twentieth
 row is the last of twenty imports run back to back: it is there because the
 index is written by a write as well as read by one, and an import that had to
 rebuild it from every record each time would show as a cost that grew batch by
-batch. Building the whole synthetic archive took 49 seconds.
+batch. Building the whole synthetic archive took 48 seconds.
 
 The two `receipt add` rows are the same invocation twice. `receipt add`
 without `--import-event` resolves an artefact to its earliest import event,
@@ -2530,7 +2530,11 @@ that file until an import, a restore, or a deletion moves the archive past it.
 Naming `--import-event` reads one record and consults no index at all. The
 index is never authoritative: deleting it costs the next reader one scan and
 changes no answer, which is the property
-`crates/openpapir-core/tests/property/cache.rs` asserts.
+`crates/openpapir-core/tests/property/cache.rs` asserts. An index is used only
+when a digest of the import-event directory's entry names, taken twice around
+the read, matches the one the index recorded, and the identifier it gives is
+read back as a record before it is written into another one, so neither a
+stale index nor a doctored one changes an answer.
 
 ## Implemented codes and exit codes
 

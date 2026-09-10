@@ -190,10 +190,30 @@ fn resolve_import_event(
     }
     let index = cache::import_events(root);
     index.refuse_unreadable()?;
-    index
+    if let Some(id) = confirmed_earliest(root, &index, digest) {
+        return Ok(id);
+    }
+    // The index named an event that is not there, or knew of none. What the
+    // records say is what is true, so they are read, and the answer from them
+    // is the answer whatever the index held.
+    let scanned = cache::scanned_import_events(root);
+    scanned.refuse_unreadable()?;
+    scanned
         .earliest(digest)
         .map(|event| event.id.clone())
         .ok_or_else(|| document::not_found("import_event", "artefact_digest"))
+}
+
+/// The earliest event of a digest, confirmed to exist and to record it.
+///
+/// The receipt is about to name this identifier, and the index is not a
+/// record, so the record it names is read through the same path a named
+/// `--import-event` goes through before its identifier is written into
+/// anything. `None` means the index cannot be believed here and the records
+/// have to be read.
+fn confirmed_earliest(root: &Path, index: &cache::ImportEvents, digest: &str) -> Option<String> {
+    let event = index.earliest(digest)?;
+    cache::ImportEvents::confirms(root, event, digest).then(|| event.id.clone())
 }
 
 /// The consistency rules a receipt can break, as stable `rule` values.

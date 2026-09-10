@@ -645,9 +645,16 @@ envelope.
   instead, so deleting it changes no answer. It is written only under the
   writer lock, through the same staging-then-rename procedure and owner-only
   permissions as every other file, and it is excluded from both export shapes
-  and from what a deletion counts or removes. An unreadable import-event
-  document is still `record.malformed` with the same count. `archive check`
-  now reports `cache_files`, how many files `cache/` holds, and prints one
+  and from what a deletion counts or removes. Whether it is current is decided
+  by a digest of the import-event directory's entry names together with the
+  entry count and the newest modification time, taken before and after the
+  read, so an exchange of one record for another cannot pass as an unchanged
+  directory. An identifier the index gives is read back as a record, through
+  the same path a named `--import-event` goes through, before it is written
+  into another record or into a plan that removes one. An unreadable
+  import-event document is still `record.malformed` with the same count.
+  `archive check` now reports `cache_files`, how many files `cache/` holds,
+  and prints one
   more line for it; the figure is never a problem and never changes the exit
   code. The field is additive and `schema_version` stays `1`.
 - `case import` and `archive import` are bounded by their own ceiling,

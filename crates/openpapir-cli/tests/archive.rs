@@ -1350,3 +1350,89 @@ fn the_rebuildable_index_is_counted_never_a_problem_and_never_exported() {
         "a deletion neither counts the index nor removes it"
     );
 }
+
+/// The index is openPapir's own accelerator and is not a record, so nothing
+/// it says may be written into a record without the record it names being
+/// read first. A doctored index that names an import event the archive does
+/// not hold must therefore change no answer: `receipt add` reads the records
+/// instead, and the receipt it writes names a real event rather than leaving
+/// a dangling reference behind for `archive check` to find.
+#[test]
+fn an_index_naming_an_absent_import_event_is_not_believed() {
+    let (root, inputs) = archive();
+    let first = write_input(inputs.path(), "first.txt", PAYLOAD);
+    let imported = stdout_json(&run(&[
+        "import",
+        "--archive",
+        path(root.path()),
+        "--json",
+        path(&first),
+    ]));
+    let event = imported["data"]["artefacts"][0]["import_event"]
+        .as_str()
+        .expect("an import reports its event")
+        .to_owned();
+
+    // Warm the index, then doctor it so that it names an event that is not
+    // there. Its stamp still describes the import-event directory exactly,
+    // so the freshness check has nothing to object to.
+    run(&[
+        "receipt",
+        "add",
+        "--archive",
+        path(root.path()),
+        "--artefact",
+        PAYLOAD_DIGEST,
+        "--json",
+    ]);
+    let index = root
+        .path()
+        .join("cache")
+        .join("import-events-by-digest.json");
+    let doctored = fs::read_to_string(&index)
+        .expect("the index is there")
+        .replace(&event, "0123456789abcdef0123456789abcdef");
+    fs::remove_file(&index).expect("the index is replaced");
+    fs::write(&index, doctored).expect("the doctored index is written");
+    assert_owner_only_after_write(&index);
+
+    let output = run(&[
+        "receipt",
+        "add",
+        "--archive",
+        path(root.path()),
+        "--artefact",
+        PAYLOAD_DIGEST,
+        "--json",
+    ]);
+    assert_eq!(output.status.code(), Some(0), "the receipt is recorded");
+    let envelope = stdout_json(&output);
+    assert_eq!(
+        envelope["data"]["receipt"]["import_event_id"],
+        event.as_str(),
+        "the records decide which event a receipt names, never the index"
+    );
+
+    let checked = stdout_json(&run(&[
+        "archive",
+        "check",
+        "--archive",
+        path(root.path()),
+        "--json",
+    ]));
+    for problem in checked["data"]["problems"].as_array().unwrap() {
+        assert_eq!(problem["count"], 0, "no reference was left dangling");
+    }
+}
+
+/// Narrow a file this test wrote itself, so that the archive's owner-only
+/// rule has nothing to refuse. It is the test's own housekeeping and says
+/// nothing about what openPapir writes.
+#[cfg(unix)]
+fn assert_owner_only_after_write(path: &Path) {
+    use std::os::unix::fs::PermissionsExt as _;
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600)).expect("narrow the test's file");
+}
+
+#[cfg(not(unix))]
+fn assert_owner_only_after_write(_path: &Path) {}

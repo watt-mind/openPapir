@@ -108,7 +108,7 @@ pub fn build(root: &Path, case_id: &str, purge: bool) -> Result<Plan, Diagnostic
     let submissions = document::list_records::<Submission>(root)?;
     let receipts = document::list_records::<Receipt>(root)?;
     let associations = document::list_records::<Association>(root)?;
-    let events = cache::import_events(root);
+    let events = cache::cached_import_events(root);
     events.refuse_unreadable()?;
 
     let going: BTreeSet<&str> = submissions
@@ -142,6 +142,8 @@ pub fn build(root: &Path, case_id: &str, purge: bool) -> Result<Plan, Diagnostic
     );
     let purged: BTreeSet<&str> = plan.objects.iter().map(String::as_str).collect();
     plan.derived = derived_records(root, &purged);
+    let events = confirmed_events(root, events, &purged);
+    events.refuse_unreadable()?;
     for (digest, events) in events.digests() {
         if let Some(hex) = hex(digest).filter(|hex| purged.contains(hex)) {
             plan.import_events
@@ -170,6 +172,38 @@ fn derived_records(root: &Path, purged: &BTreeSet<&str>) -> Vec<String> {
             purged.contains(hex).then(|| hex.to_owned())
         })
         .collect()
+}
+
+/// The import events of the purged objects, confirmed against the records.
+///
+/// The plan is about to say which import-event records go, and the index is
+/// openPapir's own accelerator rather than a record, so every event it names
+/// for an object being purged is read first. One that is not there means the
+/// index cannot be believed, and the records are read instead: an index
+/// missing the newest event would otherwise leave that record behind after
+/// the purge, which the integrity check would then report as damage.
+///
+/// Only the events of the purged objects are confirmed, because they are the
+/// only ones the plan names, and the deletion is about to read and remove
+/// exactly those records anyway.
+fn confirmed_events(
+    root: &Path,
+    events: cache::ImportEvents,
+    purged: &BTreeSet<&str>,
+) -> cache::ImportEvents {
+    let confirmed = events.digests().all(|(digest, listed)| {
+        hex(digest).is_none_or(|hex| {
+            !purged.contains(hex)
+                || listed
+                    .iter()
+                    .all(|event| cache::ImportEvents::confirms(root, event, digest))
+        })
+    });
+    if confirmed {
+        events
+    } else {
+        cache::scanned_import_events(root)
+    }
 }
 
 /// Every submission an association names, confirmed or as a candidate.

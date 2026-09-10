@@ -26,20 +26,41 @@
 //! and answered by a scan:
 //!
 //! - A stamp of the import-event directory is taken before the cache file is
-//!   opened and again after it has been parsed. The stamp is the number of
-//!   entries the directory holds and the newest modification time among them,
-//!   both read from the same directory listing.
+//!   opened and again after it has been parsed. The stamp is a digest of
+//!   every entry name the directory holds, sorted, together with the number
+//!   of entries and the newest modification time among them, all read from
+//!   the same directory listing.
 //! - The cache is used only when the two stamps are equal to each other and
 //!   to the stamp the document itself records.
 //! - An absent file, one that is not a regular file, one over the file cap,
 //!   one that does not parse, and one of another kind or version are all the
 //!   same answer: no cache.
 //!
+//! The digest of the entry names is what makes the stamp a change detector
+//! rather than a heuristic. An import event is written once under an
+//! identifier openPapir minted and is never rewritten, so the set of names
+//! **is** the set of events: adding one, removing one, or exchanging one for
+//! another changes the digest, whatever the count and the timestamps do. The
+//! count and the newest modification time are kept beside it because they
+//! come free from the same listing, but neither is relied on to notice a
+//! change on its own. Nothing here would be safe if it rested on timestamps
+//! alone: two writes inside one filesystem's timestamp granularity, a restore
+//! that preserved modification times, and a clock moved backwards all leave a
+//! count and a newest time unchanged, and all change the names.
+//!
 //! A concurrent writer changes the directory, which changes the stamp, which
-//! makes the reader scan. The check can therefore be wrong in one direction
-//! only: it can refuse a cache that was in fact current, which costs a scan,
-//! and it cannot accept one that is not. A writer holding the lock runs the
-//! same check, which is exact for it because nothing else may write.
+//! makes the reader scan. The check is therefore wrong in one direction only:
+//! it can refuse a cache that was in fact current, which costs a scan, and it
+//! cannot accept one that is not. A writer holding the lock runs the same
+//! check, which is exact for it because nothing else may write.
+//!
+//! What a cache proved current says is then used verbatim, with one further
+//! read: the callers that name a record from it confirm that record before
+//! they write its identifier into a new one. The boundary that makes that
+//! enough is the one `records/` already rests on, the writer lock and
+//! owner-only permissions on every file. A local process that can rewrite the
+//! index can rewrite a record just as easily, and openPapir does not defend
+//! the archive against an attacker who is already its owner.
 //!
 //! Nothing here is reported. The index holds digests and identifiers, which
 //! the privacy rule of `docs/error-contract.md` keeps out of every message,
@@ -52,6 +73,7 @@ use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest as _, Sha256};
 
 use crate::archive::import::{EVENT_KIND, ImportEvent};
 use crate::archive::{CACHE_DIR, IMPORTS_DIR, limits, paths, write};
@@ -68,8 +90,11 @@ const IMPORT_EVENTS_KIND: &str = "import_events_by_digest";
 ///
 /// It is the cache's own version and has nothing to do with the archive
 /// schema version: a build that does not recognise it rebuilds the file
-/// rather than refusing anything.
-const CACHE_SCHEMA_VERSION: u64 = 1;
+/// rather than refusing anything. It went to `2` when the stamp gained the
+/// digest of the entry names, so that an index an earlier build wrote, whose
+/// stamp was the count and the newest modification time alone, is rebuilt
+/// rather than trusted.
+const CACHE_SCHEMA_VERSION: u64 = 2;
 
 /// The write stage the atomic write procedure reports this file under.
 const STAGE: &str = "cache_write";
@@ -135,6 +160,23 @@ impl ImportEvents {
             .map(|(digest, events)| (digest, events.as_slice()))
     }
 
+    /// Whether the record the index names for one event is really there.
+    ///
+    /// The index is openPapir's own accelerator and is not a record, so
+    /// nothing it says may be written into a record without the record it
+    /// names being read first. The read is the one a named `--import-event`
+    /// already goes through, so confirming costs exactly what naming an
+    /// event costs: one record read.
+    ///
+    /// A record that is not there, that cannot be read, or that records
+    /// another digest all answer `false`, and every caller answers a `false`
+    /// by reading the records themselves rather than by refusing: the index
+    /// may be wrong, and the records are what is true.
+    pub(crate) fn confirms(root: &Path, event: &Event, digest: &str) -> bool {
+        document::read_record::<ImportEvent>(root, &event.id, "import_event_id")
+            .is_ok_and(|record| record.digest == digest)
+    }
+
     /// Fold one event the same operation has just written into the index.
     ///
     /// The event keeps the index in identifier order, so an index the caller
@@ -164,11 +206,21 @@ pub(crate) fn import_events(root: &Path) -> ImportEvents {
         return index;
     }
     let before = stamp(root);
-    let index = scan_import_events(root);
+    let index = scanned_import_events(root);
     if before.is_some() && before == stamp(root) {
         write_import_events(root, &index);
     }
     index
+}
+
+/// The index of an archive, without ever writing one.
+///
+/// A caller that may not hold the writer lock uses this: it takes the cache
+/// when the cache can be proved current and reads the records when it cannot,
+/// and it writes nothing either way. Writing an index is a write, and a
+/// reader holds no lock.
+pub(crate) fn cached_import_events(root: &Path) -> ImportEvents {
+    read_import_events(root).unwrap_or_else(|| scanned_import_events(root))
 }
 
 /// The index of an archive, read only, without a rebuild.
@@ -261,12 +313,22 @@ struct Document {
 
 /// What the import-event directory looked like when the index was built.
 ///
-/// The two figures are compared for equality and never ordered, so nothing
-/// here depends on a clock being monotonic, on two filesystems agreeing, or
-/// on a timestamp being comparable across a backup and a restore. A stamp
-/// that differs in either figure means the index is not the directory's.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// Every figure is compared for equality and never ordered, so nothing here
+/// depends on a clock being monotonic, on two filesystems agreeing, or on a
+/// timestamp being comparable across a backup and a restore. A stamp that
+/// differs in any figure means the index is not the directory's.
+///
+/// `entry_digest` is what makes the stamp complete. An import event is
+/// written once under a minted identifier and never rewritten, so the sorted
+/// entry names determine the set of events exactly; the other two figures
+/// come free from the same listing and are kept for what they say, not
+/// because anything rests on them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct Stamp {
+    /// A digest of every entry name the directory holds, sorted, each
+    /// followed by a byte that cannot appear in a name, so that no two
+    /// different listings render as the same input.
+    entry_digest: String,
     /// How many entries the directory holds, of any name.
     entry_count: u64,
     /// The newest modification time among them, in nanoseconds since the
@@ -288,21 +350,27 @@ fn index_path(root: &Path) -> PathBuf {
 /// stamp the directory treats the cache as absent.
 fn stamp(root: &Path) -> Option<Stamp> {
     let entries = fs::read_dir(root.join(IMPORTS_DIR)).ok()?;
-    let mut stamp = Stamp {
-        entry_count: 0,
-        newest_modified_nanos: None,
-    };
+    let mut names = Vec::new();
+    let mut newest_modified_nanos: Option<u64> = None;
     for entry in entries {
         let entry = entry.ok()?;
-        stamp.entry_count += 1;
+        names.push(entry.file_name());
         let nanos = modified_nanos(&entry.metadata().ok()?)?;
-        stamp.newest_modified_nanos = Some(
-            stamp
-                .newest_modified_nanos
-                .map_or(nanos, |held| held.max(nanos)),
-        );
+        newest_modified_nanos = Some(newest_modified_nanos.map_or(nanos, |held| held.max(nanos)));
     }
-    Some(stamp)
+    names.sort();
+    let mut digest = Sha256::new();
+    for name in &names {
+        digest.update(name.as_encoded_bytes());
+        // A separator no filename can hold, so that two different listings
+        // cannot render as one input by running their names together.
+        digest.update([0]);
+    }
+    Some(Stamp {
+        entry_digest: format!("{:x}", digest.finalize()),
+        entry_count: names.len() as u64,
+        newest_modified_nanos,
+    })
 }
 
 /// One entry's modification time, in nanoseconds since the epoch.
@@ -339,12 +407,13 @@ fn read_document(path: &Path) -> Option<String> {
     Some(text)
 }
 
-/// Build the index by reading every import-event record.
+/// Build the index by reading every import-event record, consulting no cache.
 ///
 /// The reader is the one `list_records` uses, so the index holds exactly the
 /// records a scan would have accepted and counts exactly the documents a scan
-/// would have reported as malformed.
-fn scan_import_events(root: &Path) -> ImportEvents {
+/// would have reported as malformed. This is the answer every caller falls
+/// back to, and the answer every caller must agree with.
+pub(crate) fn scanned_import_events(root: &Path) -> ImportEvents {
     let mut index = ImportEvents::default();
     let unreadable = document::visit_records::<ImportEvent, _>(root, |event| {
         index.record(&event);
@@ -435,7 +504,7 @@ mod tests {
         let text = fs::read_to_string(index_path(root.path())).unwrap();
         for changed in [
             text.replace(IMPORT_EVENTS_KIND, "some_other_cache"),
-            text.replace("\"cache_schema_version\":1", "\"cache_schema_version\":2"),
+            text.replace("\"cache_schema_version\":2", "\"cache_schema_version\":1"),
         ] {
             fs::remove_file(index_path(root.path())).unwrap();
             fs::write(index_path(root.path()), &changed).unwrap();
@@ -484,6 +553,6 @@ mod tests {
         for event in document::list_records::<ImportEvent>(root.path()).unwrap() {
             folded.record(&event);
         }
-        assert_eq!(folded, scan_import_events(root.path()));
+        assert_eq!(folded, scanned_import_events(root.path()));
     }
 }
