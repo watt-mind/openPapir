@@ -89,11 +89,27 @@ jobs:
       # page and checks the staged layout, so a pull request exercises the
       # packaging on each of the three platforms the release matrix builds on,
       # without a tag and without creating an archive.
+      #
+      # The staged tree is then diffed against the listing the same script
+      # prints, so the description a release carries and the files a release
+      # ships are checked against each other on every pull request. The
+      # staging directory is ignored by Git, so a local run of this step
+      # leaves no untracked tree behind.
       - name: Check the release archive layout
         shell: bash
         run: |
-          scripts/package-release.sh \
-            target/release/openpapir staging/openpapir-ci
+          set -euo pipefail
+          staging=staging/openpapir-ci
+          scripts/package-release.sh target/release/openpapir "$staging"
+          name=openpapir
+          if [ -f "${staging}/openpapir.exe" ]; then
+            name=openpapir.exe
+          fi
+          diff \
+            <(scripts/package-release.sh --describe --paths "$name" |
+              LC_ALL=C sort) \
+            <(cd "$staging" && find . -type f |
+              sed 's|^\./||' | LC_ALL=C sort)
   msrv:
     name: Minimum supported Rust (1.88)
     runs-on: ubuntu-latest

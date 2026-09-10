@@ -124,15 +124,32 @@ two commands.
 
 The staging is `scripts/package-release.sh`, which copies the binary and the
 three documents, generates the five scripts and the page, and then checks the
-staged directory: every file above has to exist and hold something, and the
-man page has to carry a `.TH openpapir 1` header among its first lines, which
-is where the roff header sits behind the two-line quote-escaping preamble the
-generator emits. The CI test job calls the same script on the release binary
-it already builds, on each of Linux, macOS, and Windows, so the layout is
-exercised on every pull request without a tag and without an archive. The
-script also prints that listing on request, and the draft release and the
-dry-run summary print what it says, so a release cannot name a layout other
-than the one that was staged.
+staged directory: every file above has to exist, be a regular file rather than
+a symbolic link, and hold something, and the man page has to carry a
+`.TH openpapir 1` header among its first lines, which is where the roff header
+sits behind the two-line quote-escaping preamble the generator emits.
+
+One table inside the script names the shells and their file names. The staging
+loop writes one completion script per row, `--describe` names the shells from
+the same rows, and `--describe --paths` prints the archive contents as one
+relative path per line from them, so adding or removing a shell changes the
+staging, the sentence a release prints, and the listing together. The
+staged-layout check reads that same listing, so there is nothing to keep in
+step by hand.
+
+Before it writes anything, the script refuses a staging path that is a
+symbolic link and one that is a directory already holding files, so a staging
+run never writes through a link and never mixes into an earlier archive.
+
+The CI test job calls the same script on the release binary it already builds,
+on each of Linux, macOS, and Windows, so the layout is exercised on every pull
+request without a tag and without an archive. That job then diffs the staged
+tree against `--describe --paths`, so a file staged but not described, or
+described but not staged, fails the pull request. It stages into `staging/`
+under the checkout root, which `.gitignore` lists, so running the same step
+locally leaves no untracked tree. The draft release and the dry-run summary
+print what `--describe` says, so a release cannot name a layout other than the
+one that was staged.
 
 Beside each archive is a `<archive>.sha256` file in the format
 `sha256sum --check` reads. The checksum is written and verified on the runner
