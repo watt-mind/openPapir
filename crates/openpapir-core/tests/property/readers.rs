@@ -43,13 +43,14 @@ const READER_CODES: [&str; 3] = [
 
 /// The top-level capped text field of each kind, where it has one.
 ///
-/// An association's only capped text is a candidate's statement, which is
-/// nested inside a list, so the two field-length damages leave an association
-/// document alone and the property still asserts that it reads back.
+/// The field-length damages set it to exactly its cap and to one byte over,
+/// which the reader must tolerate either way: a cap belongs to the write path.
+/// A kind whose only capped text is nested inside a list would pass `None`
+/// here and the two damages would leave its document alone.
 const CASE_FIELD: Option<(&str, usize)> = Some(("title", 200));
 const SUBMISSION_FIELD: Option<(&str, usize)> = Some(("description", 1024));
 const RECEIPT_FIELD: Option<(&str, usize)> = Some(("label", 200));
-const ASSOCIATION_FIELD: Option<(&str, usize)> = None;
+const ASSOCIATION_FIELD: Option<(&str, usize)> = Some(("statement", 512));
 const EVENT_FIELD: Option<(&str, usize)> = Some(("original_filename", 255));
 
 /// Store one document at this kind's record path and read it back.

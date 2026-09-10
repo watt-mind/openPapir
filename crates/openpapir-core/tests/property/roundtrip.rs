@@ -87,9 +87,20 @@ proptest! {
         round_trips(&record)?;
     }
 
-    /// An association carries nested candidates and evidence, and two optional identifiers that are written as null rather than omitted.
+    /// An association carries nested candidates and evidence, two optional
+    /// identifiers that are written as null rather than omitted, and the
+    /// retirement statement, which is omitted entirely when it is absent. The
+    /// generated statement is asserted against the write path's own check, so
+    /// the round-trip covers text the archive would really store rather than
+    /// text only this test would accept.
     #[test]
     fn an_association_record_round_trips(record in support::association_record()) {
+        if let Some(statement) = record.statement.as_deref() {
+            prop_assert!(
+                openpapir_core::records::checked_statement(statement).is_ok(),
+                "a generated statement is one the write path would accept"
+            );
+        }
         round_trips(&record)?;
     }
 }

@@ -15,6 +15,7 @@ use proptest::test_runner::Config as ProptestConfig;
 use openpapir_core::archive::SUPPORTED_SCHEMA_VERSION;
 use openpapir_core::archive::import::ImportEvent;
 use openpapir_core::error::Diagnostic;
+use openpapir_core::records::MAX_STATEMENT_BYTES;
 use openpapir_core::records::association::{
     Association, CONFIDENCES, CREATED_BY, Candidate, EVIDENCE_KIND, EVIDENCE_SOURCE, Evidence,
     OUTCOMES,
@@ -234,7 +235,29 @@ pub fn receipt_record() -> impl Strategy<Value = Receipt> {
         )
 }
 
+/// A statement the write path would accept, up to and including its cap.
+///
+/// `checked_statement` asks for a single line, no control character, and at
+/// most 512 bytes, and the cap is counted in bytes rather than characters. So
+/// the generator carries ordinary text, multi-byte text, and two values that
+/// sit exactly on the cap, one of them in two-byte characters, which is where
+/// a byte cap and a character cap would disagree.
+pub fn statement() -> impl Strategy<Value = String> {
+    let cap = usize::try_from(MAX_STATEMENT_BYTES).expect("the cap fits in memory");
+    prop_oneof![
+        proptest::string::string_regex("[a-zA-Z0-9 .,()'\"-]{0,60}[a-z]")
+            .expect("a printable pattern compiles"),
+        proptest::string::string_regex("[éÁ中]{1,40}").expect("a multi-byte pattern compiles"),
+        Just("a".repeat(cap)),
+        Just("é".repeat(cap / 2)),
+    ]
+}
+
 /// A generated association record, with between zero and three candidates.
+///
+/// `statement` is the retirement reason. A record that is not a retirement
+/// carries none, so the field is generated as an option and the round-trip
+/// has to survive a key that is written only when it is there.
 pub fn association_record() -> impl Strategy<Value = Association> {
     (
         identifier(),
@@ -244,9 +267,19 @@ pub fn association_record() -> impl Strategy<Value = Association> {
         proptest::collection::vec(candidate(), 0..3),
         proptest::option::of(identifier()),
         proptest::option::of(identifier()),
+        proptest::option::of(statement()),
     )
         .prop_map(
-            |(id, receipt_id, created_at, outcome, candidates, submission_id, supersedes)| {
+            |(
+                id,
+                receipt_id,
+                created_at,
+                outcome,
+                candidates,
+                submission_id,
+                supersedes,
+                statement,
+            )| {
                 Association {
                     archive_schema_version: SUPPORTED_SCHEMA_VERSION,
                     candidates,
@@ -256,6 +289,7 @@ pub fn association_record() -> impl Strategy<Value = Association> {
                     outcome: outcome.to_owned(),
                     receipt_id,
                     record_kind: openpapir_core::records::association::KIND.to_owned(),
+                    statement,
                     submission_id,
                     supersedes,
                 }

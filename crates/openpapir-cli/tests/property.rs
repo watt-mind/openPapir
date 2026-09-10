@@ -43,7 +43,7 @@ const PERMITTED_EXITS: [i32; 6] = [0, 2, 3, 4, 5, 6];
 /// `init` is left out on purpose: it is the one command that takes its archive
 /// root as a positional and would create a directory, and this suite asserts
 /// that no generated command line writes anything.
-const SUBCOMMANDS: [&str; 15] = [
+const SUBCOMMANDS: [&str; 16] = [
     "capabilities",
     "archive",
     "check",
@@ -58,11 +58,12 @@ const SUBCOMMANDS: [&str; 15] = [
     "add",
     "receipt",
     "association",
+    "retire",
     "import",
 ];
 
 /// The long flags this build defines, plus two it does not.
-const FLAGS: [&str; 17] = [
+const FLAGS: [&str; 18] = [
     "--json",
     "--archive",
     "--title",
@@ -78,6 +79,7 @@ const FLAGS: [&str; 17] = [
     "--supersedes",
     "--label",
     "--import-event",
+    "--reason",
     "--not-a-flag",
     "--",
 ];
@@ -161,6 +163,7 @@ fn known_names() -> BTreeSet<String> {
         "role",
         "destination",
         "archive_root",
+        "text",
     ] {
         names.insert(name.to_owned());
     }
