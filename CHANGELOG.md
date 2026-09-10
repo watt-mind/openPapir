@@ -662,8 +662,10 @@ envelope.
   extraction against the `Unreleased` section under its read-only scope and
   shows the result in the run summary, so a changelog the extraction cannot
   read fails a dry run instead of surfacing on a tag; a tagged run still
-  refuses a version with no section or an empty one. `./scripts/check.sh`
-  runs the extraction's own cases and the same `Unreleased` read locally.
+  refuses a version with no section or an empty one. The `Unreleased` read is
+  made with `--allow-empty`, because a changelog cut legitimately leaves that
+  section empty until the next entry. `./scripts/check.sh` runs the
+  extraction's own cases and the same `Unreleased` read locally.
 - `case delete`'s `record.malformed` warning now reports both counts it is
   built from. The warning is raised only where an unresolvable reference held
   a candidate object of this deletion back, and its message says "for this

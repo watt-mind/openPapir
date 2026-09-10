@@ -50,7 +50,10 @@ follow today.
    Keep a Changelog categories. From the first published crate version,
    changes to `openpapir-core`'s public Rust API are logged as well, which the
    changelog rules in [contributing](../CONTRIBUTING.md) waive while no
-   version is published.
+   version is published. `Unreleased` is left empty by the cut, which is
+   expected: the checks tolerate an empty `Unreleased` (see
+   [the release notes](#the-release-notes)) and the next pull request fills
+   it again.
 4. **A green baseline.** `./scripts/check.sh`, the release build, and the
    full CI matrix pass on the promotion pull request, not only on `develop`.
 5. **A tag.** Tag the merge commit on `master`. Tags are not created on
@@ -167,11 +170,18 @@ section, which is what a release is cut from, and prints the result into the
 run summary. The extraction runs in the verify job, under `contents: read`,
 alongside the extraction's own cases (`--self-test`). A changelog the
 extraction cannot read therefore fails a dry run rather than surfacing on the
-one run that matters. `./scripts/check.sh` runs the same two checks locally:
+one run that matters.
+
+The dry run passes `--allow-empty`, and only for `Unreleased`. Between a
+changelog cut and the next entry that section legitimately holds nothing, and
+an empty `Unreleased` is not a broken changelog. The flag never reaches a
+tagged run, so a version section that is missing or empty still fails.
+
+`./scripts/check.sh` runs the same two checks locally:
 
 ```sh
 python3 scripts/release-notes.py --self-test
-python3 scripts/release-notes.py Unreleased
+python3 scripts/release-notes.py --allow-empty Unreleased
 ```
 
 ## What this document is not

@@ -296,16 +296,27 @@ jobs:
       # look for and reads the `Unreleased` section instead, which is what a
       # release is cut from. A changelog this cannot read therefore fails a
       # dry run rather than surfacing on a tag.
+      #
+      # The notes are not echoed to the log, because a changelog line is
+      # arbitrary text and the log is where GitHub reads workflow commands.
+      # The dry-run summary below prints them, where nothing is parsed.
       - name: Extract the release notes
         env:
+          DRY_RUN: ${{ needs.prepare.outputs.dry-run }}
           SECTION: >-
             ${{ needs.prepare.outputs.dry-run == 'true' && 'Unreleased'
             || needs.prepare.outputs.version }}
         run: |
           set -euo pipefail
           python3 scripts/release-notes.py --self-test
-          python3 scripts/release-notes.py "$SECTION" > notes.md
-          cat notes.md
+          # Between a changelog cut and the next entry the Unreleased section
+          # is legitimately empty, which must not fail a dry run. A tagged run
+          # reads a version section and still refuses a missing or empty one.
+          if [ "$DRY_RUN" = "true" ]; then
+            python3 scripts/release-notes.py --allow-empty "$SECTION" > notes.md
+          else
+            python3 scripts/release-notes.py "$SECTION" > notes.md
+          fi
       - name: Report the dry run
         if: needs.prepare.outputs.dry-run == 'true'
         env:
@@ -321,9 +332,14 @@ jobs:
             cat dist/*.sha256
             echo '```'
             echo
-            echo "The notes a release would carry, from the Unreleased section:"
-            echo
-            cat notes.md
+            if [ -s notes.md ]; then
+              echo "The notes a release would carry, from the Unreleased section:"
+              echo
+              cat notes.md
+            else
+              echo "The Unreleased section holds nothing, so a release cut now"
+              echo "would carry no notes."
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
   release:
