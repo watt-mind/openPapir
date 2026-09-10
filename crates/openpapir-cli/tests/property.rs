@@ -269,25 +269,63 @@ const COMPLETION_SEPARATOR: &str = "__subcmd__";
 
 /// Every command the completion script declares, keyed by the name a page for
 /// it is filed under, with the long flags declared for each.
+///
+/// The script holds one `case` block per command, labelled with that command,
+/// and the block sets `opts` to every flag and subcommand name the command
+/// takes. A command is entered into the map by its own label, as the label is
+/// read, so a command declares itself whether or not a later line in its block
+/// turns out to name a flag: a block whose `opts` were missed would otherwise
+/// leave the command out of the comparison altogether.
 fn declared_commands(completions: &str) -> BTreeMap<String, BTreeSet<String>> {
-    let mut declared = BTreeMap::new();
-    let mut current: Option<String> = None;
+    let mut declared: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    let mut current = String::new();
     for line in completions.lines() {
         let line = line.trim();
         if let Some(label) = line.strip_suffix(')')
             && label.starts_with("openpapir")
             && !label.contains(',')
         {
-            current = Some(label.replace(COMPLETION_SEPARATOR, "-"));
+            current = label.replace(COMPLETION_SEPARATOR, "-");
+            declared.entry(current.clone()).or_default();
         } else if let Some(list) = line
             .strip_prefix("opts=\"")
             .and_then(|list| list.strip_suffix('"'))
-            && let Some(name) = current.take()
+            && let Some(flags) = declared.get_mut(&current)
         {
-            declared.insert(name, long_flags(list.split_whitespace()));
+            flags.extend(long_flags(list.split_whitespace()));
         }
     }
     declared
+}
+
+/// Whether `name` is one of the pages clap's own `help` command mirrors.
+///
+/// clap gives every command a `help` subcommand, and gives that one a mirror
+/// of every command below its parent, so the completion script declares
+/// `openpapir-help`, `openpapir-archive-help`, `openpapir-help-case-create`
+/// and `openpapir-archive-help-check` while the man page renders a page for
+/// none of them. A mirror is therefore left out of the comparison, and it has
+/// to be shown to be one rather than assumed from the word alone: a hidden
+/// subcommand a later change names `help-topics` would carry the word too, and
+/// exempting it would hide exactly what this guard is for.
+///
+/// A name qualifies only when it can be derived from commands that are
+/// themselves declared: at the first `help` in the path, the part before it
+/// has to be a declared command, and the part after it has to be empty, or
+/// `help` again, or name a declared command under that same parent. A hidden
+/// `openpapir help-topics` fails on the last of those, because the tree holds
+/// no `openpapir topics`.
+fn is_help_mirror(name: &str, declared: &BTreeMap<String, BTreeSet<String>>) -> bool {
+    let words: Vec<&str> = name.split('-').collect();
+    let Some(at) = words.iter().position(|word| *word == "help") else {
+        return false;
+    };
+    let parent = words[..at].join("-");
+    if !declared.contains_key(&parent) {
+        return false;
+    }
+    let rest = words[at + 1..].join("-");
+    rest.is_empty() || rest == "help" || declared.contains_key(&format!("{parent}-{rest}"))
 }
 
 /// Every page the man page stream renders, keyed by its own name, with the
@@ -474,10 +512,13 @@ mod regression {
     /// they declare for it is required to be in that page.
     ///
     /// Two differences between the two are the generators' own and are not
-    /// hidden anything. `help` is clap's own command: the completions declare
-    /// it and one mirror of it under every command, and the man page renders
-    /// no page for any of them, so a command path naming `help` is left out
-    /// of the comparison. `--version` is added to every page by the
+    /// hidden anything. `help` is clap's own command, and the completions
+    /// declare it and one mirror of it under every command while the man page
+    /// renders no page for any of them, so a mirror is left out of the
+    /// comparison; `is_help_mirror` requires a name to be derivable from
+    /// commands that are themselves declared before it is left out, so a
+    /// hidden subcommand that merely carries the word, `help-topics` for one,
+    /// is compared like any other. `--version` is added to every page by the
     /// derivation itself, so that a page read on its own names the build it
     /// came from, and it is the one flag a page may carry that the definition
     /// does not declare there.
@@ -492,7 +533,7 @@ mod regression {
 
         let mut compared = 0;
         for (name, flags) in &declared {
-            if name.split('-').any(|word| word == "help") {
+            if is_help_mirror(name, &declared) {
                 continue;
             }
             let page = rendered
