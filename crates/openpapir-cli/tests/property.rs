@@ -6,9 +6,11 @@
 //! than a panic, that `details.argument` names only a flag or value this build
 //! defines, and that no token the caller typed reaches the JSON form at all:
 //! an unrecognised token may be a path, and a path is never printed
-//! (`docs/error-contract.md`). Without `--json` the parser prints its own
-//! usage text, exactly as it always has, so the property constrains the human
-//! form by its exit code alone.
+//! (`docs/error-contract.md`), and that `details.placement`, the one steer a
+//! refusal carries, holds the value the contract defines and names a flag.
+//! Without `--json` the parser prints its own usage text, with that steer
+//! after it when there is one, so the property constrains the human form by
+//! its exit code alone.
 //!
 //! The suite runs the binary rather than the module, because the walker is
 //! private to the binary crate and because the invariant is about what a
@@ -312,6 +314,20 @@ mod property {
                         prop_assert!(
                             known_names().contains(argument),
                             "details.argument named something this build does not define"
+                        );
+                    }
+                    // The steer for a flag written before its subcommand is
+                    // the one refusal that says more than the bucket, and it
+                    // says it about a flag it has already named.
+                    if let Some(placement) = error["details"]["placement"].as_str() {
+                        prop_assert_eq!(
+                            placement,
+                            "after_subcommand",
+                            "details.placement carries a value this contract does not define"
+                        );
+                        prop_assert!(
+                            error["details"]["argument"].is_string(),
+                            "a placement without the argument it is about"
                         );
                     }
                 }

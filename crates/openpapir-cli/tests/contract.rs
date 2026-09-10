@@ -155,9 +155,11 @@ fn no_token_the_recognised_command_does_not_define_reaches_the_envelope() {
         ),
         // `skill` defines neither, and a positional after `--` is a value.
         (&["skill", "--json"][..], "skill", None),
+        // A flag another subcommand defines is still not this one's to echo
+        // when it was written where a flag belongs and simply is not one.
         (
-            &["--json", "--", "import", "--archive"][..],
-            "openpapir",
+            &["case", "list", "--title", "x", "--json"][..],
+            "case.list",
             None,
         ),
     ] {
@@ -175,6 +177,89 @@ fn no_token_the_recognised_command_does_not_define_reaches_the_envelope() {
             ),
         }
     }
+}
+
+/// A flag written before the subcommand that takes it is steered rather than
+/// only refused, and the value beside it is never echoed.
+///
+/// `--archive` and `--json` are defined per subcommand rather than globally,
+/// so writing either one first is the likeliest flag-order mistake and the
+/// parser on its own can say no more than that the token was unexpected.
+#[test]
+fn a_flag_written_before_its_subcommand_is_told_where_it_belongs() {
+    // The value carries a marker no openPapir message uses, so finding it in
+    // the output would mean the output quoted the caller.
+    const VALUE: &str = "./qzmarker/archive";
+    for (args, command, argument) in [
+        (
+            &["--archive", VALUE, "case", "list", "--json"][..],
+            "openpapir",
+            "archive",
+        ),
+        (
+            &["--archive=./qzmarker/archive", "case", "list", "--json"][..],
+            "case.list",
+            "archive",
+        ),
+        (&["--json", "capabilities"][..], "capabilities", "json"),
+        (
+            &["case", "--archive", VALUE, "list", "--json"][..],
+            "case",
+            "archive",
+        ),
+        // Everything after `--` is a positional, so no subcommand is
+        // recognised at all and `--json` is still the flag written too early.
+        (
+            &["--json", "--", "import", "--archive"][..],
+            "openpapir",
+            "json",
+        ),
+    ] {
+        let output = run(args);
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "the steer is still a refusal"
+        );
+        assert!(output.stderr.is_empty(), "the JSON form writes no stderr");
+        let text = String::from_utf8(output.stdout).unwrap();
+        assert!(!text.contains("qzmarker"), "the caller's value was echoed");
+        let envelope: serde_json::Value = serde_json::from_str(text.trim()).unwrap();
+        assert_eq!(envelope["command"], command);
+        assert_eq!(envelope["error"]["code"], "usage.arguments");
+        assert_eq!(envelope["error"]["details"]["argument"], argument);
+        assert_eq!(
+            envelope["error"]["details"]["placement"], "after_subcommand",
+            "the refusal says where the flag belongs"
+        );
+        let message = envelope["error"]["message"].as_str().unwrap();
+        assert!(
+            message.contains("after the subcommand"),
+            "the human line says where the flag belongs: {message}"
+        );
+    }
+}
+
+/// Without `--json` the same steer is one added line after the parser's own
+/// usage text, naming the flag and nothing the caller typed.
+#[test]
+fn the_human_form_adds_the_steer_after_the_parsers_usage_text() {
+    let output = run(&["--archive", "./qzmarker/archive", "case", "list"]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty(), "usage text is not a result");
+    let text = String::from_utf8(output.stderr).unwrap();
+    assert!(text.contains("Usage:"), "the parser's own text is kept");
+    assert!(text.contains("--archive"), "the flag is named");
+    assert!(
+        text.contains("after the subcommand"),
+        "the human line says where the flag belongs: {text}"
+    );
+    assert!(!text.contains("qzmarker"), "the caller's value was echoed");
+
+    // A flag written where a flag belongs and still refused gains no steer.
+    let plain = run(&["capabilities", "--unknown"]);
+    let plain = String::from_utf8(plain.stderr).unwrap();
+    assert!(!plain.contains("after the subcommand"), "no false steer");
 }
 
 /// The same failures without `--json` keep the parser's own usage text, and

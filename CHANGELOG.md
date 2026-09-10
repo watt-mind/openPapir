@@ -947,6 +947,25 @@ envelope.
 
 ### Fixed
 
+- A long flag written before the subcommand that takes it is now told where it
+  belongs instead of being refused as merely unexpected. `--archive` and
+  `--json` are defined per subcommand rather than globally, so
+  `openpapir --archive <root> case list` and `openpapir --json capabilities`
+  are the likeliest flag-order mistakes and the parser on its own said no more
+  than that the token was unexpected. Both forms now add the sentence that the
+  argument belongs after the subcommand: with `--json` as the refusal's
+  `message`, alongside `details.argument` and the new `details.placement`
+  `after_subcommand`; without it as one line after the parser's own usage
+  text. The flag's name is read from the command definition, so the value
+  written beside it is never echoed, the envelope's shape and its
+  `usage.arguments` code are unchanged, and both forms still exit `2`. A flag
+  written where a flag belongs and refused anyway is unaffected.
+- `receipt add` now documents how it picks an import event when two imports of
+  the same bytes share an `imported_at`: the tie goes to the lowest
+  identifier, which is deterministic but is not necessarily the earlier import
+  or the one `import` last reported, and `--import-event` is the way to name
+  one explicitly. Behaviour is unchanged; only
+  [architecture](docs/architecture.md) is.
 - `import` no longer reads every stored import event once per file, so
   importing a directory costs the batch rather than the history behind it.
   Duplicate detection reads the import events at most once for a whole

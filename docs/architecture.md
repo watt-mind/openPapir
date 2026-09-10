@@ -719,6 +719,14 @@ writes.
   recorded, by `imported_at` and then by identifier. An artefact may have been
   imported more than once, and that history is meaningful rather than an
   anomaly. An artefact with no readable import event is `record.not_found`.
+- `imported_at` is recorded to the second, so two imports of the same bytes
+  inside one second carry the same instant. The tie is then broken by the
+  identifier and the lowest one wins. The choice is deterministic, the same on
+  every run and on every machine, but an identifier is minted rather than
+  counted, so the winner is not necessarily the earlier of the two imports and
+  not necessarily the one an earlier `import` reported. A caller that needs
+  the receipt bound to a particular import names it with `--import-event`,
+  which is the only way to say which one is meant.
 - `--label` is the user's own single line, at most 200 bytes, omitted from the
   document when absent.
 
@@ -2558,13 +2566,29 @@ in the raw arguments, because the parse that would have reported the flag is
 the one that failed, and a token after `--` is a positional value rather than
 the flag. `details.argument` names the flag or value name the parser
 complained about, and only when the recognised command or one of its parents
-defines it: an invented token, and a flag only another subcommand defines, are
-text the user typed and are never echoed. The envelope's `command` is the
-subcommand path that was recognised, or `openpapir` when none was. The
-recognition walks the raw arguments as the parser would and consumes each
-flag's value with the flag, so `case create --title list` is `case.create` and
-not `case.list`.
+defines it: an invented token is text the user typed and is never echoed. The
+envelope's `command` is the subcommand path that was recognised, or
+`openpapir` when none was. The recognition walks the raw arguments as the
+parser would and consumes each flag's value with the flag, so
+`case create --title list` is `case.create` and not `case.list`.
 `--help` and `--version` are not refusals and still exit `0`.
+
+One rejection is answered rather than only reported. `--archive` and `--json`
+are defined per subcommand rather than globally, so `openpapir --archive
+<root> case list` and `openpapir --json capabilities` are the likeliest
+flag-order mistakes, and the parser on its own says no more than that the
+token was unexpected. When the rejected token is a long flag written before
+the subcommand that defines it, or before any subcommand at all while a
+command below the recognised one defines it, both forms add the sentence that
+says the argument belongs after the subcommand: the JSON form as the refusal's
+`message`, with `details.placement` `after_subcommand` beside
+`details.argument`, and the human form as one line after the parser's own
+usage text. The flag's name is read from the command definition, so it is
+named; the value written beside it is text the user typed and is never
+echoed, and `command` still reports only what was recognised. A flag written
+where a flag belongs and refused anyway is not this: it stays the unknown
+argument it was, with no `placement` and, when only another subcommand defines
+it, no `argument` either.
 
 Every other code in [error-contract](error-contract.md) is unimplemented,
 including `lock.stale`, `path.traversal`, and `write.incomplete`.

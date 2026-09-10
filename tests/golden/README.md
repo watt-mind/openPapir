@@ -80,6 +80,7 @@ never observes what the JSON run wrote.
 | --- | --- |
 | `capabilities` | `capabilities` |
 | `usage.arguments` | `import`, with the required arguments missing |
+| `usage.flag-order` | `--archive <root> case list`, the flag written before the subcommand that takes it |
 | `archive.init` | `archive init <root>` on an existing empty directory |
 | `import.success` | `import` of the three synthetic payloads |
 | `import.duplicate` | `import` of the first payload again |

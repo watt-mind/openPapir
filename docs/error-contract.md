@@ -207,7 +207,8 @@ The `details` keys this contract defines are exactly `bucket`,
 `archive_schema_version`, `archive_path`, `argument`, `capability`,
 `cap_bytes`, `cap_count`, `conflict_count`, `count`, `digest`, `entry_count`,
 `evidence`, `expected_bytes`, `export_path`, `field`, `input_index`,
-`observed_bytes`, `observed_count`, `orphan_count`, `path_count`, `reason`,
+`observed_bytes`, `observed_count`, `orphan_count`, `path_count`, `placement`,
+`reason`,
 `read_only_restored`, `record_kind`, `reference_kind`, `referencing_record_ids`,
 `retained_count`, `rule`, `scope`, `stage`, and `supported_schema_version`. Of
 those, `evidence`, `orphan_count`, and `referencing_record_ids` belong to
@@ -218,18 +219,31 @@ key is an additive change like a new code.
 root, `export_destination` for one inside an export destination, and `input`
 for a path the user named on the command line. A new value is additive.
 
+`placement` has exactly one value, `after_subcommand`, and says that the
+argument `argument` names was written in the wrong place rather than being
+unknown. A new value is additive.
+
 ### `usage`: the invocation itself
 
 - **`usage.arguments`**: usage, not retryable. The command line is
   malformed, or a flag's value is unusable, before any archive is touched.
   Details: `bucket`, `argument` (the flag or positional name, never its
-  value). An invocation the argument parser itself rejects is this code too:
+  value), `placement`. An invocation the argument parser itself rejects is
+  this code too:
   with `--json` it is rendered as the envelope like any other refusal, and
   without `--json` the parser's own usage text is written to stderr instead.
   `argument` is then reported only when the parser named a flag or value name
-  the recognised command or one of its parents defines; a token the user
-  invented, and a flag only another subcommand defines, are text they typed,
-  so both are omitted rather than echoed. The subcommand is recognised by
+  the recognised command or one of its parents defines, or a long flag written
+  before the subcommand that defines it; a token the user
+  invented is text they typed, so it is omitted rather than echoed, and so is
+  a flag only another subcommand defines when it was written where a flag
+  belongs. A long flag written ahead of the subcommand that takes it, which
+  `--archive` and `--json` invite because they are defined per subcommand, is
+  the one rejection that gets more than the bucket: `placement` is
+  `after_subcommand`, the `message` says the argument belongs after the
+  subcommand, and the human form adds the same sentence after the parser's own
+  usage text. The name comes from the command definition; the value written
+  beside it never appears in either form. The subcommand is recognised by
   walking the raw arguments as the parser would, consuming each flag's value
   with the flag, so a value that spells a subcommand name is a value and not
   the command the envelope reports. `--help` and `--version` are not refusals: they
