@@ -33,6 +33,17 @@ envelope.
   workflow and the CI test job both call, so a pull request exercises the
   packaging on Linux, macOS, and Windows without a tag. A draft release and a
   dry-run summary list what an archive holds, printed by that same script.
+- Dependency review for the encrypted backup container, recorded as
+  Dependency review in
+  [local archive layout and storage design](docs/archive-layout.md). It states
+  the date it ran, the tool versions, and the exact commands, and records for
+  `age` 0.12.1, `chacha20poly1305` 0.11.0, `aes-gcm` 0.11.1, and `argon2`
+  0.6.0 the licence result against this repository's `deny.toml`, the build on
+  the pinned minimum toolchain, `unsafe` in each crate's own source, open
+  RustSec advisories, the release and repository activity, the transitive crate
+  count, and which features can be left off. The outcome is that no candidate
+  is admitted, with what would change that. Documentation only: no manifest,
+  lockfile, or `deny.toml` change, and no operation is added.
 - `openpapir submission show --archive <root> <submission-id> [--json]`,
   `openpapir receipt show --archive <root> <receipt-id> [--json]`, and
   `openpapir association show --archive <root> <association-id> [--json]`,

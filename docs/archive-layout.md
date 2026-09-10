@@ -653,11 +653,171 @@ Rust version this repository pins, and the `age` plugin feature must stay off,
 because the plugin path is what that crate's one advisory is about and this
 project runs no external binary. The three RustCrypto crates state a minimum
 supported Rust version of 1.85 in their READMEs, and the crates.io metadata for
-`age` 0.12.1 publishes `rust_version` 1.74. All four therefore clear the 1.88
-minimum this repository pins, so none of them would move that floor. Every row
+`age` 0.12.1 publishes `rust_version` 1.74. Every row
 above is a reading of a public repository or crates.io page taken while this
 section was written, not a standing guarantee: the review that admits a crate
-re-reads it.
+re-reads it. Dependency review below is that review, and it corrects the
+minimum-supported-version claim in this paragraph by measurement.
+
+### Dependency review
+
+This is the review the section above asked for. It was run on **2026-09-10**
+against the versions each crate published on that date. It changes no
+`Cargo.toml`, no `Cargo.lock`, and no `deny.toml` in this repository: every
+command below ran in a throwaway cargo project outside the repository, with
+this repository's `deny.toml` copied in unchanged.
+
+#### How it was run
+
+The toolchain was `cargo` 1.98.1, the pinned minimum toolchain `rustc` 1.88.0,
+and `cargo-deny` 0.20.2 with the RustSec advisory database at commit `b50980a`
+of 2026-09-09. `cargo-audit` and `cargo-geiger` were not installed on the
+machine that ran this, so advisories were read through
+`cargo deny check advisories`, which resolves against that same RustSec
+database, and `unsafe` was counted by grep over the vendored source in the
+local registry rather than by `cargo geiger`. Anyone repeating this with those
+two tools installed should get the same answers by a different route.
+
+For each candidate, in its own scratch project:
+
+```sh
+cargo new --lib <scratch> --vcs none
+cargo add <crate>@<version>
+cp <repository>/deny.toml .
+cargo tree -e normal --prefix none | tail -n +2 | sed 's/ (\*)//' | sort -u | wc -l
+cargo +1.88 check --locked
+cargo deny --all-features check
+cargo info <crate>
+grep -rn 'unsafe' ~/.cargo/registry/src/index.crates.io-*/<crate>-<version>/src --include='*.rs'
+```
+
+Release dates and repository activity were read from the crates.io and GitHub
+public APIs on the same date:
+
+```sh
+curl -sS https://crates.io/api/v1/crates/<crate>/versions
+curl -sS https://api.github.com/repos/<owner>/<repository>
+```
+
+#### What the commands reported
+
+| Crate | Version | Transitive crates | Declared `rust-version` | `cargo +1.88 check --locked` | `cargo deny check` under this repository's `deny.toml` |
+| --- | --- | --- | --- | --- | --- |
+| `age` | 0.12.1 | 136 | 1.74 | passes | advisories ok, bans ok, sources ok, **licences FAILED** |
+| `chacha20poly1305` | 0.11.0 | 18 | 1.85 | passes | all four checks ok |
+| `aes-gcm` | 0.11.1 | 21 | 1.85 | **fails as first resolved**, passes after an MSRV-aware `cargo update` | all four checks ok |
+| `argon2` | 0.6.0 | 16 | 1.85 | passes | all four checks ok |
+
+| Crate | `unsafe` in its own source | Open RUSTSEC advisories against the measured version | Last release | Repository last push, open issues and pull requests |
+| --- | --- | --- | --- | --- |
+| `age` | none; `src/lib.rs` carries `#![forbid(unsafe_code)]`. Its mandatory `age-core` 0.12.0 has one block, a `str::from_utf8_unchecked` in the header parser. | none. RUSTSEC-2024-0433 lists affected functions only under `age::plugin::` and only for lines up to 0.11.0, so 0.12.1 is outside it. | 2026-07-14 | `str4d/rage`, pushed 2026-08-20, 67 open |
+| `chacha20poly1305` | none | none | 2026-06-28 | `RustCrypto/AEADs`, pushed 2026-09-04, 33 open |
+| `aes-gcm` | none | none. RUSTSEC-2023-0096 is patched in 0.10.3 and does not reach 0.11.1. | 2026-08-21 | `RustCrypto/AEADs`, pushed 2026-09-04, 33 open |
+| `argon2` | 13 items in `block.rs`, `memory.rs`, and an AVX2 path in `lib.rs`: a zeroed allocation, raw slice reconstruction, `Send` and `Sync` impls on the block memory view, and a target-feature function | none | 2026-08-27 | `RustCrypto/password-hashes`, pushed 2026-08-27, 17 open |
+
+None of these counts constrains this repository's own no-`unsafe` rule, which
+is about code written here. They are recorded because a dependency's `unsafe`
+is code this project ships without reviewing it.
+
+#### Licences
+
+`chacha20poly1305`, `aes-gcm`, and `argon2` resolve to trees that are entirely
+MIT or Apache-2.0, and `cargo deny check licenses` accepts all three against
+the allow list `deny.toml` carries today, which is `MIT`, `Apache-2.0`, and
+`Unicode-3.0`.
+
+`age` 0.12.1 does not. Three crates on its **mandatory** path are
+BSD-3-Clause, which that allow list does not carry:
+
+| Crate | Version | Why it is in the tree |
+| --- | --- | --- |
+| `subtle` | 2.6.1 | Direct dependency of `age`, and reached again through `chacha20poly1305` 0.10.1 and `aes-gcm` 0.10.3 under `hpke`. |
+| `curve25519-dalek` | 4.1.3 | Under `x25519-dalek`. |
+| `x25519-dalek` | 2.0.1 | Direct dependency of `age`, for the X25519 recipient type. |
+
+BSD-3-Clause is OSI approved and FSF free, and `cargo deny` says so in the
+rejection, but the allow list is an explicit list and does not include it.
+
+#### Feature switches
+
+`age` 0.12.1 declares `default = []`, so `plugin` is off unless a manifest asks
+for it, as are `armor`, `async`, `cli-common`, `ssh`, and `unstable`. The
+plugin constraint the section above set is therefore satisfiable by doing
+nothing. What is not switchable is the rest: `age-core`, `hpke`, `ml-kem`,
+`p256`, `x25519-dalek`, `scrypt`, `nom`, `i18n-embed`, `i18n-embed-fl`, and
+`rust-embed` are unconditional dependencies. The passphrase mode this design
+uses touches none of the recipient stack and none of the localisation stack,
+yet all of it is compiled and shipped, and it is where the BSD-3-Clause path
+comes from. Measured with every feature off, the tree is the same 136 crates as
+with the published defaults.
+
+The three RustCrypto candidates are the opposite shape.
+`chacha20poly1305` defaults to `alloc` and `getrandom`; `aes-gcm` defaults to
+`aes`, `alloc`, and `getrandom`, and keeps its `hazmat` module, the one the
+2023 advisory concerned, behind an off-by-default feature; `argon2` defaults to
+`alloc`, `getrandom`, and `password-hash`, keeps `rayon` behind `parallel`, and
+offers `zeroize` as an opt-in, which the key handling below would want. All
+three can be taken with default features off.
+
+#### Minimum supported Rust version
+
+The section above inferred from README and crates.io metadata that all four
+clear 1.88. Measured, three do and one needs care. `aes-gcm` 0.11.1 itself
+declares 1.85, but the resolution `cargo add` produced on this date picks
+`aes` 0.9.3, which declares `rust-version` 1.89, and `cargo +1.88 check` then
+refuses the whole build. Running `cargo +1.88 update` picks `aes` 0.9.2 instead
+and the check passes. That is a lockfile pin rather than a blocker, but it is a
+standing cost: the pin has to survive every future `cargo update` until the
+repository's floor moves past 1.89.
+
+#### Recommendation
+
+**No candidate is admitted.** No manifest changes and nothing is built.
+
+The reasons, in the order they decide it:
+
+1. `age` is the only candidate that implements the container this design
+   decided, and it fails this repository's `deny.toml` as that file stands
+   today. The failure is not a feature selection that can be tightened: all
+   three BSD-3-Clause crates are unconditional. Admitting `age` is therefore
+   not a crate decision at all, it is a decision to widen the licence allow
+   list, which belongs in its own change with its own reasons rather than
+   riding along with a container choice.
+2. The advisory that the earlier table flagged is not what blocks it.
+   RUSTSEC-2024-0433 is scoped to the plugin API, `age` ships with no default
+   features, and 0.12.1 is outside the affected version ranges in any case.
+   `cargo deny check advisories` reports the whole `age` tree clean.
+3. `age` also costs 136 transitive crates for a passphrase-only use, most of
+   them a recipient stack and a localisation stack this design never calls.
+   That is a maintenance and review surface argument, not a disqualifying one,
+   and it would not by itself have refused the crate.
+4. `chacha20poly1305`, `aes-gcm`, and `argon2` clear every mechanical
+   constraint: allowed licences, no open advisory, trees of 16 to 21 crates,
+   no `unsafe` in the two AEADs, active repositories, and the features this
+   design would need. They are still not admitted, because admitting them
+   means building the container from parts, and Container format above rejects
+   that on its own grounds. Passing an audit does not reopen a design
+   decision.
+
+What would change the answer, in the order that would be easiest to act on:
+
+- A deliberate decision to add `BSD-3-Clause` to the `deny.toml` allow list,
+  argued on its own terms. With that one change, and nothing else, `age`
+  0.12.1 passes licences, advisories, bans, and sources, and builds on 1.88.
+  That is the whole gap.
+- An `age` release that makes the recipient types and the localisation stack
+  optional. It would remove the BSD-3-Clause path and most of the 136 crates
+  at once, and would leave nothing to decide.
+- A pure-Rust implementation of the age v1 container that is not `age`, under
+  an allowed licence. None was found on this date; if one appears it is
+  reviewed the same way.
+- A reversal of the Container format rejection above, which is a design
+  question and not a dependency one, and is not opened by this review.
+
+Every number in this review is a measurement taken on 2026-09-10 with the
+tool versions named above. Versions move, advisories are filed, and licence
+metadata changes, so the review that finally admits a crate re-runs these
+commands rather than citing this section.
 
 ### Key handling
 
@@ -902,7 +1062,9 @@ The discovery note left seven open questions
    backup at rest above: the backup artefact only, a standard AEAD container
    over a tarball of the export shape, a passphrase-derived key with a
    memory-hard KDF, and no key stored by openPapir. Whole-tree and per-object
-   encryption of the live archive are both rejected there. Until the design is
+   encryption of the live archive are both rejected there. The dependency
+   review that section left open has since run, and Dependency review records
+   that it admitted no candidate. Until the design is
    built the archive relies on operating-system disk encryption and owner-only
    permissions, and users must be told so plainly.
 
@@ -930,8 +1092,12 @@ tracker owns; the sequencing only is recorded here.
 - **Derived-metadata staleness and recompute-on-request** (new): **not
   implemented**. Depends on nothing further in this document.
 - **Encrypted backup at rest** (new): **not implemented**, decided above.
-  Depends on a dependency review admitting one container crate, which is the
-  only part of it this document leaves open.
+  It depended on a dependency review admitting one container crate. That
+  review ran on 2026-09-10 and is recorded in Dependency review above; its
+  outcome is that no candidate is admitted, because the one crate that
+  implements the decided container reaches three BSD-3-Clause crates that
+  `deny.toml` does not allow. The follow-up therefore stays closed until the
+  licence allow list is decided on its own terms.
 
 Unchanged blockers: receipt parsing still needs the format gap closed
 (follow-up 1), and the delegated verification boundary still needs published,
