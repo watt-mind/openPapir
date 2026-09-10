@@ -260,7 +260,7 @@ impl<'a> Chains<'a> {
 
     /// The chains whose records supersede each other in a cycle.
     ///
-    /// The walk itself is [`association::supersession_cycles`], shared with
+    /// The walk itself is `association::supersession_cycles`, shared with
     /// the integrity check so that the two agree on what a cycle is. It is
     /// given only the edges naming a stored record, because a reference no
     /// stored record answers is a dangling one rather than a cycle. Every

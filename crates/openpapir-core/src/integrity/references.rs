@@ -153,7 +153,7 @@ impl References {
 
     /// How many `supersedes` cycles the stored association records form.
     ///
-    /// The walk is [`association::supersession_cycles`], shared with the
+    /// The walk is `association::supersession_cycles`, shared with the
     /// deletion planner so that the two agree on what a cycle is. The keys
     /// this pass holds are record identifiers, so a cycle here is counted
     /// wherever it sits rather than tied to any one command.
