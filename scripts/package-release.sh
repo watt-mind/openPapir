@@ -94,8 +94,17 @@ readonly DESCRIBE_WIDTH=76
 # the repository wraps at. The break is at a space and nowhere else, so a
 # backticked path is never split, and a word longer than the width stands on
 # its own line rather than being cut.
+#
+# Splitting the input into words is what asks for a glob character in it to be
+# left alone, so pathname expansion is turned off around the loop and put back
+# the way it was found rather than switched on unconditionally: this function
+# is a detail of one sentence and settles nothing for the rest of the script.
 fold_prose() {
-  local word line=""
+  local word line="" globbing=""
+  case "$-" in
+    *f*) ;;
+    *) globbing="+f" ;;
+  esac
   set -f
   # shellcheck disable=SC2013 # the input is prose, so word splitting is wanted.
   for word in $(cat); do
@@ -108,7 +117,7 @@ fold_prose() {
       line="$word"
     fi
   done
-  set +f
+  [ -z "$globbing" ] || set "$globbing"
   [ -z "$line" ] || printf '%s\n' "$line"
 }
 
