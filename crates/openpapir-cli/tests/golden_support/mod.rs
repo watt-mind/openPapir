@@ -288,6 +288,24 @@ impl World {
         self.json(&arguments);
     }
 
+    /// Retire the receipt's live association, withdrawing what it asserted.
+    ///
+    /// The retired record stays exactly where it is; only the head of the
+    /// chain changes, which is how a user withdraws an assertion.
+    pub fn retire_live_association(&self) {
+        let mut listing = self.command(&["association", "list"]);
+        listing.extend(["--receipt".to_owned(), self.receipt_id.clone()]);
+        let history = self.json(&listing);
+        let live = text(&history["data"]["associations"][0]["id"]);
+        let mut arguments = self.command(&["association", "retire"]);
+        arguments.extend([
+            live,
+            "--reason".to_owned(),
+            "The reference turned out to name another case.".to_owned(),
+        ]);
+        self.json(&arguments);
+    }
+
     /// The deletion of the one case, with or without a purge.
     #[must_use]
     pub fn delete_arguments(&self, purge: bool) -> Vec<String> {
@@ -393,6 +411,17 @@ fn write_inputs(root: &Path) -> Vec<PathBuf> {
 pub fn record_window_submissions(world: &World) {
     world.add_dated_submission("Sent the first reminder.", ELAPSED_DATE);
     world.add_dated_submission("Sent the second reminder.", OPEN_DATE);
+}
+
+/// The same world, with the receipt's live association retired.
+///
+/// The candidate record that named the first submission is superseded by the
+/// retirement, so the chain's live head asserts nothing and the submission is
+/// reminded of again. The retired record is untouched and `association list`
+/// still shows it.
+pub fn retire_the_live_association(world: &World) {
+    record_window_submissions(world);
+    world.retire_live_association();
 }
 
 /// The date every window in the summary case is measured against.

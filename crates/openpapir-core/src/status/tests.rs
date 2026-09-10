@@ -46,6 +46,7 @@ fn association(outcome: &str, submission_id: &str) -> Association {
         outcome: outcome.to_owned(),
         receipt_id: "b".repeat(32),
         record_kind: crate::records::association::KIND.to_owned(),
+        statement: None,
         submission_id: (outcome == "associated").then(|| submission_id.to_owned()),
         supersedes: None,
     }
@@ -108,6 +109,72 @@ fn only_an_associated_or_candidate_outcome_takes_a_submission_off_the_list() {
             "outcome {outcome} decides the reminder"
         );
     }
+}
+
+/// Retracting an assertion brings the reminder back. Only the live head of a
+/// supersession chain says what the user asserts today; the superseded record
+/// stays readable and is simply no longer read here.
+#[test]
+fn a_superseded_association_no_longer_takes_a_submission_off_the_list() {
+    let id = "1".repeat(32);
+    let submissions = [submission(&id, Some("2026-01-20"))];
+    let mut asserted = association("associated", &id);
+    asserted.id = "c".repeat(32);
+    let mut retraction = association("unassociated", &id);
+    retraction.candidates.clear();
+    retraction.submission_id = None;
+    retraction.id = "d".repeat(32);
+    retraction.supersedes = Some(asserted.id.clone());
+
+    let live_only = [asserted.clone()];
+    assert!(
+        reminders(
+            &submissions,
+            &named_submissions(&live_only),
+            days_of("2026-02-10")
+        )
+        .0
+        .is_empty(),
+        "a live assertion still ends the reminder"
+    );
+
+    let retracted = [asserted, retraction];
+    let named = named_submissions(&retracted);
+    assert!(named.is_empty(), "the superseded record is not read");
+    assert_eq!(
+        reminders(&submissions, &named, days_of("2026-02-10"))
+            .0
+            .len(),
+        1,
+        "retracting the assertion brings the reminder back"
+    );
+}
+
+/// A chain of three: only the last record is read, whatever the two it
+/// supersedes said.
+#[test]
+fn only_the_live_head_of_a_supersession_chain_is_read() {
+    let id = "1".repeat(32);
+    let submissions = [submission(&id, Some("2026-01-20"))];
+    let mut first = association("unassociated", &id);
+    first.candidates.clear();
+    first.submission_id = None;
+    first.id = "c".repeat(32);
+    let mut second = association("associated", &id);
+    second.id = "d".repeat(32);
+    second.supersedes = Some(first.id.clone());
+    let mut third = association("candidate", &id);
+    third.id = "e".repeat(32);
+    third.supersedes = Some(second.id.clone());
+
+    let chain = [first, second, third];
+    let named = named_submissions(&chain);
+    assert_eq!(named.len(), 1, "the live candidate names the submission");
+    assert!(
+        reminders(&submissions, &named, days_of("2026-02-10"))
+            .0
+            .is_empty()
+    );
 }
 
 #[test]
@@ -177,6 +244,77 @@ fn an_absent_as_of_is_the_clock_s_own_date() {
     let today = checked_as_of(None).unwrap();
     assert_eq!(today, clock::today());
     assert_eq!(checked_as_of(Some("")).unwrap(), today);
+}
+
+/// The same retraction, through the real records rather than built ones.
+#[test]
+fn a_retracted_assertion_brings_the_reminder_back_in_a_real_archive() {
+    let root = tempfile::tempdir().unwrap();
+    archive::init(root.path()).unwrap();
+    let inputs = tempfile::tempdir().unwrap();
+    let input = inputs.path().join("alpha.txt");
+    std::fs::write(&input, b"synthetic alpha\n").unwrap();
+    let imported = crate::archive::import::import(root.path(), &[input])
+        .unwrap()
+        .data;
+    let digest = imported.artefacts[0].digest.clone();
+    let case = case::create(root.path(), "Tax matter", None)
+        .unwrap()
+        .data
+        .case;
+    let recorded = crate::records::submission::add(
+        root.path(),
+        &case.id,
+        "Posted the completed form.",
+        Some("2026-01-20"),
+        std::slice::from_ref(&digest),
+    )
+    .unwrap()
+    .data
+    .submission;
+    let receipt = crate::records::receipt::add(root.path(), &digest, None, None)
+        .unwrap()
+        .data
+        .receipt;
+
+    let asserted = crate::records::association::create(
+        root.path(),
+        &receipt.id,
+        "associated",
+        &[format!(
+            "{}:strong:The case number is the same.",
+            recorded.id
+        )],
+        None,
+    )
+    .unwrap()
+    .data
+    .association;
+    assert!(
+        status(root.path(), Some("2026-02-10"))
+            .unwrap()
+            .data
+            .receipts_to_retrieve
+            .is_empty(),
+        "a live assertion ends the reminder"
+    );
+
+    crate::records::association::create(
+        root.path(),
+        &receipt.id,
+        "unassociated",
+        &[],
+        Some(&asserted.id),
+    )
+    .unwrap();
+    let summary = status(root.path(), Some("2026-02-10")).unwrap().data;
+    assert_eq!(summary.associations, 2, "history keeps both records");
+    assert_eq!(
+        summary.receipts_to_retrieve.len(),
+        1,
+        "the retraction brings the reminder back"
+    );
+    assert_eq!(summary.receipts_to_retrieve[0].submission_id, recorded.id);
 }
 
 #[test]

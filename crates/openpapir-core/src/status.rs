@@ -190,16 +190,25 @@ fn checked_as_of(value: Option<&str>) -> std::result::Result<String, Diagnostic>
     }
 }
 
-/// Every submission an `associated` or `candidate` association names.
+/// Every submission a live `associated` or `candidate` association names.
 ///
-/// Superseded records count. Association history is append-only and is never
-/// collapsed or filtered anywhere in openPapir, and the reminder errs towards
-/// silence: once the user has recorded that a receipt may relate to a
-/// submission, openPapir stops reminding them to go and look for one.
+/// Only the live head of each supersession chain is read. A record another
+/// record supersedes is history: it is never modified, never removed, and
+/// `association list` still shows it, but it no longer says what the user
+/// asserts today. So a user who retracts an `associated` assertion by
+/// superseding it with an `unassociated` one gets the reminder back, which is
+/// the whole point of being able to retract one.
 fn named_submissions(associations: &[Association]) -> BTreeSet<&str> {
+    let superseded: BTreeSet<&str> = associations
+        .iter()
+        .filter_map(|association| association.supersedes.as_deref())
+        .filter(|id| !id.is_empty())
+        .collect();
     let mut named = BTreeSet::new();
     for association in associations {
-        if !NAMING_OUTCOMES.contains(&association.outcome.as_str()) {
+        if superseded.contains(association.id.as_str())
+            || !NAMING_OUTCOMES.contains(&association.outcome.as_str())
+        {
             continue;
         }
         if let Some(submission_id) = association.submission_id.as_deref() {
@@ -265,7 +274,16 @@ fn usable_date(stated: Option<&str>) -> Option<String> {
 }
 
 /// The day count of a value already checked as a calendar date.
+///
+/// Every caller has run the value through [`usable_date`] or
+/// [`checked_as_of`] first, so the precondition is asserted rather than
+/// re-checked: an unchecked value reaching here is a bug in this module, not
+/// input to be interpreted.
 fn days_of(date: &str) -> i64 {
+    debug_assert!(
+        submission::is_calendar_date(date),
+        "days_of is only ever given a checked calendar date"
+    );
     let part = |range: std::ops::Range<usize>| {
         date.get(range)
             .and_then(|part| part.parse::<i64>().ok())

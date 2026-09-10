@@ -87,10 +87,11 @@ page's last update.
   [architecture and CLI contract](architecture.md) documents: implemented.
 - The receipt-retrieval reminder (`archive status`) summarises what the
   archive holds and lists the submissions that carry a user-supplied date and
-  that no association names as associated or a candidate, each with the date
-  by which the receipt would have to be retrieved from the delivery storage,
-  so that the user can decide for themselves what to fetch; submissions
-  carrying no usable date are counted rather than listed. It is gated on the
+  that no live association names as associated or a candidate, each with the
+  date by which the receipt would have to be retrieved from the delivery
+  storage, so that the user can decide for themselves where to look;
+  submissions carrying no usable date are counted rather than listed. It is
+  gated on the
   operator's own descriptive statement that the storage retains incoming
   documents for 30 days ([receipt evidence and local case model
   decisions](receipt-discovery.md), source E1, retrieved 2026-09-09), which

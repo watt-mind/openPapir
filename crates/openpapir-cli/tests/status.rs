@@ -257,6 +257,75 @@ fn an_association_naming_a_submission_takes_it_off_the_list() {
     );
 }
 
+/// `association retire` supersedes the live record with one claiming nothing,
+/// so the submission is reminded of again. The retired record stays in the
+/// history exactly as it was written.
+#[test]
+fn retiring_an_association_brings_the_reminder_back() {
+    let (_home, root, digests) = archive();
+    let case_id = case(&root);
+    let submission_id = submission(&root, &case_id, Some(OPEN_DATE));
+    let added = stdout_json(&run(&[
+        "receipt",
+        "add",
+        "--archive",
+        &path(&root),
+        "--artefact",
+        &digests[1],
+        "--json",
+    ]));
+    let receipt_id = added["data"]["receipt"]["id"]
+        .as_str()
+        .expect("a recorded receipt has an identifier")
+        .to_owned();
+    let asserted = stdout_json(&run(&[
+        "association",
+        "create",
+        "--archive",
+        &path(&root),
+        "--receipt",
+        &receipt_id,
+        "--outcome",
+        "associated",
+        "--candidate",
+        &format!("{submission_id}:strong:The case number is the same."),
+        "--json",
+    ]));
+    let asserted_id = asserted["data"]["association"]["id"]
+        .as_str()
+        .expect("a recorded association has an identifier")
+        .to_owned();
+    assert_eq!(
+        status_json(&root)["data"]["receipts_to_retrieve"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0,
+        "a live assertion ends the reminder"
+    );
+
+    assert!(
+        run(&[
+            "association",
+            "retire",
+            "--archive",
+            &path(&root),
+            &asserted_id,
+            "--reason",
+            "The reference turned out to name another case.",
+            "--json",
+        ])
+        .status
+        .success()
+    );
+
+    let data = status_json(&root)["data"].clone();
+    assert_eq!(data["associations"], 2, "history keeps the retired record");
+    let listed = data["receipts_to_retrieve"].as_array().unwrap();
+    assert_eq!(listed.len(), 1, "the retirement brings the reminder back");
+    assert_eq!(listed[0]["submission_id"], submission_id.as_str());
+}
+
 #[test]
 fn the_list_is_ordered_by_the_date_the_window_closes() {
     let (_home, root, _digests) = archive();
@@ -354,10 +423,11 @@ fn the_output_carries_no_user_text_and_no_path() {
     }
 }
 
-/// The human form never words a reminder as delivery, receipt by an
-/// authority, or legal effect.
+/// The human form words a reminder as somewhere to look rather than
+/// something that is there, and never as delivery, receipt by an authority,
+/// or legal effect.
 #[test]
-fn the_human_form_words_a_reminder_as_a_reminder_to_fetch() {
+fn the_human_form_words_a_reminder_as_somewhere_to_look() {
     let (_home, root, _digests) = archive();
     let case_id = case(&root);
     submission(&root, &case_id, Some(OPEN_DATE));
@@ -378,9 +448,9 @@ fn the_human_form_words_a_reminder_as_a_reminder_to_fetch() {
         "the human form reports no error; Windows adds platform warnings here"
     );
     let text = stdout_text(&output);
-    assert!(text.contains("fetch a submission receipt from the delivery storage"));
+    assert!(text.contains("look for a submission receipt in the delivery storage"));
     assert!(text.contains("30-day window the operator describes"));
-    assert!(text.contains("fetch by 2026-02-19, 9 day(s) left."));
+    assert!(text.contains("look by 2026-02-19, 9 day(s) left."));
     assert!(text.contains("changed nothing"));
     for forbidden in ["was delivered to", "legally", "verified", "authentic"] {
         assert!(!text.contains(forbidden), "no claim of {forbidden}");

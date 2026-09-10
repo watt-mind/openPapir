@@ -26,16 +26,21 @@ envelope.
 
 - `openpapir archive status --archive <root> [--as-of <yyyy-mm-dd>] [--json]`
   (operation `archive.status`) summarises one archive without changing it and
-  reminds the user which submission receipts are still worth fetching from
-  their delivery storage. `data` carries `as_of`, the counts `cases`,
+  reminds the user where to look in their delivery storage for a submission
+  receipt while the operator says one would still be there. `data` carries
+  `as_of`, the counts `cases`,
   `submissions`, `receipts`, `associations`, and `stored_objects`,
   `undated_submissions`, `retention_window_days`, and
   `receipts_to_retrieve[]`, each entry with `case_id`, `submission_id`,
   `submission_date`, `retrieve_by`, and `days_left`, ordered by `retrieve_by`
   and then by identifier. A submission is listed when it carries a
-  user-supplied date, no association with outcome `associated` or `candidate`
-  names it, and its date plus the window is on or after the as-of date; the
-  last day of the window still counts as open. A submission with no usable
+  user-supplied date, no live association with outcome `associated` or
+  `candidate` names it, and its date plus the window is on or after the as-of
+  date; the last day of the window still counts as open. Live means the head
+  of the supersession chain: a superseded record stays in the history and is
+  still returned by `association list`, but it no longer says what the user
+  asserts today, so `association retire` on an `associated` record withdraws
+  the assertion and the reminder comes back. A submission with no usable
   date is counted and never listed. `--as-of` is validated exactly as
   `submission add --date` is, defaults to the clock's own date, and accepts a
   past or future date as a what-if; an unusable one is `usage.arguments` with
@@ -52,8 +57,9 @@ envelope.
   operations states eighteen.
 - `tests/golden/archive.status/` pins the JSON and human output of the summary
   against a fixture holding one submission whose window has elapsed, one whose
-  window is open, one a candidate association already names, and one with no
-  date.
+  window is open, one a live candidate association already names, and one with
+  no date. `tests/golden/archive.status.retired/` pins the same fixture with
+  that candidate record retired, where the submission is reminded of again.
 - `.github/workflows/release.yml` builds the release artefacts described in
   `docs/releasing.md`: prebuilt binaries for `x86_64-unknown-linux-musl`,
   `aarch64-unknown-linux-musl`, `aarch64-apple-darwin`, `x86_64-apple-darwin`,
@@ -135,7 +141,7 @@ envelope.
 - `capabilities` now lists `skill` as the fifteenth operation. It is the one
   operation that touches no archive, and it is reported there so that a
   machine caller learns of it from the same list as every other operation.
-- `tests/golden/` pins the output of twenty-four invocations, in both the JSON
+- `tests/golden/` pins the output of twenty-six invocations, in both the JSON
   and the human form, with both streams and the exit code of each. The harness
   is `crates/openpapir-cli/tests/golden.rs`; it builds every archive from
   constants, normalises the four values that legitimately move between runs

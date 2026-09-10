@@ -120,7 +120,7 @@ each. All but the last can process input:
   takes no lock, changes nothing, and a passing check is storage integrity
   rather than authenticity.
 - `archive status` summarises what the archive holds and lists the
-  submissions whose receipt is still worth fetching from the delivery storage
+  submissions to look for a submission receipt in the delivery storage for,
   inside the 30-day window the operator's help page describes. It takes no
   lock, changes nothing, and states no delivery, no receipt by an authority,
   and no legal effect.

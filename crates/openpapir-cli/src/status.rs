@@ -1,15 +1,15 @@
 //! The `archive status` subcommand: what the archive holds, and what is left
-//! to fetch.
+//! to look for.
 //!
 //! This module holds the invocation and its human lines. The summary itself,
 //! the retention window, and the rule about which submissions are reminded of
 //! live in `openpapir_core::status`.
 //!
-//! The wording here is a reminder to go and retrieve a submission receipt
-//! from the delivery storage while the operator says it is still there. It is
-//! never a statement that anything was delivered, that a receipt exists, that
-//! one was received by an authority, or that any legal effect followed.
-//! openPapir opens no mailbox and checks no service.
+//! The wording here is a reminder to go and look in the delivery storage for
+//! a submission receipt while the operator says one would still be there. It
+//! never presupposes that a receipt exists, and it is never a statement that
+//! anything was delivered, that one was received by an authority, or that any
+//! legal effect followed. openPapir opens no mailbox and checks no service.
 
 use std::path::PathBuf;
 
@@ -64,14 +64,14 @@ pub fn lines(summary: &Summary) -> Vec<String> {
             summary.undated_submissions
         ),
         format!(
-            "Reminder(s) to fetch a submission receipt from the delivery storage while the {}-day window the operator describes is open: {}.",
+            "Reminder(s) to look for a submission receipt in the delivery storage while the {}-day window the operator describes is open: {}.",
             summary.retention_window_days,
             summary.receipts_to_retrieve.len()
         ),
     ];
     for reminder in &summary.receipts_to_retrieve {
         lines.push(format!(
-            "case {}, submission {}, stated {}, fetch by {}, {} day(s) left.",
+            "case {}, submission {}, stated {}, look by {}, {} day(s) left.",
             reminder.case_id,
             reminder.submission_id,
             reminder.submission_date,

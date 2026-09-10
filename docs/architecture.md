@@ -871,8 +871,9 @@ with the codes `archive init` and `import` already use, and `data` is then
 ## `archive status`
 
 `openpapir archive status --archive <root> [--as-of <yyyy-mm-dd>]` summarises
-what the archive holds and reminds the user which submission receipts are
-still worth fetching from their delivery storage. It is read-only exactly as
+what the archive holds and reminds the user where to look in their delivery
+storage for a submission receipt while the operator says one would still be
+there. It is read-only exactly as
 `archive check` is: no writer lock is taken, so a held lock never stops it, no
 missing layout directory is created, no directory entry is flushed, and
 nothing inside the root is written, renamed, or removed. It reads no artefact
@@ -890,24 +891,29 @@ the window, does not read any mailbox, and does not check any service: a
 reminder here is arithmetic over the date the user typed themselves and the
 operator's own published description of their storage, and nothing else.
 
-A reminder therefore says one thing: go and fetch a file from the delivery
-storage while the operator says it is still there. It never states that
-anything was delivered, that a receipt exists, that one was received by an
-authority, or that any legal effect followed. The human wording is bound by
-that rule as tightly as the JSON is.
+A reminder therefore says one thing: go and look in the delivery storage
+while the operator says a submission receipt would still be there. It does not
+presuppose that one is there, and it never states that anything was delivered,
+that a receipt exists, that one was received by an authority, or that any
+legal effect followed. The human wording is bound by that rule as tightly as
+the JSON is.
 
 ### What is listed
 
 A submission is listed in `receipts_to_retrieve` when all three hold:
 
 1. It carries a date the user supplied, which is a `YYYY-MM-DD` calendar date.
-2. No association with outcome `associated` or `candidate` names it, either as
-   its confirmed submission or as one of its candidates. `unassociated` and
-   `contradictory` do not take a submission off the list: neither ties a
-   receipt to it. Superseded association records count like any other, because
-   openPapir never collapses association history, and the reminder errs
-   towards silence: once the user has recorded that a receipt may relate to a
-   submission, openPapir stops reminding them to go and look for one.
+2. No **live** association with outcome `associated` or `candidate` names it,
+   either as its confirmed submission or as one of its candidates.
+   `unassociated` and `contradictory` do not take a submission off the list:
+   neither ties a receipt to it. Only the live head of each supersession chain
+   is read, that is, every record no other record supersedes. A superseded
+   record is history: it is never modified, never removed, and
+   `association list` still shows the whole chain, but it no longer says what
+   the user asserts today. So a user who withdraws an `associated` assertion,
+   with [`association retire`](#association-retire) or by superseding it
+   themselves, is reminded of that submission again, which is the point of
+   being able to withdraw one.
 3. Its date plus the window is on or after the as-of date. The last day of the
    window still counts as open, so `days_left` is then `0`.
 
@@ -966,8 +972,8 @@ no path. Human output prints the same figures in the same order and no path.
 ```text
 As of 2026-02-10. Case(s): 1. Submission(s): 4. Receipt(s): 1. Association(s): 2. Stored object(s): 3.
 Submission(s) with no usable date: 1.
-Reminder(s) to fetch a submission receipt from the delivery storage while the 30-day window the operator describes is open: 1.
-case <id>, submission <id>, stated 2026-01-20, fetch by 2026-02-19, 9 day(s) left.
+Reminder(s) to look for a submission receipt in the delivery storage while the 30-day window the operator describes is open: 1.
+case <id>, submission <id>, stated 2026-01-20, look by 2026-02-19, 9 day(s) left.
 ```
 
 The summary always completes its stated work, so it exits `0` with `ok`

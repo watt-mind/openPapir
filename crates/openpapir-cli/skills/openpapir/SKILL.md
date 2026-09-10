@@ -339,7 +339,7 @@ precedence: `path.symlink`, `record.malformed`, `integrity.digest_mismatch`,
 the name, or the digest of a damaged object. Report the counts and the code,
 and never invent which file it was.
 
-### 8. See what is in the archive, and what is left to fetch
+### 8. See what is in the archive, and what is left to look for
 
 ```sh
 openpapir archive status --archive ./archive --json
@@ -356,20 +356,25 @@ asks what is outstanding. It is read-only in the same sense as
 `submission_date`, `retrieve_by`, and `days_left`, ordered by `retrieve_by`.
 `cases` is a total: a case record carries no status field in this build.
 
-A submission is listed when it carries a user-supplied date, no association
-with outcome `associated` or `candidate` names it, and its date plus the
-window is on or after the as-of date. `days_left` `0` is the last open day.
-Submissions with no usable date are counted in `undated_submissions` and never
-listed. `--as-of` is `YYYY-MM-DD`, defaults to today, and accepts a past or
-future date as a what-if; an unusable one is `usage.arguments` with `argument`
-`as_of`.
+A submission is listed when it carries a user-supplied date, no live
+association with outcome `associated` or `candidate` names it, and its date
+plus the window is on or after the as-of date. Live means the head of the
+supersession chain: a record another record supersedes is still in the history
+and is still returned by `association list`, but it no longer says what the
+user asserts today, so `association retire` on an `associated` record
+withdraws the assertion and the reminder comes back.
+`days_left` `0` is the last open day. Submissions with no usable date are
+counted in `undated_submissions` and never listed. `--as-of` is `YYYY-MM-DD`,
+defaults to today, and accepts a past or future date as a what-if; an unusable
+one is `usage.arguments` with `argument` `as_of`.
 
 The 30-day window is the operator's own published description of the personal
 delivery storage, retrieved 2026-09-09, and it is descriptive rather than a
-rule openpapir applies. Report an entry as a reminder to go and fetch a
-submission receipt from the delivery storage while the operator says it is
-still there. Never report it as a deadline openpapir enforces, as proof that a
-receipt exists, as delivery, as receipt by an authority, or as legal effect,
+rule openpapir applies. Report an entry as a reminder to go and look in the
+delivery storage for a submission receipt while the operator says one would
+still be there, never as a statement that one is there. Never report it as a
+deadline openpapir enforces, as proof that a receipt exists, as delivery, as
+receipt by an authority, or as legal effect,
 and never claim openpapir looked in any mailbox or checked any service. It
 read the local archive and did arithmetic on the date the user typed.
 
