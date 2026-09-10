@@ -102,7 +102,9 @@ the kind of that claim.
   rather than by the decree, and § 133(4) requires the provider to make
   available to the submitter, or to deliver by the secure delivery rules, a
   confirmation evidencing at least the lodging of the submission, its point in
-  time, and its content. § 12(1) lists the alternative conditions under which
+  time, and its content. § 133(4) also names the event that confirmation is
+  issued about: the delivery of the submission or of the reply to it, or the
+  failure of that delivery. § 12(1) lists the alternative conditions under which
   an electronic document counts as authentic, one of which is an advanced
   electronic signature or seal plus, where prescribed, a time stamp.
 - Kind: Normative.
@@ -269,6 +271,13 @@ Established (with the labels above):
   lodging, its point in time, and its content (E2 § 133(4), normative). This
   is an information minimum, not a format: it says what the confirmation must
   evidence and nothing about how the bytes carry it.
+- The decree names the event that same confirmation is issued about: the
+  delivery of the submission or of the reply to it, or the failure of that
+  delivery (E2 § 133(4), normative). This is recorded as a statement about what
+  the decree requires of the service provider, and it is explicitly not a claim
+  about any artefact openPapir stores. openPapir reads no mailbox, contacts no
+  service, and asserts nothing about whether a file it holds was delivered, was
+  received by an authority, or carries any legal effect.
 - Attachment formats and the size limit for an e-Papír submission are set by
   the service provider, not by the decree (E2 § 133(2), normative), so E1's
   format list and its 25 MB figure are operator policy and may change without
@@ -277,10 +286,10 @@ Established (with the labels above):
   not one (E6, descriptive, for one authority's channel), and in that channel
   each of them carries the same reference number back to the submitted item
   (E6, descriptive).
-- The candidate receipt type in focus is not described anywhere consulted as
-  part of the machine-interface packaging path: E5 describes only how an
-  outbound submission is assembled and packed, and names no confirmation
-  (E5, descriptive).
+- E5 describes only the outbound assembly and packing path and names no
+  confirmation (E5, descriptive). This is established for E5 alone. It says
+  nothing about what any other source describes, and nothing about the
+  candidate receipt type beyond that one source.
 
 Not established, and must not be assumed:
 
