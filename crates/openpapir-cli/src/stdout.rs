@@ -1,9 +1,9 @@
 //! Writing one generated document to stdout, and nothing else.
 //!
-//! `completions` and `manpage` both hand the caller a document rather than a
-//! result: there is no envelope to render and nothing to report in two forms.
-//! What they share is the destination and its failure rule, which lives here
-//! so neither command carries its own copy of it.
+//! `skill`, `completions` and `manpage` each hand the caller a document rather
+//! than a result: there is no envelope to render and nothing to report in two
+//! forms. What they share is the destination and its failure rule, which lives
+//! here so no command carries its own copy of it.
 //!
 //! The rule is the one `skill` documents. The documented install path is a
 //! redirection, so a destination that cannot take the bytes is a failure of
@@ -87,7 +87,7 @@ mod tests {
         }
     }
 
-    /// Write a fixed document, as either command's renderer does.
+    /// Write a fixed document, as any of the commands' renderers does.
     fn render(out: &mut dyn Write) -> io::Result<()> {
         out.write_all(b"generated")
     }
@@ -102,7 +102,9 @@ mod tests {
     }
 
     /// A reader that closed the pipe asked for exactly this and gets it: the
-    /// command reports success and the exit code does not move.
+    /// command reports success and the exit code does not move. This is
+    /// `openpapir skill | head -3` and its equivalent for either generated
+    /// document.
     #[test]
     fn a_closed_reader_is_not_a_failure_of_the_command() {
         let outcome = write_document(&mut Refusing(ErrorKind::BrokenPipe), render);
@@ -124,10 +126,13 @@ mod tests {
                 kind,
                 "the kind is reported as it came back"
             );
-            assert_eq!(
-                exit_code("completion script", Err(io::Error::new(kind, ""))),
-                WRITE_BUCKET_EXIT
-            );
+            for document in ["completion script", "man page", "skill document"] {
+                assert_eq!(
+                    exit_code(document, Err(io::Error::new(kind, ""))),
+                    WRITE_BUCKET_EXIT,
+                    "every document the path writes fails the same way"
+                );
+            }
         }
     }
 
