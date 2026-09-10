@@ -184,7 +184,7 @@ fn archive_cases() -> Vec<Case> {
     ]
 }
 
-/// The cases that copy one case out of the archive and read it back in.
+/// The cases that copy an archive, or one case of it, outward and back in.
 fn transfer_cases() -> Vec<Case> {
     vec![
         Case {
@@ -222,6 +222,28 @@ fn transfer_cases() -> Vec<Case> {
                     "--to".to_owned(),
                     world.export_destination(),
                 ]);
+                arguments
+            },
+        },
+        Case {
+            name: "archive.export",
+            stage: Stage::Associated,
+            second_submission: false,
+            prepare: ready,
+            arguments: |world| {
+                let mut arguments = world.command(&["archive", "export"]);
+                arguments.extend(["--to".to_owned(), world.export_destination()]);
+                arguments
+            },
+        },
+        Case {
+            name: "archive.import",
+            stage: Stage::Associated,
+            second_submission: false,
+            prepare: golden_support::export_whole_and_purge,
+            arguments: |world| {
+                let mut arguments = world.command(&["archive", "import"]);
+                arguments.extend(["--from".to_owned(), world.export_destination()]);
                 arguments
             },
         },

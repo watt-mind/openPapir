@@ -9,8 +9,8 @@ into a content-addressed store that preserves the original bytes, organises
 what it holds into cases and submissions, records receipts together with the
 user's own assertions about whether a receipt relates to a submission, checks
 a whole archive against what its records claim without changing anything,
-copies one case out of the archive as plain files and reads such a copy back
-in, keeps a case record current, narrows a restored archive's permissions back
+copies one case, or a whole archive, out as plain files and reads such a copy
+back in, keeps a case record current, narrows a restored archive's permissions back
 to owner-only, deletes a case when asked, removing stored bytes only on an
 explicit `--purge`, writes the agent skill document it carries, and generates
 its own shell completions and man page. Automatic matching, derived metadata,
@@ -49,6 +49,8 @@ cargo run --locked -p openpapir-cli -- archive check --archive ./my-archive --js
 cargo run --locked -p openpapir-cli -- archive status --archive ./my-archive --json
 cargo run --locked -p openpapir-cli -- case export --archive ./my-archive --case <case-id> --to ./my-export --json
 cargo run --locked -p openpapir-cli -- case import --archive ./my-archive --from ./my-export --json
+cargo run --locked -p openpapir-cli -- archive export --archive ./my-archive --to ./my-archive-export --json
+cargo run --locked -p openpapir-cli -- archive import --archive ./my-archive --from ./my-archive-export --json
 cargo run --locked -p openpapir-cli -- archive repair-permissions --archive ./my-archive --json
 cargo run --locked -p openpapir-cli -- case delete --archive ./my-archive --case <case-id> --purge --json
 cargo run --locked -p openpapir-cli -- skill
@@ -91,6 +93,8 @@ The capabilities command reports the current implementation honestly:
       "association.show",
       "completions",
       "manpage"
+      "archive.export",
+      "archive.import"
     ]
   },
   "verified": false
@@ -153,6 +157,12 @@ each. All but the last three can process input:
   export's manifest before anything is written; a record keeps the identifier
   it had, an object or a record already there is not an error, and importing
   one export twice leaves the same archive.
+- `archive export` copies the whole archive out in the same shape, every
+  object and every record of every kind, with the archive marker beside the
+  manifest so the schema version travels with the copy.
+- `archive import` reads such a copy back, restoring every case in it as one
+  set: all of it or none of it. Each import reads its own kind of export and
+  refuses the other's.
 - `archive repair-permissions` narrows a restored archive back to owner-only;
   it never widens anything.
 - `case delete` is the one destructive command: it removes a case and its
@@ -309,6 +319,6 @@ the documents are kept correct, and [security](SECURITY.md). The
 decision waits on, and its fifth milestone, the local organiser, records the
 order of the remaining local work: restoring from an export, case lifecycle
 and search, the receipt-retrieval reminder, the entangled-deletion remedy,
-generative testing, a release pipeline, completions and man pages, a user
-guide, a whole-archive export, derived metadata on explicit request, and
+generative testing, a whole-archive export, a release pipeline, completions
+and man pages, a user guide, derived metadata on explicit request, and
 encrypted backup at rest.

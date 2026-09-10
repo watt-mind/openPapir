@@ -19,6 +19,11 @@
 //! - `openpapir archive status --archive <root> [--as-of <yyyy-mm-dd>]
 //!   [--json]`, the read-only summary of what the archive holds and which
 //!   submission receipts are still worth fetching from the delivery storage.
+//! - `openpapir archive export --archive <root> --to <dir> [--json]`, a plain
+//!   copy of the whole archive out of it, with the archive marker beside the
+//!   manifest so the schema version travels with the copy.
+//! - `openpapir archive import --archive <root> --from <dir> [--json]`, that
+//!   same copy read back in, all of it or none of it.
 //! - `openpapir archive repair-permissions --archive <root> [--json]`, the
 //!   only action besides `archive init` that narrows permissions.
 //! - `openpapir import --archive <root> <file>... [--json]`, artefact import.
@@ -55,12 +60,11 @@
 //!   `skill`'s rule for a stdout that cannot take the bytes.
 //!
 //! There is no automatic matching, no derived metadata, no receipt parsing,
-//! no export of a whole archive, no editing of a stored record other than the
-//! case record `case update` rewrites, no deletion of a
-//! single submission or receipt, no deletion of an archive, no
-//! signature verification, and no government delivery. The integrity check
-//! re-digests stored bytes, which is a storage-layer identity check and never
-//! a cryptographic verification.
+//! no editing of a stored record other than the case record `case update`
+//! rewrites, no deletion of a single submission or receipt, no deletion of an
+//! archive, no signature verification, and no government delivery. The
+//! integrity check re-digests stored bytes, which is a storage-layer identity
+//! check and never a cryptographic verification.
 //!
 //! # Envelope and exit codes
 //!
@@ -94,6 +98,7 @@ mod cases;
 mod completions;
 mod delete;
 mod envelope;
+mod export;
 mod manpage;
 mod report;
 mod restore;
@@ -200,6 +205,10 @@ enum ArchiveCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Copy the whole archive, its records, and its objects out of it.
+    Export(export::Export),
+    /// Restore an `archive export` directory into this archive.
+    Import(restore::ArchiveImport),
     /// Create an archive in an existing, empty directory.
     Init {
         /// The archive root, which must exist and be empty.
@@ -338,6 +347,22 @@ fn run(command: Command) -> i32 {
             arguments.run(),
             arguments.json,
             status::lines,
+        ),
+        Command::Archive {
+            command: ArchiveCommand::Export(arguments),
+        } => emit(
+            "archive.export",
+            arguments.run(),
+            arguments.json,
+            report::archive_exported,
+        ),
+        Command::Archive {
+            command: ArchiveCommand::Import(arguments),
+        } => emit(
+            "archive.import",
+            arguments.run(),
+            arguments.json,
+            report::archive_restored,
         ),
         Command::Archive {
             command: ArchiveCommand::RepairPermissions { archive, json },

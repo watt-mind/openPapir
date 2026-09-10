@@ -1,0 +1,38 @@
+{
+  "command": "archive.import",
+  "data": {
+    "bytes_stored": 50,
+    "case_count": 1,
+    "events_recorded": 2,
+    "object_count": 3,
+    "objects_present": 1,
+    "objects_stored": 2,
+    "records": [
+      {
+        "count": 1,
+        "kind": "case"
+      },
+      {
+        "count": 1,
+        "kind": "submission"
+      },
+      {
+        "count": 1,
+        "kind": "receipt"
+      },
+      {
+        "count": 2,
+        "kind": "association"
+      },
+      {
+        "count": 3,
+        "kind": "import_event"
+      }
+    ],
+    "records_present": 1,
+    "records_written": 7
+  },
+  "ok": true,
+  "schema_version": 1,
+  "verified": false
+}

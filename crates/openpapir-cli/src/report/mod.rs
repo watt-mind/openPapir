@@ -24,7 +24,7 @@ pub use records::{
     receipt_added, receipt_list, receipt_shown, submission_added, submission_shown,
 };
 pub use status::integrity;
-pub use transfer::{exported, imported, repaired, restored};
+pub use transfer::{archive_exported, archive_restored, exported, imported, repaired, restored};
 
 use openpapir_core::Submission;
 

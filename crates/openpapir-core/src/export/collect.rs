@@ -17,7 +17,7 @@ use std::path::Path;
 use serde::Serialize;
 
 use crate::archive::import::ImportEvent;
-use crate::error::Diagnostic;
+use crate::error::{Details, Diagnostic, codes};
 use crate::export::KindCount;
 use crate::export::destination::{self, Destination};
 use crate::records::association::Association;
@@ -62,16 +62,60 @@ pub struct Written {
     pub counts: Vec<KindCount>,
 }
 
+/// Read every record of one kind, refusing a directory that was not read.
+///
+/// An export describes the archive it was pointed at, so a record directory
+/// the process could not list may not read as empty: the records under it
+/// were not read, and an export that passed over them would write a smaller
+/// archive than the one it copied and a manifest that says so. A listing
+/// answers what is there and may read such a directory as empty; an export
+/// may not (`docs/architecture.md`).
+///
+/// # Errors
+///
+/// Returns `record.malformed` when a stored document cannot be read as a
+/// record of its kind, and a retryable `write.interrupted` when the
+/// directory itself could not be listed.
+fn read_kind<R: Record>(root: &Path) -> Result<Vec<R>, Diagnostic> {
+    let mut records = Vec::new();
+    let visited = document::visit_records_checked::<R, _>(root, |record| records.push(record));
+    if visited.unchecked {
+        return Err(unreadable_directory(R::KIND));
+    }
+    if visited.unreadable > 0 {
+        return Err(document::malformed(R::KIND, visited.unreadable));
+    }
+    records.sort_by(|left, right| left.id().cmp(right.id()));
+    Ok(records)
+}
+
+/// The refusal for a record directory the export could not list.
+///
+/// The kind is one of openPapir's own fixed names, and the stage is the one
+/// the write-stage table gives a record document and the directory it lives
+/// in (`docs/error-contract.md`).
+fn unreadable_directory(record_kind: &'static str) -> Diagnostic {
+    Diagnostic::new(
+        codes::WRITE_INTERRUPTED,
+        "A record directory could not be read for the export.",
+        Details::new()
+            .text("stage", destination::RECORD_WRITE)
+            .text("record_kind", record_kind),
+    )
+    .retryable()
+}
+
 /// Read every record belonging to the case, without taking the writer lock.
 ///
 /// # Errors
 ///
-/// Returns `record.not_found` when the identifier names no case, and
+/// Returns `record.not_found` when the identifier names no case,
 /// `record.malformed` when a stored document cannot be read as a record of
-/// its kind.
+/// its kind, and `write.interrupted` when a record directory could not be
+/// listed at all.
 pub fn gather(root: &Path, case_id: &str) -> Result<Collected, Diagnostic> {
     let case = document::read_record::<Case>(root, case_id, "case_id")?;
-    let submissions: Vec<Submission> = document::list_records::<Submission>(root)?
+    let submissions: Vec<Submission> = read_kind::<Submission>(root)?
         .into_iter()
         .filter(|submission| submission.case_id == case.id)
         .collect();
@@ -80,7 +124,7 @@ pub fn gather(root: &Path, case_id: &str) -> Result<Collected, Diagnostic> {
         .map(|submission| submission.id.as_str())
         .collect();
 
-    let associations: Vec<Association> = document::list_records::<Association>(root)?
+    let associations: Vec<Association> = read_kind::<Association>(root)?
         .into_iter()
         .filter(|association| names_submission(association, &submission_ids))
         .collect();
@@ -88,7 +132,7 @@ pub fn gather(root: &Path, case_id: &str) -> Result<Collected, Diagnostic> {
         .iter()
         .map(|association| association.receipt_id.as_str())
         .collect();
-    let receipts: Vec<Receipt> = document::list_records::<Receipt>(root)?
+    let receipts: Vec<Receipt> = read_kind::<Receipt>(root)?
         .into_iter()
         .filter(|receipt| receipt_ids.contains(receipt.id.as_str()))
         .collect();
@@ -102,7 +146,7 @@ pub fn gather(root: &Path, case_id: &str) -> Result<Collected, Diagnostic> {
     for receipt in &receipts {
         insert_digest(&mut digests, &receipt.artefact_digest);
     }
-    let import_events: Vec<ImportEvent> = document::list_records::<ImportEvent>(root)?
+    let import_events: Vec<ImportEvent> = read_kind::<ImportEvent>(root)?
         .into_iter()
         .filter(|event| bare_digest(&event.digest).is_some_and(|hex| digests.contains(&hex)))
         .collect();
@@ -172,6 +216,87 @@ pub fn write_records(
         write_kind(destination, &collected.receipts, &mut entries)?,
         write_kind(destination, &collected.associations, &mut entries)?,
         write_kind(destination, &collected.import_events, &mut entries)?,
+    ];
+    Ok(Written { entries, counts })
+}
+
+/// Every record of every kind an archive holds, for a whole-archive export.
+///
+/// Nothing is filtered. A case export asks which records belong to one case;
+/// a whole-archive export asks for all of them, so a receipt the user tied to
+/// no case and an import event for an object no record names are copied out
+/// with the rest.
+#[derive(Debug, Default)]
+pub struct All {
+    /// Every case the archive holds.
+    pub cases: Vec<Case>,
+    /// Every submission the archive holds.
+    pub submissions: Vec<Submission>,
+    /// Every receipt the archive holds.
+    pub receipts: Vec<Receipt>,
+    /// Every association the archive holds, superseded records included.
+    pub associations: Vec<Association>,
+    /// Every import event the archive holds.
+    pub import_events: Vec<ImportEvent>,
+}
+
+impl All {
+    /// The bare hexadecimal digests every record here references.
+    ///
+    /// A whole-archive export copies the store itself rather than what the
+    /// records reference, so this is what the two sets are compared with
+    /// rather than what is copied.
+    #[must_use]
+    pub fn digests(&self) -> BTreeSet<String> {
+        let mut digests = BTreeSet::new();
+        for submission in &self.submissions {
+            for artefact in &submission.artefacts {
+                insert_digest(&mut digests, &artefact.digest);
+            }
+        }
+        for receipt in &self.receipts {
+            insert_digest(&mut digests, &receipt.artefact_digest);
+        }
+        for event in &self.import_events {
+            insert_digest(&mut digests, &event.digest);
+        }
+        digests
+    }
+}
+
+/// Read every record of every kind, without taking the writer lock.
+///
+/// # Errors
+///
+/// Returns `record.malformed` when a stored document cannot be read as a
+/// record of its kind, and `write.interrupted` when a record directory could
+/// not be listed at all.
+pub fn gather_all(root: &Path) -> Result<All, Diagnostic> {
+    Ok(All {
+        cases: read_kind::<Case>(root)?,
+        submissions: read_kind::<Submission>(root)?,
+        receipts: read_kind::<Receipt>(root)?,
+        associations: read_kind::<Association>(root)?,
+        import_events: read_kind::<ImportEvent>(root)?,
+    })
+}
+
+/// Write every record of a whole archive into the destination as JSON.
+///
+/// The kinds are written in the same fixed order a case export writes them
+/// in, so the two exports differ in what they hold and never in their shape.
+///
+/// # Errors
+///
+/// Returns the refusals of [`write_records`].
+pub fn write_everything(destination: &Destination, all: &All) -> Result<Written, Diagnostic> {
+    let mut entries = Vec::new();
+    let counts = vec![
+        write_kind(destination, &all.cases, &mut entries)?,
+        write_kind(destination, &all.submissions, &mut entries)?,
+        write_kind(destination, &all.receipts, &mut entries)?,
+        write_kind(destination, &all.associations, &mut entries)?,
+        write_kind(destination, &all.import_events, &mut entries)?,
     ];
     Ok(Written { entries, counts })
 }
@@ -285,5 +410,58 @@ mod tests {
             codes::RECORD_NOT_FOUND,
             "an unusable identifier is never joined into a path"
         );
+    }
+
+    /// A record directory the process cannot list stops an export rather than
+    /// reading as empty. Both scopes read their records the same way, so both
+    /// are refused, and the archive the export describes stays the archive it
+    /// was pointed at.
+    ///
+    /// Unix-only, because withholding search access from a directory is a
+    /// mode change.
+    #[cfg(unix)]
+    #[test]
+    fn a_record_directory_that_cannot_be_listed_stops_an_export() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let root = tempfile::tempdir().unwrap();
+        let closed = root.path().join(Submission::DIRECTORY);
+        std::fs::create_dir_all(&closed).unwrap();
+        std::fs::set_permissions(&closed, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let read = read_kind::<Submission>(root.path());
+        let gathered = gather_all(root.path());
+        std::fs::set_permissions(&closed, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+        let Err(refusal) = read else {
+            // The process can list it anyway, which happens when the tests
+            // run with privileges that ignore the permission bits.
+            return;
+        };
+        assert_eq!(refusal.code, codes::WRITE_INTERRUPTED);
+        assert!(refusal.is_retryable());
+        let json = serde_json::to_value(&refusal).unwrap();
+        assert_eq!(json["details"]["stage"], "record_write");
+        assert_eq!(json["details"]["record_kind"], "submission");
+        assert_eq!(
+            gathered.unwrap_err().code,
+            codes::WRITE_INTERRUPTED,
+            "a whole-archive export is refused rather than shrunk"
+        );
+    }
+
+    /// A document that cannot be read as a record of its kind is still
+    /// `record.malformed`, and the count is the number of them.
+    #[test]
+    fn a_document_that_is_no_record_of_its_kind_is_malformed() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join(Submission::DIRECTORY);
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(
+            directory.join("0123456789abcdef0123456789abcdef.json"),
+            b"{ not a record\n",
+        )
+        .unwrap();
+        let refusal = read_kind::<Submission>(root.path()).unwrap_err();
+        assert_eq!(refusal.code, codes::RECORD_MALFORMED);
     }
 }

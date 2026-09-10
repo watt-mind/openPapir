@@ -757,3 +757,267 @@ fn an_import_needs_the_writer_lock() {
     fs::remove_file(fixture.root.join("lock")).expect("release the lock");
     assert!(fixture.import_from(&source).status.success());
 }
+
+/// A second case, and a retired association chain, so the whole-archive round
+/// trip carries more than one case and a history that supersedes itself.
+///
+/// The chain is the demanding part: a retirement is a new record that
+/// supersedes the live one, so an archive that restored only the head would
+/// lose what the user withdrew.
+fn build_second_case_and_retire(fixture: &Fixture) -> String {
+    let root_text = text(&fixture.root);
+    let payload = fixture.home.path().join("second.bin");
+    fs::write(&payload, b"second synthetic payload\n").expect("write a synthetic payload");
+    let digest = stdout_json(&run(&[
+        "import",
+        "--archive",
+        &root_text,
+        &text(&payload),
+        "--json",
+    ]))["data"]["artefacts"][0]["digest"]
+        .as_str()
+        .expect("a digest")
+        .to_owned();
+    let second = stdout_json(&run(&[
+        "case",
+        "create",
+        "--archive",
+        &root_text,
+        "--title",
+        "Second synthetic matter",
+        "--notes",
+        "Kept open.",
+        "--json",
+    ]))["data"]["case"]["id"]
+        .as_str()
+        .expect("an id")
+        .to_owned();
+    assert!(
+        run(&[
+            "submission",
+            "add",
+            "--archive",
+            &root_text,
+            "--case",
+            &second,
+            "--description",
+            "Second submission.",
+            "--date",
+            "2026-01-13",
+            "--artefact",
+            &digest,
+            "--json",
+        ])
+        .status
+        .success()
+    );
+    let live = stdout_json(&run(&[
+        "association",
+        "list",
+        "--archive",
+        &root_text,
+        "--receipt",
+        &fixture.receipt_id,
+        "--json",
+    ]))["data"]["associations"][0]["id"]
+        .as_str()
+        .expect("an id")
+        .to_owned();
+    assert!(
+        run(&[
+            "association",
+            "retire",
+            "--archive",
+            &root_text,
+            &live,
+            "--reason",
+            "The reference named another case.",
+            "--json",
+        ])
+        .status
+        .success()
+    );
+    second
+}
+
+/// Export a whole archive into a directory of this fixture's own home.
+fn export_whole(fixture: &Fixture, name: &str) -> PathBuf {
+    let destination = fixture.home.path().join(name);
+    let exported = run(&[
+        "archive",
+        "export",
+        "--archive",
+        &text(&fixture.root),
+        "--to",
+        &text(&destination),
+        "--json",
+    ]);
+    assert!(exported.status.success(), "the fixture exports its archive");
+    destination
+}
+
+fn import_whole(root: &Path, source: &Path) -> Output {
+    run(&[
+        "archive",
+        "import",
+        "--archive",
+        &text(root),
+        "--from",
+        &text(source),
+        "--json",
+    ])
+}
+
+/// One listing of everything a comparison of two archives may look at.
+fn listings(root: &Path) -> Value {
+    let root_text = text(root);
+    serde_json::json!({
+        "cases": stdout_json(&run(&["case", "list", "--archive", &root_text, "--json"]))["data"],
+        "receipts": stdout_json(&run(&["receipt", "list", "--archive", &root_text, "--json"]))
+            ["data"],
+    })
+}
+
+/// The whole archive survives an export into a fresh archive on another
+/// machine: every case, the retired chain included, with a clean check and
+/// the same listings on both sides.
+#[test]
+fn a_whole_archive_survives_an_export_into_a_fresh_archive() {
+    let fixture = Fixture::build();
+    let second = build_second_case_and_retire(&fixture);
+    let before = listings(&fixture.root);
+    let history = fixture.associations();
+    let source = export_whole(&fixture, "whole");
+
+    let other = fixture.other_archive();
+    let restored = import_whole(&other, &source);
+    assert!(restored.status.success());
+    let data = &stdout_json(&restored)["data"];
+    assert_eq!(data["case_count"], 2);
+    assert_eq!(data["records_present"], 0);
+    assert_eq!(data["objects_present"], 0);
+    assert!(
+        data["records_written"].as_u64().expect("a count") > 0,
+        "a fresh archive holds none of the export yet"
+    );
+
+    let checked = run(&["archive", "check", "--archive", &text(&other), "--json"]);
+    assert!(checked.status.success(), "the restored archive is clean");
+    let report = &stdout_json(&checked)["data"];
+    assert_eq!(report["orphan_objects"], 0);
+    assert_eq!(report["objects_unchecked"], 0);
+
+    assert_eq!(listings(&other), before, "every listing survives the trip");
+    assert_eq!(
+        stdout_json(&run(&[
+            "association",
+            "list",
+            "--archive",
+            &text(&other),
+            "--receipt",
+            &fixture.receipt_id,
+            "--json",
+        ]))["data"],
+        history["data"],
+        "the retired chain is restored whole, not only its head"
+    );
+    assert!(
+        run(&[
+            "case",
+            "show",
+            "--archive",
+            &text(&other),
+            &second,
+            "--json"
+        ])
+        .status
+        .success()
+    );
+
+    // Only the import events differ: the restore records one of its own per
+    // object it stored, over and above the events the export carried.
+    let events = fs::read_dir(other.join("records/imports"))
+        .expect("the imports directory")
+        .count();
+    assert_eq!(
+        events,
+        fixture.import_events().len() + data["objects_stored"].as_u64().expect("a count") as usize
+    );
+}
+
+/// A second import of one whole-archive export writes nothing at all.
+#[test]
+fn importing_one_whole_archive_export_twice_leaves_the_same_archive() {
+    let fixture = Fixture::build();
+    build_second_case_and_retire(&fixture);
+    let source = export_whole(&fixture, "whole");
+    let other = fixture.other_archive();
+    assert!(import_whole(&other, &source).status.success());
+    let after_first = tree(&other);
+
+    let again = import_whole(&other, &source);
+    assert!(again.status.success());
+    let data = &stdout_json(&again)["data"];
+    assert_eq!(data["records_written"], 0);
+    assert_eq!(data["objects_stored"], 0);
+    assert_eq!(data["events_recorded"], 0);
+    assert_eq!(tree(&other), after_first, "nothing was written again");
+}
+
+/// Each import reads its own export and refuses the other's, so what a record
+/// identifier already in the archive means never depends on which of the two
+/// directories was handed over.
+#[test]
+fn neither_import_reads_the_other_scope_of_export() {
+    let fixture = Fixture::build();
+    let whole = export_whole(&fixture, "whole");
+    let one = fixture.export("one");
+    let other = fixture.other_archive();
+
+    let refused = fixture.import_into(&other, &whole);
+    assert_eq!(code(&refused), "export.manifest_malformed");
+    assert_eq!(refused.status.code(), Some(4));
+    assert!(
+        String::from_utf8(refused.stdout.clone())
+            .expect("stdout is UTF-8")
+            .contains("whole archive"),
+        "the refusal says which of the two the directory holds"
+    );
+
+    let refused = import_whole(&other, &one);
+    assert_eq!(code(&refused), "export.manifest_malformed");
+    assert_eq!(refused.status.code(), Some(4));
+}
+
+/// A record identifier a different record already holds refuses the whole
+/// import, before anything is written.
+#[test]
+fn a_record_conflict_refuses_the_whole_archive_import() {
+    let fixture = Fixture::build();
+    build_second_case_and_retire(&fixture);
+    let source = export_whole(&fixture, "whole");
+    let other = fixture.other_archive();
+
+    // The same identifier, holding a different case record.
+    let planted = other
+        .join("records/cases")
+        .join(format!("{}.json", fixture.case_id));
+    let mut document: Value = serde_json::from_str(
+        &fs::read_to_string(exported_record(&source, "case", &fixture.case_id))
+            .expect("read the exported case"),
+    )
+    .expect("a case document");
+    document["title"] = Value::String("Another matter entirely".to_owned());
+    fs::create_dir_all(planted.parent().expect("a parent")).expect("create the directory");
+    fs::write(&planted, format!("{document}\n")).expect("plant the conflicting record");
+    let before = tree(&other);
+
+    let refused = import_whole(&other, &source);
+    assert_eq!(code(&refused), "export.record_conflict");
+    assert_eq!(refused.status.code(), Some(4));
+    assert_eq!(
+        stdout_json(&refused)["error"]["details"]["record_kind"],
+        "case"
+    );
+    assert_eq!(tree(&other), before, "a refused import writes nothing");
+}

@@ -501,7 +501,8 @@ followed ([archive-layout](archive-layout.md)).
 ### `integrity`: stored bytes disagree with what is recorded
 
 - **`integrity.digest_mismatch`**: archive, not retryable. **Implemented by
-  the whole-archive integrity check.** A stored object's bytes no longer
+  the whole-archive integrity check, and refused by `archive export`.**
+  A stored object's bytes no longer
   digest to its own path. The object is reported as damaged and never
   overwritten, repaired, or removed. An entry under `objects/` whose name is
   not a digest, or which is filed under fan-out directories that do not match
@@ -511,7 +512,9 @@ followed ([archive-layout](archive-layout.md)).
   digest, which is already the object's path). The whole-archive check omits
   both and carries `count` instead: it may find several damaged objects, and
   naming one of them would publish the path and digest of a file the report
-  otherwise reduces to a count.
+  otherwise reduces to a count. `archive export` refuses on such an entry and
+  carries `count` for the same reason, because the entry's name is not a
+  digest openPapir minted.
 - **`integrity.length_mismatch`**: archive, not retryable. On a duplicate
   import the stored object's byte length differs from the incoming length,
   which means the store is damaged; it is reported, never overwritten
@@ -552,30 +555,39 @@ followed ([archive-layout](archive-layout.md)).
   re-digested to something other than the original. Details: `bucket`,
   `digest`, `conflict_count`.
 - **`export.manifest_missing`**: archive, not retryable. **Decided by
-  `case import`.** The directory an import was pointed at holds no manifest,
-  so it describes no case. Details: `bucket`, `scope` (`export_source`), and
-  the additive `export_path`, which is the manifest's own fixed name.
+  `case import` and `archive import`.** The directory an import was pointed
+  at holds no manifest, so it describes nothing. Details: `bucket`, `scope`
+  (`export_source`), and the additive `export_path`, which is the manifest's
+  own fixed name.
 - **`export.manifest_malformed`**: archive, not retryable. **Decided by
-  `case import`.** The manifest cannot be read as a manifest of this format:
-  it is not valid JSON, its own format version is not the supported one, or an
-  entry names a digest, an identifier, or a record kind this build cannot use.
+  `case import` and `archive import`.** The manifest cannot be read as a
+  manifest this command may act on: it is not valid JSON, its own format
+  version is not the supported one, an
+  entry names a digest, an identifier, or a record kind this build cannot use,
+  or its `export_scope` is the other command's. A directory `archive export`
+  wrote is this code for `case import`, and one `case export` wrote is this
+  code for `archive import`: each reads its own scope only, and the message
+  says which of the two the directory holds.
   Details: as above. A manifest written under another archive schema version
   is not this code: it is `archive.schema_newer` or `archive.schema_older`,
   and a manifest whose path is a symbolic link is `path.symlink`, like every
   other linked path inside an export source.
 - **`export.object_mismatch`**: archive, not retryable. **Decided by
-  `case import`.** An exported copy is not the object the manifest describes,
+  `case import` and `archive import`.** An exported copy is not the object
+  the manifest describes,
   because the export does not hold it, because the path is not a regular file
   at all, or because its bytes disagree with the digest or the byte length
   recorded for it. Details: `bucket`, `scope`, `digest` (the manifest's own
   name for the object), `conflict_count`, and the additive `reason`, whose
   closed set is `absent`, `digest`, `length`, and `unusable`.
 - **`export.record_missing`**: archive, not retryable. **Decided by
-  `case import`.** The manifest names a record document the export does not
+  `case import` and `archive import`.** The manifest names a record document
+  the export does not
   hold. Details: `bucket`, `scope`, `record_kind`, `path_count`. Nothing else:
   no identifier and no path.
 - **`export.record_conflict`**: archive, not retryable. **Decided by
-  `case import`.** A record identifier in the export is held in the target
+  `case import` and `archive import`.** A record identifier in the export is
+  held in the target
   archive by a different record. Details: `bucket`, `record_kind`,
   `conflict_count`. The identifier is omitted: it names a record of the
   archive, and openPapir edits neither of the two. A byte-identical record
@@ -583,8 +595,8 @@ followed ([archive-layout](archive-layout.md)).
 
 All seven are implemented; [architecture](architecture.md) is authoritative
 for what emits them. Every refusal raised inside an export destination carries
-`scope` `export_destination` and every refusal raised inside an export a
-`case import` was pointed at carries `scope` `export_source`, and none carries
+`scope` `export_destination` and every refusal raised inside an export an
+import was pointed at carries `scope` `export_source`, and none carries
 `archive_path`: the path it would name belongs to an archive the refusal is
 not about.
 
@@ -980,8 +992,9 @@ Never, by default and with no flag to enable it:
 - Original filenames, or any sanitised or truncated form of one.
 - User-supplied paths outside the archive, including the archive root itself.
   The one exception is the export directory in human-readable output, which
-  repeats the `--to` argument of `case export` or the `--from` argument of
-  `case import` that the user typed in the same invocation back to them;
+  repeats the `--to` argument of `case export` or `archive export`, or the
+  `--from` argument of `case import` or `archive import`, that the user typed
+  in the same invocation back to them;
   neither enters `data`, `message`, `details`, or stderr, and no other
   user-supplied path is echoed anywhere.
 - Payload bytes, excerpts, extracted text, or parsed field values.
@@ -1069,9 +1082,10 @@ written and reviewed, and all but one are now implemented:
 - **Case deletion with an explicit purge**: implemented as `case delete`,
   with the counts-and-reasons report shape and `delete.objects_retained`.
 - **Export, backup, and the permission-repair action**: implemented as
-  `case export`, `case import`, and `archive repair-permissions`, using
+  `case export`, `case import`, `archive export`, `archive import`, and
+  `archive repair-permissions`, using
   `export.destination_conflict`, `export.copy_mismatch`, the five
-  `case import` codes, and `archive.permissions_wide`
+  import codes, and `archive.permissions_wide`
   ([architecture](architecture.md)).
 
 Unchanged blockers: receipt parsing still needs the format gap closed, and the

@@ -1,10 +1,10 @@
 //! The lines the commands that move artefacts between an archive and a
-//! directory print: `import`, `case export`, `case import`, and the
-//! permission repair that follows one out of an archive that was written to
-//! elsewhere.
+//! directory print: `import`, `case export`, `case import`, `archive export`,
+//! `archive import`, and the permission repair that follows one out of an
+//! archive that was written to elsewhere.
 
 use openpapir_core::archive::import::Imported;
-use openpapir_core::{Exported, Repaired, Restored};
+use openpapir_core::{ArchiveExported, ArchiveRestored, Exported, Repaired, Restored};
 
 /// The lines `import` prints when it succeeds.
 #[must_use]
@@ -61,6 +61,68 @@ pub fn exported(exported: &Exported) -> Vec<String> {
     }
     lines.push(
         "The archive was not changed. Every copy was re-digested: a digest identifies bytes only, never authenticity, delivery, or legal effect."
+            .to_owned(),
+    );
+    lines
+}
+
+/// The lines `archive export` prints when it succeeds.
+///
+/// It is the case export's report with the one case replaced by a count of
+/// them, and the destination is the one path any line here may carry, for the
+/// reason [`exported`] may carry it.
+#[must_use]
+pub fn archive_exported(exported: &ArchiveExported) -> Vec<String> {
+    let mut lines = vec![
+        format!(
+            "Exported {} case(s) to {}.",
+            exported.case_count, exported.destination
+        ),
+        format!(
+            "Copied {} object(s), {} byte(s), and wrote {} record(s).",
+            exported.object_count, exported.bytes_copied, exported.record_count
+        ),
+    ];
+    for kind in &exported.records {
+        lines.push(format!("{} {}", kind.kind, kind.count));
+    }
+    lines.push(
+        "The archive marker travelled with the copy, so the schema version is in the export."
+            .to_owned(),
+    );
+    lines.push(
+        "The archive was not changed. Every copy was re-digested: a digest identifies bytes only, never authenticity, delivery, or legal effect."
+            .to_owned(),
+    );
+    lines
+}
+
+/// The lines `archive import` prints when it succeeds.
+#[must_use]
+pub fn archive_restored(restored: &ArchiveRestored) -> Vec<String> {
+    let mut lines = vec![
+        format!(
+            "Imported {} case(s) from {}.",
+            restored.case_count, restored.source
+        ),
+        format!(
+            "Stored {} object(s), {} byte(s); {} already present.",
+            restored.objects_stored, restored.bytes_stored, restored.objects_present
+        ),
+        format!(
+            "Wrote {} record(s); {} already present.",
+            restored.records_written, restored.records_present
+        ),
+    ];
+    for kind in &restored.records {
+        lines.push(format!("{} {}", kind.kind, kind.count));
+    }
+    lines.push(format!(
+        "Recorded {} import event(s) with source export.",
+        restored.events_recorded
+    ));
+    lines.push(
+        "Every restored copy was re-digested: a digest identifies bytes only, never authenticity, delivery, or legal effect."
             .to_owned(),
     );
     lines
@@ -152,6 +214,48 @@ mod tests {
         assert!(text.contains("already present since 2026-01-14T09:12:33Z after 2"));
         assert!(text.contains("Nothing here is verified"));
         assert!(!text.contains('/'), "no path ever reaches human output");
+    }
+
+    #[test]
+    fn human_archive_transfer_output_counts_cases_and_names_no_path_of_its_own() {
+        let exported = archive_exported(&ArchiveExported {
+            bytes_copied: 8,
+            case_count: 3,
+            object_count: 2,
+            record_count: 9,
+            records: vec![KindCount {
+                count: 3,
+                kind: "case",
+            }],
+            destination: "backups/archive".to_owned(),
+        });
+        let text = exported.join("\n");
+        assert!(text.contains("Exported 3 case(s) to backups/archive."));
+        assert!(text.contains("Copied 2 object(s), 8 byte(s), and wrote 9 record(s)."));
+        assert!(text.contains("case 3"));
+        assert!(text.contains("The archive marker travelled with the copy"));
+        assert!(text.contains("never authenticity, delivery, or legal effect"));
+
+        let restored = archive_restored(&ArchiveRestored {
+            bytes_stored: 8,
+            case_count: 3,
+            events_recorded: 2,
+            object_count: 2,
+            objects_present: 0,
+            objects_stored: 2,
+            records: vec![KindCount {
+                count: 3,
+                kind: "case",
+            }],
+            records_present: 1,
+            records_written: 8,
+            source: "backups/archive".to_owned(),
+        });
+        let text = restored.join("\n");
+        assert!(text.contains("Imported 3 case(s) from backups/archive."));
+        assert!(text.contains("Stored 2 object(s), 8 byte(s); 0 already present."));
+        assert!(text.contains("Wrote 8 record(s); 1 already present."));
+        assert!(text.contains("Recorded 2 import event(s) with source export."));
     }
 
     #[test]

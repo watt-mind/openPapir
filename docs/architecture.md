@@ -18,7 +18,7 @@ The Rust edition 2024 workspace has an MSRV of 1.88 and two unpublished crates:
 
 | Crate | Current responsibility |
 | --- | --- |
-| `openpapir-core` | The local archive: marker, artefact store, atomic writes, single-writer lock, input caps, path safety, import-event records, the case, submission, receipt, and association records, the read-only whole-archive integrity check, the read-only summary and its receipt-retrieval reminders, the export of one case, the import of one export back into an archive, the permission repair, and the deletion of one case with its explicit purge. |
+| `openpapir-core` | The local archive: marker, artefact store, atomic writes, single-writer lock, input caps, path safety, import-event records, the case, submission, receipt, and association records, the read-only whole-archive integrity check, the read-only summary and its receipt-retrieval reminders, the export of one case or of a whole archive, the import of either export back into an archive, the permission repair, and the deletion of one case with its explicit purge. |
 | `openpapir-cli` | Argument parsing, the response envelope, and the exit-code mapping. |
 
 Only these invocations are supported. `openpapir --help`,
@@ -52,6 +52,8 @@ naming a count that would go stale.
 | `case.export` | `openpapir case export --archive <root> --case <case-id> --to <dir> [--json]` |
 | `case.import` | `openpapir case import --archive <root> --from <dir> [--json]` |
 | `archive.repair_permissions` | `openpapir archive repair-permissions --archive <root> [--json]` |
+| `archive.export` | `openpapir archive export --archive <root> --to <dir> [--json]` |
+| `archive.import` | `openpapir archive import --archive <root> --from <dir> [--json]` |
 | `case.delete` | `openpapir case delete --archive <root> --case <case-id> [--purge] [--json]` |
 | `skill` | `openpapir skill` |
 | `completions` | `openpapir completions <bash\|zsh\|fish\|powershell\|elvish>` |
@@ -68,9 +70,9 @@ existing archive can refuse with `usage.archive_root_missing`,
 `archive.marker_missing`, `archive.marker_malformed`, `archive.schema_newer`,
 `archive.schema_older`, `archive.multiple_filesystems`,
 `archive.permissions_wide`, or `path.symlink` for a linked layout directory;
-`archive check`, `archive status`, and `case export` open the archive
-read-only, which creates no layout directory and flushes nothing, but runs the
-same checks.
+`archive check`, `archive status`, `case export`, and `archive export` open
+the archive read-only, which creates no layout directory and flushes nothing,
+but runs the same checks.
 Every command that writes adds `lock.held`, `path.overwrite`,
 `path.cross_device`, `write.interrupted`, `input.cap.record_size`, and
 `platform.filesystem_unsupported`. Every command that reads a stored document
@@ -87,7 +89,7 @@ authoritative list. Everything else in
 [local archive layout and storage design](archive-layout.md) and
 [import error, JSON, and exit-code contract](error-contract.md) remains a
 design: no derived-metadata or verification records; no automatic matching, no
-receipt parsing, no export of a whole archive, and no editing of a stored
+receipt parsing, and no editing of a stored
 record other than the case record `case.update` rewrites, no
 deletion of a single submission or receipt, deletion of an archive, or
 migration. openPapir reads artefact bytes only to re-digest a stored object
@@ -165,6 +167,8 @@ operations:
       "association.show",
       "completions",
       "manpage"
+      "archive.export",
+      "archive.import"
     ]
   },
   "verified": false
@@ -1122,6 +1126,13 @@ The destination holds:
 | `records/<kind>/<id>.json` | One record document, exactly as the archive stores it. `<kind>` is `case`, `submission`, `receipt`, `association`, or `import_event`. |
 | `manifest.json` | One JSON document with sorted keys listing every copied object and every written record. |
 
+A record directory the process could not list stops an export rather than
+reading as empty. A listing answers what is there and may read an unreadable
+directory as holding nothing; an export describes the archive it was pointed
+at, so records that were not read may not be passed over. The refusal is a
+retryable `write.interrupted` naming the stage `record_write` and the record
+kind, and it applies to `archive export` in the same way.
+
 What belongs to the case is fixed: the case record; every submission recorded
 against it; every association naming one of those submissions, as the
 confirmed submission or as a candidate, superseded records included; every
@@ -1198,18 +1209,22 @@ a storage-layer identity check and never a cryptographic verification, so
 | The destination is not empty, or a target path is already there. | `export.destination_conflict` |
 | A copy re-digested to something other than its source. | `export.copy_mismatch` |
 | A stored object exceeds the single-file cap. | `input.cap.file_size` |
-| A copy could not be read or written. | `write.interrupted` |
+| A copy could not be read or written, or a record directory could not be listed. | `write.interrupted` |
 | The archive root could not be resolved, so the destination could not be checked against it. | `usage.arguments` |
 
 The manifest is authoritative for what the export contains. Its keys are
-sorted, it records the archive's schema version, its own format version, the
-case, and the time openPapir wrote it, and it lists nothing the destination
-does not hold.
+sorted, it records the archive's schema version, its own format version, its
+scope, the case, and the time openPapir wrote it, and it lists nothing the
+destination does not hold. `export_scope` is `case` here and `archive` for a
+whole-archive export, so each import reads its own kind of directory and
+refuses the other's. A manifest written before the field existed holds one
+case, so a reader that meets no `export_scope` reads it as `case`.
 
 ```json
 {
   "archive_schema_version": 1,
   "case_id": "e19fb6367693c26aadf609565ec6b8d8",
+  "export_scope": "case",
   "exported_at": "2026-09-09T15:15:49Z",
   "objects": [
     {
@@ -1268,16 +1283,19 @@ import_event 3
 The archive was not changed. Every copy was re-digested: a digest identifies bytes only, never authenticity, delivery, or legal effect.
 ```
 
-Reading an export back into an archive is `case import`, below. Exporting a
-whole archive is not implemented: a backup is a plain copy of the archive root
-taken while no openPapir process holds the lock, and
-`archive repair-permissions` is what makes a restored copy usable again.
+Reading an export back into an archive is `case import`, below. Copying a
+whole archive in the same shape is `archive export`, and reading that back is
+`archive import`. A backup remains the other option: a plain copy of the
+archive root taken while no openPapir process holds the lock, with
+`archive repair-permissions` to make the restored copy usable again.
 
 ## `case import`
 
 `openpapir case import --archive <root> --from <dir>` reads a directory
-`case export` wrote and puts the case back into an archive. It is the same
-plain copy in the other direction: the objects are the exported bytes, the
+`case export` wrote and puts the case back into an archive. A directory
+`archive export` wrote is refused here with `export.manifest_malformed`, and
+`archive import` reads that one. It is the same plain copy in the other
+direction: the objects are the exported bytes, the
 records are the exported documents, and every record keeps the identifier it
 had, so a restored case is the case that was exported rather than a copy of
 it.
@@ -1415,6 +1433,200 @@ receipt 1
 association 1
 import_event 2
 Recorded 1 import event(s) with source export.
+Every restored copy was re-digested: a digest identifies bytes only, never authenticity, delivery, or legal effect.
+```
+
+## `archive export`
+
+`openpapir archive export --archive <root> --to <dir>` copies the whole
+archive out of it, in the shape `case export` writes. It is the same plain
+copy outward with the same guarantees: the objects are the original bytes,
+the records are readable JSON, nothing is converted, re-encoded, normalised,
+compressed, or encrypted, and no hard link is made, so the destination may be
+on any filesystem.
+
+The archive is opened read-only, exactly as `archive check` opens it. No lock
+is taken, no layout directory is created, and nothing inside the root is
+written, renamed, or removed.
+
+The destination holds what a case export's destination holds, plus one file:
+
+| Path | Content |
+| --- | --- |
+| `objects/<digest>` | One copied object, named by its lowercase hexadecimal digest and nothing else. |
+| `records/<kind>/<id>.json` | One record document, exactly as the archive stores it. `<kind>` is `case`, `submission`, `receipt`, `association`, or `import_event`. |
+| `manifest.json` | One JSON document with sorted keys listing every copied object and every written record, with `export_scope` `archive` and no `case_id`. |
+| `papir-archive.json` | The archive marker, copied byte for byte, so the schema version the copy was taken under travels with it. |
+
+What belongs to the export is everything: every record of every kind, filtered
+by nothing, and every object the store holds. The objects come from the store
+itself rather than from what the records reference, which is the one
+difference from a case export. An object no record names is still the user's
+own bytes, and a copy that left it behind would be a smaller archive rather
+than the same one. The two sets are still compared, so a record naming an
+object the store does not hold is `record.not_found`, exactly as it is for one
+case.
+
+The marker is copied rather than rendered again, so an interrupted read of it
+reports the stage `marker_write`, and one larger than the record cap is
+`input.cap.record_size` rather than a copy cut short: a truncated marker would
+be one the export invented. It is not read back by
+`archive import`: the manifest is authoritative for what the export contains
+and carries the same `archive_schema_version`. The marker travels so that the
+export says which schema version it was taken under without openPapir being
+run at all.
+
+The destination rules, the outward no-follow rule, the write stages, the
+removal of what a failed export created, and the re-digest of every copy are
+the ones [`case export`](#case-export) states, unchanged.
+
+| Condition | Code |
+| --- | --- |
+| A stored document cannot be read as a record of its kind. | `record.malformed` |
+| A record names an object the archive does not hold. | `record.not_found` |
+| An entry under `objects/` is not an object filed under its own digest. | `integrity.digest_mismatch` |
+| The destination lies inside the archive root, or is not a usable directory. | `usage.arguments` |
+| The destination, a path in it, or a path in the store is a symbolic link. | `path.symlink` |
+| The destination is not empty, or a target path is already there. | `export.destination_conflict` |
+| A copy re-digested to something other than its source. | `export.copy_mismatch` |
+| A stored object exceeds the single-file cap. | `input.cap.file_size` |
+| The archive marker exceeds the record cap. | `input.cap.record_size` |
+| A copy could not be read or written, or the store, a record directory, or the marker could not be read. | `write.interrupted` |
+
+`integrity.digest_mismatch` is the whole-archive check's own code, used here
+for the same condition: an object's expected digest is its own path, and an
+entry that disagrees with the path it has is a malformed object entry. It
+carries `count` alone, because the entry's name is not a digest openPapir
+minted and is therefore not openPapir's to publish. An export refuses on one
+rather than passing over it, because an export that skipped it would quietly
+write a smaller archive than the one it was pointed at. `archive check` is
+what reports such an entry without refusing anything.
+
+`data` reports counts, and never the destination.
+
+```json
+{
+  "schema_version": 1,
+  "ok": true,
+  "command": "archive.export",
+  "data": {
+    "bytes_copied": 77,
+    "case_count": 1,
+    "object_count": 3,
+    "record_count": 8,
+    "records": [
+      { "count": 1, "kind": "case" },
+      { "count": 1, "kind": "submission" },
+      { "count": 1, "kind": "receipt" },
+      { "count": 2, "kind": "association" },
+      { "count": 3, "kind": "import_event" }
+    ]
+  },
+  "verified": false
+}
+```
+
+Human output adds one thing the JSON does not carry, the destination the user
+supplied, because the line repeats the argument they just typed.
+
+```text
+Exported 1 case(s) to /tmp/example-archive-export.
+Copied 3 object(s), 77 byte(s), and wrote 8 record(s).
+case 1
+submission 1
+receipt 1
+association 2
+import_event 3
+The archive marker travelled with the copy, so the schema version is in the export.
+The archive was not changed. Every copy was re-digested: a digest identifies bytes only, never authenticity, delivery, or legal effect.
+```
+
+## `archive import`
+
+`openpapir archive import --archive <root> --from <dir>` reads a directory
+`archive export` wrote and puts every case in it back into an archive. It is
+`case import` at the other scope, and every pass is the same one: the manifest
+is read and checked, every record it names is read and parsed, every object it
+names is re-digested, and only then is the writer lock taken, the record set
+probed, the objects stored, and the records published.
+
+A directory `case export` wrote is refused here with
+`export.manifest_malformed`, and `case import` refuses a whole-archive export
+the same way. Each command reads its own scope only, which is the decision
+this build makes about the restore side:
+
+- **The whole export is restored as one set, all of it or none of it**, rather
+  than case by case with a result per case. Whether a record may be written is
+  a question about one record identifier and the archive, so restoring one set
+  keeps the record-conflict rule the one rule it already is: an identifier a
+  different record holds refuses the import before anything is written, and
+  openPapir edits neither record. Restoring case by case would have to answer
+  what a conflict inside one case means for the receipts, associations, and
+  import events it shares with another, and a whole-archive export holds
+  records that belong to no case at all, which no per-case result could
+  report.
+- **It is a separate command rather than `case import` accepting both.** One
+  invocation would have had to report either a case or a count of them in the
+  same field, and the source directory would no longer say which of the two
+  the user asked for.
+
+What an import writes, how the record pass is undone, what an import event
+records, and why a second import of one export writes nothing are the rules
+[`case import`](#case-import) states, unchanged. The input caps are the caps
+of `import`, enforced while the copies are read and again while they are
+stored.
+
+The refusals are the refusals of [`case import`](#case-import), with one
+addition: a directory of the other scope is `export.manifest_malformed`.
+
+`data` reports counts and how many cases the export holds, and never the
+source.
+
+```json
+{
+  "schema_version": 1,
+  "ok": true,
+  "command": "archive.import",
+  "data": {
+    "bytes_stored": 50,
+    "case_count": 1,
+    "events_recorded": 2,
+    "object_count": 3,
+    "objects_present": 1,
+    "objects_stored": 2,
+    "records": [
+      { "count": 1, "kind": "case" },
+      { "count": 1, "kind": "submission" },
+      { "count": 1, "kind": "receipt" },
+      { "count": 2, "kind": "association" },
+      { "count": 3, "kind": "import_event" }
+    ],
+    "records_present": 1,
+    "records_written": 7
+  },
+  "verified": false
+}
+```
+
+`records` describes what the manifest holds, one count per kind including the
+empty ones. `records_written` and `records_present` split those between what
+this import wrote and what the archive already held, and `events_recorded`
+counts the import events openPapir wrote of its own, which are not part of the
+export.
+
+Human output adds one thing the JSON does not carry, the source the user
+supplied, because the line repeats the argument they just typed.
+
+```text
+Imported 1 case(s) from /tmp/example-archive-export.
+Stored 2 object(s), 50 byte(s); 1 already present.
+Wrote 7 record(s); 1 already present.
+case 1
+submission 1
+receipt 1
+association 2
+import_event 3
+Recorded 2 import event(s) with source export.
 Every restored copy was re-digested: a digest identifies bytes only, never authenticity, delivery, or legal effect.
 ```
 
@@ -1911,11 +2123,14 @@ environment variable, or configuration relaxes a cap.
 | Case tag | 64 bytes | `input.cap.tag_length` |
 | Case tags per record | 32 distinct | `input.cap.tag_count` |
 
-The caps bind `case import` as they bind `import`, and the per-operation cap
-is the one that binds a restore: an import reads every object the manifest
-lists in one operation, so a case whose objects come to more than 512 MiB in
-total is refused with `input.cap.import_bytes` and cannot be restored by this
-build, even though several smaller imports were able to build it. The cap is
+The caps bind `case import` and `archive import` as they bind `import`, and
+the per-operation cap is the one that binds a restore: an import reads every
+object the manifest lists in one operation, so an export whose objects come to
+more than 512 MiB in total is refused with `input.cap.import_bytes` and cannot
+be restored by this build, even though several smaller imports were able to
+build the archive it came from. A whole archive reaches that ceiling sooner
+than one case does, which is the practical limit of `archive import` in this
+build and the reason a backup stays a plain copy of the archive root. The cap is
 deliberately not scoped per object to make that case succeed: a cap is never
 relaxed for one particular input ([AGENTS.md](../AGENTS.md)), and raising the
 ceiling is a decision about the cap itself rather than about the command that
@@ -2246,9 +2461,10 @@ minted, and timestamps openPapir recorded.
 They never carry an original filename or any form of one, a user-supplied path
 including the archive root, payload bytes or excerpts, a hostname, a username,
 or a process owner. The single exception is the export directory in human
-output: `case export` prints the `--to` argument and `case import` the
-`--from` argument the user typed in the same invocation, back to them, so that
-they can see where their copy went or came from. Neither reaches `data`,
+output: `case export` and `archive export` print the `--to` argument, and
+`case import` and `archive import` the `--from` argument, the user typed in
+the same invocation, back to them, so that they can see where their copy went
+or came from. Neither reaches `data`,
 `message`, `details`, or stderr, and no other user-supplied path is echoed
 anywhere. A receipt label and an evidence statement are the user's
 own text: they appear in `data` and in human output, which report the user's

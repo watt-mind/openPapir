@@ -333,7 +333,7 @@ fn symlink(target: &Path, link: &Path) -> bool {
 fn read_manifest(body: &[u8]) -> (tempfile::TempDir, Result<manifest::Manifest, Diagnostic>) {
     let source = tempfile::tempdir().expect("a temporary export source");
     fs::write(source.path().join(MANIFEST_FILE), body).expect("a manifest is stored");
-    let read = manifest::read(source.path());
+    let read = manifest::read(source.path(), manifest::Scope::Case);
     (source, read)
 }
 
@@ -356,7 +356,7 @@ proptest! {
     ) {
         let source = tempfile::tempdir().expect("a temporary export source");
         let placed = place_manifest(source.path(), placement, &body);
-        match manifest::read(source.path()) {
+        match manifest::read(source.path(), manifest::Scope::Case) {
             Ok(_) => prop_assert_eq!(
                 placed,
                 Placement::File,
@@ -399,7 +399,7 @@ proptest! {
         prop_assert!(damage.tolerated(), "this arm generates only tolerated damage");
         let read = read.expect("a manifest this build wrote reads back");
 
-        prop_assert_eq!(&read.case_id, &plan.case_id);
+        prop_assert_eq!(read.case_id.as_deref(), Some(plan.case_id.as_str()));
         prop_assert_eq!(read.objects.len(), plan.objects.len());
         for (listed, (digest, byte_length)) in read.objects.iter().zip(&plan.objects) {
             prop_assert_eq!(&listed.digest, digest, "an object row keeps its digest");

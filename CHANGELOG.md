@@ -72,6 +72,27 @@ envelope.
   version the binary reports. `clap_complete` and `clap_mangen` are added as workspace
   dependencies, and `clap`'s `string` feature with them. Release archives
   carry neither file; see `docs/releasing.md`.
+- `openpapir archive export --archive <root> --to <dir> [--json]`, operation
+  `archive.export`, copies a whole archive out in the shape `case export`
+  writes: every object the store holds, every record of every kind, one
+  manifest, and the archive marker as `papir-archive.json`, so the schema
+  version the copy was taken under travels with it. The archive is opened
+  read-only and is not changed, every copy is re-digested on the way out, and
+  the destination rules and refusals are the case export's. A record naming an
+  object the store does not hold is `record.not_found`, and an entry under
+  `objects/` that is not an object filed under its own digest is
+  `integrity.digest_mismatch` with a count, which refuses the export rather
+  than being passed over.
+- `openpapir archive import --archive <root> --from <dir> [--json]`, operation
+  `archive.import`, reads such a directory back into an archive, restoring the
+  whole export as one set: all of it or none of it. Every pass is `case
+  import`'s, so a record identifier a different record holds is
+  `export.record_conflict` before anything is written, an object or a record
+  already there is not an error, and importing one export twice leaves the
+  same archive. It is a separate command rather than a mode of `case import`
+  so that the record-conflict rule stays one rule; each import reads its own
+  `export_scope` and refuses the other's directory with
+  `export.manifest_malformed`.
 - An ignored benchmark, `crates/openpapir-cli/tests/bench.rs`, times the
   linear scans on a synthetic archive of 10000 cases, 10000 submissions,
   10000 receipts, 10000 associations, and 20000 imported objects, and asserts
@@ -521,6 +542,13 @@ envelope.
 
 ### Changed
 
+- An export manifest now carries `export_scope`, `case` for a directory
+  `case export` wrote and `archive` for one `archive export` wrote. The field
+  is additive and the manifest format version stays `1`: a manifest written
+  before the field existed holds one case, so a reader that meets no
+  `export_scope` reads it as `case`, and `case export` writes the same
+  `case_id` it always did. A whole-archive manifest names no `case_id` at all.
+
 - The documentation names no operation count. `docs/architecture.md` gains
   one authoritative table under "Current implementation", listing each
   operation `capabilities` reports beside its invocation, and
@@ -746,6 +774,11 @@ envelope.
 
 ### Fixed
 
+- `case export` no longer succeeds with fewer records than the case holds when
+  a record directory cannot be listed. Reading such a directory as empty made
+  the export describe a smaller case than the archive holds; it is now a
+  retryable `write.interrupted` naming the stage `record_write` and the record
+  kind. `archive export` reads its records the same way.
 - `archive check` reports the `supersedes` cycles the stored association
   records form as `record.inconsistent` with rule `supersedes_cycle`, so a
   cycle is found wherever it sits rather than only where a deletion would have

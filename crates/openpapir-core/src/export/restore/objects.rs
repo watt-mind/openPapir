@@ -250,7 +250,8 @@ mod tests {
 
     fn manifest(byte_length: u64) -> Manifest {
         Manifest {
-            case_id: "0123456789abcdef0123456789abcdef".to_owned(),
+            case_count: 1,
+            case_id: Some("0123456789abcdef0123456789abcdef".to_owned()),
             counts: Vec::new(),
             objects: vec![ObjectRow {
                 algorithm: "sha256".to_owned(),
