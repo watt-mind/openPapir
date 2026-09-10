@@ -18,7 +18,7 @@ use sha2::{Digest as _, Sha256};
 
 use crate::archive::write::Staging;
 use crate::archive::{limits, paths};
-use crate::error::{Details, Diagnostic, Warning, codes};
+use crate::error::{Details, Diagnostic, Warning, codes, stages};
 use crate::ident;
 
 /// The directory holding stored objects, relative to the archive root.
@@ -83,14 +83,14 @@ pub fn store(
     read_total: &mut u64,
     ceiling: limits::Ceiling,
 ) -> Result<Stored, Diagnostic> {
-    let mut staging = Staging::create(&root.join(INCOMING_DIR), "object")?;
+    let mut staging = Staging::create(&root.join(INCOMING_DIR), stages::OBJECT_WRITE)?;
     let mut hasher = Sha256::new();
     let mut buffer = vec![0_u8; CHUNK_BYTES];
     let mut byte_length = 0_u64;
     loop {
         let read = source
             .read(&mut buffer)
-            .map_err(|error| paths::publish_refusal(&error, "", "object"))?;
+            .map_err(|error| paths::publish_refusal(&error, "", stages::OBJECT_WRITE))?;
         if read == 0 {
             break;
         }
@@ -102,9 +102,9 @@ pub fn store(
         staging
             .file()
             .write_all(&buffer[..read])
-            .map_err(|error| paths::publish_refusal(&error, "", "object"))?;
+            .map_err(|error| paths::publish_refusal(&error, "", stages::OBJECT_WRITE))?;
     }
-    staging.finish("object")?;
+    staging.finish(stages::OBJECT_WRITE)?;
     let digest = ident::hex(&hasher.finalize());
     place(root, staging, &digest, byte_length)
 }
@@ -160,8 +160,8 @@ fn place(
     }
     let mut warnings = create_object_directories(root, digest, &relative)?;
     paths::set_object_read_only(staging.path())
-        .map_err(|error| paths::publish_refusal(&error, &relative, "object"))?;
-    warnings.extend(staging.publish(&destination, &relative, "object")?);
+        .map_err(|error| paths::publish_refusal(&error, &relative, stages::OBJECT_WRITE))?;
+    warnings.extend(staging.publish(&destination, &relative, stages::OBJECT_WRITE)?);
     Ok(Stored {
         digest: digest.to_owned(),
         byte_length,
@@ -210,9 +210,9 @@ fn create_object_directories(
             ));
         }
         paths::create_dir_owner_only(directory)
-            .map_err(|error| paths::publish_refusal(&error, relative, "object"))?;
+            .map_err(|error| paths::publish_refusal(&error, relative, stages::OBJECT_WRITE))?;
         if let Some(warning) =
-            paths::sync_directory(directory.parent().unwrap_or(root), "object_write")
+            paths::sync_directory(directory.parent().unwrap_or(root), stages::OBJECT_WRITE)
         {
             warnings.push(warning);
         }

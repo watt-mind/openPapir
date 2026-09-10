@@ -1,0 +1,1 @@
+error archive.not_writable: The archive root directory is not writable, so openPapir cannot take the single-writer lock; make the archive root itself writable, because archive repair-permissions cannot help when the root is read-only.

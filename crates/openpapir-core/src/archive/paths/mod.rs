@@ -32,7 +32,7 @@ pub use permissions::{
 use std::io;
 use std::path::Path;
 
-use crate::error::{Details, Diagnostic, codes};
+use crate::error::{Details, Diagnostic, codes, stages};
 
 /// Every no-follow rule below is a Unix or a Windows one. A target with
 /// neither has no way to open a path without following a link, and this
@@ -66,8 +66,19 @@ pub fn device_of(path: &Path) -> Option<u64> {
 /// cross-device link or rename means the archive is misconfigured; anything
 /// else interrupted the write before its publish step, so the archive holds
 /// the complete artefact or nothing.
+///
+/// # Panics
+///
+/// In a debug build, when `stage` is not one of the stages the contract
+/// enumerates ([`stages::ALL`]). A stage outside that set is a defect in the
+/// caller rather than a condition of the archive, so it is caught where every
+/// test runs rather than published to a caller that cannot branch on it.
 #[must_use]
 pub fn publish_refusal(error: &io::Error, archive_path: &str, stage: &'static str) -> Diagnostic {
+    debug_assert!(
+        stages::is_write(stage),
+        "a write stage the error contract does not enumerate"
+    );
     if error.kind() == io::ErrorKind::AlreadyExists {
         return Diagnostic::new(
             codes::PATH_OVERWRITE,
@@ -101,8 +112,17 @@ pub fn publish_refusal(error: &io::Error, archive_path: &str, stage: &'static st
 /// instead, naming the condition it observed rather than a cause it cannot
 /// prove; see [`is_link_refused`]. Every other failure of the same call keeps
 /// the mapping of [`publish_refusal`].
+///
+/// # Panics
+///
+/// In a debug build, when `stage` is not one the contract enumerates; see
+/// [`publish_refusal`].
 #[must_use]
 pub fn link_refusal(error: &io::Error, archive_path: &str, stage: &'static str) -> Diagnostic {
+    debug_assert!(
+        stages::is_write(stage),
+        "a write stage the error contract does not enumerate"
+    );
     if is_link_unsupported(error) {
         return Diagnostic::new(
             codes::PLATFORM_FILESYSTEM_UNSUPPORTED,
@@ -199,7 +219,7 @@ mod tests {
         let error = io::Error::from_raw_os_error(libc::EXDEV);
         #[cfg(not(unix))]
         let error = io::Error::from_raw_os_error(17);
-        let refusal = publish_refusal(&error, "objects/sha256/ab/cd/digest", "object");
+        let refusal = publish_refusal(&error, "objects/sha256/ab/cd/digest", stages::OBJECT_WRITE);
         assert_eq!(refusal.code, codes::PATH_CROSS_DEVICE);
         assert_eq!(refusal.exit_code(), 3);
         assert!(is_cross_device(&error));
@@ -208,7 +228,7 @@ mod tests {
     #[test]
     fn an_existing_destination_is_refused_as_an_overwrite() {
         let error = io::Error::new(io::ErrorKind::AlreadyExists, "exists");
-        let refusal = publish_refusal(&error, "records/imports/id.json", "record");
+        let refusal = publish_refusal(&error, "records/imports/id.json", stages::RECORD_WRITE);
         assert_eq!(refusal.code, codes::PATH_OVERWRITE);
         assert_eq!(refusal.exit_code(), 3);
     }
@@ -216,7 +236,7 @@ mod tests {
     #[test]
     fn any_other_publish_failure_is_an_interrupted_write() {
         let error = io::Error::new(io::ErrorKind::PermissionDenied, "denied");
-        let refusal = publish_refusal(&error, "objects/sha256/ab/cd/digest", "object");
+        let refusal = publish_refusal(&error, "objects/sha256/ab/cd/digest", stages::OBJECT_WRITE);
         assert_eq!(refusal.code, codes::WRITE_INTERRUPTED);
         assert!(refusal.is_retryable());
         assert_eq!(refusal.exit_code(), 4);
@@ -233,7 +253,11 @@ mod tests {
         assert!(is_link_unsupported(&io::Error::from(
             io::ErrorKind::Unsupported
         )));
-        let refusal = link_refusal(&unsupported, "objects/sha256/ab/cd/digest", "object");
+        let refusal = link_refusal(
+            &unsupported,
+            "objects/sha256/ab/cd/digest",
+            stages::OBJECT_WRITE,
+        );
         assert_eq!(refusal.code, codes::PLATFORM_FILESYSTEM_UNSUPPORTED);
         assert_eq!(refusal.exit_code(), 5);
         assert!(
@@ -242,19 +266,19 @@ mod tests {
         );
         let json = serde_json::to_value(&refusal).unwrap();
         assert_eq!(json["details"]["capability"], "hard_link");
-        assert_eq!(json["details"]["stage"], "object");
+        assert_eq!(json["details"]["stage"], "object_write");
         assert_eq!(json["details"]["bucket"], "platform");
 
         // Every other failure of the same call keeps its own mapping.
         let existing = io::Error::new(io::ErrorKind::AlreadyExists, "exists");
         assert!(!is_link_unsupported(&existing));
         assert_eq!(
-            link_refusal(&existing, "records/imports/id.json", "record").code,
+            link_refusal(&existing, "records/imports/id.json", stages::RECORD_WRITE).code,
             codes::PATH_OVERWRITE
         );
         let denied = io::Error::new(io::ErrorKind::PermissionDenied, "denied");
         assert_eq!(
-            link_refusal(&denied, "records/imports/id.json", "record").code,
+            link_refusal(&denied, "records/imports/id.json", stages::RECORD_WRITE).code,
             codes::WRITE_INTERRUPTED
         );
     }
@@ -272,7 +296,11 @@ mod tests {
             "EPERM does not prove the filesystem has no hard links"
         );
         assert!(is_link_refused(&refused));
-        let refusal = link_refusal(&refused, "objects/sha256/ab/cd/digest", "object");
+        let refusal = link_refusal(
+            &refused,
+            "objects/sha256/ab/cd/digest",
+            stages::OBJECT_WRITE,
+        );
         assert_eq!(refusal.code, codes::WRITE_INTERRUPTED);
         assert_eq!(refusal.exit_code(), 4);
         assert!(
@@ -282,7 +310,7 @@ mod tests {
         let json = serde_json::to_value(&refusal).unwrap();
         assert_eq!(json["details"]["capability"], "hard_link");
         assert_eq!(json["details"]["condition"], "link_refused");
-        assert_eq!(json["details"]["stage"], "object");
+        assert_eq!(json["details"]["stage"], "object_write");
         assert_eq!(json["details"]["bucket"], "write");
 
         // Nothing else reaches the ambiguous branch, so an unsupported

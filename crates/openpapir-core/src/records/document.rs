@@ -22,7 +22,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use crate::archive::{limits, paths, write};
-use crate::error::{Details, Diagnostic, Warning, codes};
+use crate::error::{Details, Diagnostic, Warning, codes, stages};
 
 /// The prefix the atomic write procedure gives a staging file.
 ///
@@ -170,7 +170,7 @@ pub fn write_record<R: Record>(root: &Path, record: &R) -> Result<Vec<Warning>, 
         &file_name,
         &archive_path,
         content.as_bytes(),
-        "record_write",
+        stages::RECORD_WRITE,
     )
 }
 
@@ -199,7 +199,7 @@ pub fn replace_record<R: Rewritable>(root: &Path, record: &R) -> Result<Vec<Warn
         &file_name,
         &archive_path,
         content.as_bytes(),
-        "record_replace",
+        stages::RECORD_WRITE,
     )
 }
 
