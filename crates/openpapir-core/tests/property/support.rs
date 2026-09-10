@@ -15,7 +15,9 @@ use proptest::test_runner::Config as ProptestConfig;
 use openpapir_core::archive::SUPPORTED_SCHEMA_VERSION;
 use openpapir_core::archive::import::{ImportEvent, SOURCE_EXPORT};
 use openpapir_core::archive::limits;
-use openpapir_core::error::Diagnostic;
+use openpapir_core::error::{Diagnostic, codes};
+use openpapir_core::export::manifest::MANIFEST_SCHEMA_VERSION;
+use openpapir_core::export::restore::records as restore_records;
 use openpapir_core::records::MAX_STATEMENT_BYTES;
 use openpapir_core::records::association::{
     Association, CONFIDENCES, CREATED_BY, Candidate, EVIDENCE_KIND, EVIDENCE_SOURCE, Evidence,
@@ -50,8 +52,16 @@ pub fn config(default_cases: u32) -> ProptestConfig {
 /// The privacy rule is that a refusal names the shape of the failure and never
 /// the value that caused it, so the set is fixed and every property that
 /// inspects a refusal checks against it.
-const PERMITTED_DETAIL_KEYS: [&str; 17] = [
+///
+/// It is a subset of the keys `docs/error-contract.md` defines: the ones the
+/// refusals these properties can reach actually carry. The two schema keys
+/// are here because a manifest declaring another archive schema version is
+/// refused by the schema rules, and that refusal names the two versions. They
+/// are numbers openPapir itself writes rather than anything the user
+/// supplied, so naming them breaches nothing.
+const PERMITTED_DETAIL_KEYS: [&str; 19] = [
     "archive_path",
+    "archive_schema_version",
     "argument",
     "bucket",
     "cap_bytes",
@@ -68,6 +78,7 @@ const PERMITTED_DETAIL_KEYS: [&str; 17] = [
     "rule",
     "scope",
     "stage",
+    "supported_schema_version",
 ];
 
 /// Assert that a refusal carries no detail key outside the permitted set.
@@ -144,10 +155,18 @@ pub fn identifier() -> impl Strategy<Value = String> {
         .prop_map(|bytes| String::from_utf8(bytes).expect("hexadecimal is ASCII"))
 }
 
+/// A well-formed bare digest: 64 lowercase hexadecimal characters.
+///
+/// It is the shape an export manifest lists an object under, where the
+/// algorithm is a field of its own rather than a prefix on the value.
+pub fn hex_digest() -> impl Strategy<Value = String> {
+    proptest::collection::vec(proptest::sample::select(hexadecimal()), 64)
+        .prop_map(|bytes| String::from_utf8(bytes).expect("hexadecimal is ASCII"))
+}
+
 /// A well-formed artefact reference: `sha256:` and 64 hexadecimal characters.
 pub fn digest() -> impl Strategy<Value = String> {
-    proptest::collection::vec(proptest::sample::select(hexadecimal()), 64)
-        .prop_map(|bytes| format!("sha256:{}", String::from_utf8(bytes).expect("ASCII")))
+    hex_digest().prop_map(|digest| format!("sha256:{digest}"))
 }
 
 /// A short text field: printable, inside every field cap this suite uses.
@@ -603,6 +622,252 @@ pub fn damaged_document<R: serde::Serialize>(
                 "id".to_owned(),
                 serde_json::Value::String(FOREIGN_ID.to_owned()),
             );
+        }
+    }
+    format!("{value}\n")
+}
+
+/// One export manifest, as the fields the writer renders it from.
+///
+/// The manifest is the export's own top-level document rather than a record,
+/// so it has its own plan and its own damage enumeration beside [`Damage`].
+/// Every generated plan is one the export writer could have produced: exactly
+/// one case row whose identifier is the manifest's own `case_id`, unique
+/// object digests, and unique record rows.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManifestPlan {
+    /// The case the export holds.
+    pub case_id: String,
+    /// Every listed object, as its bare digest and byte length.
+    pub objects: Vec<(String, u64)>,
+    /// Every listed record, as its kind and identifier.
+    pub rows: Vec<(String, String)>,
+}
+
+/// A manifest the export writer would have produced.
+///
+/// At least one object is always listed, so that the damage that malforms a
+/// digest always has a row to malform and never degrades into a valid
+/// manifest that the refusing arm would then never reach.
+pub fn manifest_plan() -> impl Strategy<Value = ManifestPlan> {
+    let other_kinds: Vec<&'static str> = restore_records::KINDS
+        .iter()
+        .copied()
+        .filter(|kind| *kind != restore_records::CASE_KIND)
+        .collect();
+    (
+        identifier(),
+        proptest::collection::vec((hex_digest(), 0_u64..1_000_000), 1..4),
+        proptest::collection::vec((proptest::sample::select(other_kinds), identifier()), 0..4),
+    )
+        .prop_map(|(case_id, objects, rows)| {
+            let mut seen = BTreeSet::new();
+            let objects = objects
+                .into_iter()
+                .filter(|(digest, _)| seen.insert(digest.clone()))
+                .collect();
+            let mut seen = BTreeSet::new();
+            seen.insert((restore_records::CASE_KIND.to_owned(), case_id.clone()));
+            let mut listed = vec![(restore_records::CASE_KIND.to_owned(), case_id.clone())];
+            for (kind, id) in rows {
+                let row = (kind.to_owned(), id);
+                if seen.insert(row.clone()) {
+                    listed.push(row);
+                }
+            }
+            ManifestPlan {
+                case_id,
+                objects,
+                rows: listed,
+            }
+        })
+}
+
+/// The top-level keys the manifest document cannot be read without.
+///
+/// `exported_at` is deliberately absent: the writer records it and the reader
+/// does not ask for it, so dropping it is not a damage the reader refuses.
+pub const MANIFEST_REQUIRED_KEYS: [&str; 5] = [
+    "archive_schema_version",
+    "case_id",
+    "objects",
+    "records",
+    "schema_version",
+];
+
+/// One way a stored manifest can differ from the one an export wrote.
+///
+/// The split is [`Damage`]'s: the first group leaves everything the reader
+/// checks true and must still read back, and the second breaks exactly one of
+/// the reader's own checks and must be refused with the code that check
+/// answers with. The second group is the list
+/// `crates/openpapir-core/src/export/restore/manifest.rs` documents: a key the
+/// document cannot be parsed without, a value of the wrong type, a record kind
+/// this build does not know, a digest that is not the store's own shape, an
+/// identifier shaped like a path, and an archive schema version this build
+/// does not support.
+///
+/// The schema damages are in the enumeration rather than left out of it
+/// because they are the reason the refusal is not one code. A manifest from a
+/// build this one does not support is refused by the schema rules rather than
+/// reported as malformed, so each damage carries the code it is documented to
+/// produce and the property asserts that code rather than a set of codes any
+/// member of which would pass.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ManifestDamage {
+    /// Nothing is changed.
+    None,
+    /// A key no version of the manifest defines is added. Serde ignores it.
+    UnknownKey,
+    /// A key the manifest cannot be parsed without is removed.
+    MissingKey,
+    /// A value is replaced by one of the wrong JSON type.
+    ///
+    /// The replacement is a list, which is the wrong type for every one of
+    /// [`MANIFEST_REQUIRED_KEYS`]: the two version numbers and `case_id` are
+    /// scalars, and `objects` and `records` are lists of objects rather than
+    /// of numbers. A string would be the wrong type for the versions and the
+    /// lists but the right one for `case_id`, where it would exercise the
+    /// identifier check instead and put this damage in the wrong half of the
+    /// enumeration for that key.
+    WrongType,
+    /// A record row names a kind this build does not know.
+    UnknownKind,
+    /// An object row's digest is not the store's own digest shape.
+    MalformedDigest,
+    /// A record row's identifier is a path rather than an identifier.
+    PathShapedIdentifier,
+    /// The export names an archive schema version newer than this build's.
+    ArchiveSchemaNewer,
+    /// The export names an archive schema version older than this build's.
+    ArchiveSchemaOlder,
+}
+
+impl ManifestDamage {
+    /// The code the reader is documented to refuse this damage with, or
+    /// `None` when the reader must read the manifest back regardless.
+    #[must_use]
+    pub const fn refusal_code(self) -> Option<&'static str> {
+        match self {
+            Self::None | Self::UnknownKey => Option::None,
+            Self::ArchiveSchemaNewer => Some(codes::ARCHIVE_SCHEMA_NEWER),
+            Self::ArchiveSchemaOlder => Some(codes::ARCHIVE_SCHEMA_OLDER),
+            Self::MissingKey
+            | Self::WrongType
+            | Self::UnknownKind
+            | Self::MalformedDigest
+            | Self::PathShapedIdentifier => Some(codes::EXPORT_MANIFEST_MALFORMED),
+        }
+    }
+
+    /// Whether a manifest carrying this damage must still read back.
+    #[must_use]
+    pub const fn tolerated(self) -> bool {
+        self.refusal_code().is_none()
+    }
+}
+
+/// The manifest damages the reader must tolerate.
+pub fn tolerated_manifest_damage() -> impl Strategy<Value = ManifestDamage> {
+    prop_oneof![Just(ManifestDamage::None), Just(ManifestDamage::UnknownKey)]
+}
+
+/// The manifest damages the reader must refuse.
+pub fn breaking_manifest_damage() -> impl Strategy<Value = ManifestDamage> {
+    prop_oneof![
+        Just(ManifestDamage::MissingKey),
+        Just(ManifestDamage::WrongType),
+        Just(ManifestDamage::UnknownKind),
+        Just(ManifestDamage::MalformedDigest),
+        Just(ManifestDamage::PathShapedIdentifier),
+        Just(ManifestDamage::ArchiveSchemaNewer),
+        Just(ManifestDamage::ArchiveSchemaOlder),
+    ]
+}
+
+/// The path-shaped identifier the path damage puts where an identifier goes.
+pub const PATH_SHAPED_ID: &str = "../../etc/passwd";
+
+/// Render one manifest plan as the document an export would hold, damaged.
+///
+/// `key` chooses which required key goes missing and which value takes the
+/// wrong type, and `row` chooses which row the three row damages land on, so
+/// both shrink like any other generated input. The document is rendered
+/// through a JSON value, so its keys are sorted exactly as the writer's are.
+#[must_use]
+pub fn damaged_manifest(
+    plan: &ManifestPlan,
+    damage: ManifestDamage,
+    key: &str,
+    row: usize,
+) -> String {
+    let objects: Vec<serde_json::Value> = plan
+        .objects
+        .iter()
+        .map(|(digest, byte_length)| {
+            serde_json::json!({
+                "algorithm": openpapir_core::archive::objects::ALGORITHM,
+                "byte_length": byte_length,
+                "digest": digest,
+            })
+        })
+        .collect();
+    let records: Vec<serde_json::Value> = plan
+        .rows
+        .iter()
+        .map(|(kind, id)| serde_json::json!({ "id": id, "kind": kind }))
+        .collect();
+    let mut value = serde_json::json!({
+        "archive_schema_version": SUPPORTED_SCHEMA_VERSION,
+        "case_id": plan.case_id,
+        "exported_at": "2026-01-17T12:00:00Z",
+        "objects": objects,
+        "records": records,
+        "schema_version": MANIFEST_SCHEMA_VERSION,
+    });
+    let object = value.as_object_mut().expect("a manifest is an object");
+    match damage {
+        ManifestDamage::None => {}
+        ManifestDamage::UnknownKey => {
+            object.insert(
+                "papir_unknown_key".to_owned(),
+                serde_json::Value::String("ignored".to_owned()),
+            );
+        }
+        ManifestDamage::MissingKey => {
+            object.remove(key);
+        }
+        ManifestDamage::WrongType => {
+            // A list of numbers is the wrong type for every required key: the
+            // scalars are not lists, and the two lists hold objects. A string
+            // would be the right type for `case_id` and would exercise the
+            // identifier check rather than the type.
+            object.insert(key.to_owned(), serde_json::json!([1, 2, 3]));
+        }
+        ManifestDamage::UnknownKind => {
+            let index = row % plan.rows.len();
+            object["records"][index]["kind"] =
+                serde_json::Value::String("papir_not_a_kind".to_owned());
+        }
+        ManifestDamage::MalformedDigest => {
+            let index = row % plan.objects.len();
+            object["objects"][index]["digest"] =
+                serde_json::Value::String("not-a-digest".to_owned());
+        }
+        ManifestDamage::PathShapedIdentifier => {
+            let index = row % plan.rows.len();
+            object["records"][index]["id"] = serde_json::Value::String(PATH_SHAPED_ID.to_owned());
+        }
+        // The manifest's own format version stays intact, so the reader
+        // reaches the archive schema rules rather than stopping at the format
+        // check that runs before them.
+        ManifestDamage::ArchiveSchemaNewer => {
+            object["archive_schema_version"] =
+                serde_json::json!(u64::from(SUPPORTED_SCHEMA_VERSION) + 1);
+        }
+        ManifestDamage::ArchiveSchemaOlder => {
+            object["archive_schema_version"] =
+                serde_json::json!(u64::from(SUPPORTED_SCHEMA_VERSION) - 1);
         }
     }
     format!("{value}\n")
