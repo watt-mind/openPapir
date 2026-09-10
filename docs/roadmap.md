@@ -104,7 +104,7 @@ page's last update.
 - Generative testing drives the archive operations with generated inputs to
   reach the orderings and limits the example-based tests in
   [testing and fixture policy](testing.md) do not, gated on nothing outside
-  the workspace: planned.
+  the workspace: implemented.
 - A release pipeline and a Windows-target lint publish a checked build and
   keep the cross-platform path and permission rules honest on the target that
   differs most, gated on [releasing](releasing.md) recording the release
