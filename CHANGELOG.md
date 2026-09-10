@@ -350,6 +350,14 @@ envelope.
 
 ### Changed
 
+- `docs/architecture.md` records the human output language decision in a new
+  Human output language subsection: human output is English only, and the JSON
+  form stays the scripting contract. The subsection sizes the surface, gives
+  the five reasons, and names the compiled-in message table, one function per
+  message with no format string taken from data and no new dependency, as the
+  path a demand for Hungarian output would take, with the trigger that would
+  start it. `README.md` states the decision in one sentence. No behaviour,
+  contract, or output changes.
 - `case delete` decides an association's fate by supersession chain rather
   than by single record, so a retired history goes with the case it was about.
   A chain goes when one of its records names a departing submission and its

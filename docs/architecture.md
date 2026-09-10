@@ -1694,6 +1694,72 @@ refusal. Which input failed is answered by `input_index`, never by
 a name. The original filename is stored as an attribute of the import event
 record only.
 
+### Human output language
+
+Human output is English only, in every command and on both streams. That is a
+decision rather than an omission, and it is recorded here so that the next
+command family does not have to reopen it.
+
+The surface it applies to is larger than a single command's output suggests.
+`crates/openpapir-cli/src/report.rs` holds 61 message templates, of which 57
+carry English words and 4 are pure column layout. Outside it, 57 distinct
+diagnostic sentences reach `message` from 60 construction sites in the two
+crates, and 74 `clap` attributes carry the help text of the commands, the
+subcommands, and their flags. The 24 golden cases pin 48 human-form files,
+`human.txt` and `human.stderr.txt` for each. Roughly 190 English strings are
+in scope today, and the count grows with every command family added.
+
+Five reasons decide it that way.
+
+1. The parser's own text is not ours to translate. `clap` renders the usage
+   block, the argument-parser refusals, and the `--help` and `--version` output
+   from strings it owns, and it offers no message table to replace them. The
+   goldens already pin two of those lines under `usage.arguments`. A locale
+   switch would therefore leave the first text a user meets when they get an
+   invocation wrong in English, or force a hand-written renderer for help and
+   for every parser refusal, which is a larger commitment than translating the
+   result lines.
+2. The wording carries the disclaimer load. Lines such as the closing sentence
+   of every record command exist to keep the tool from being read as a claim of
+   delivery, receipt by an authority, authenticity, or legal effect. A
+   Hungarian rendering of those sentences has to be as careful in Hungarian
+   administrative vocabulary as the English is in English, and a rendering
+   that is merely fluent could imply exactly what the sentence exists to deny.
+   That review is not a spell check; it needs a reader who knows the domain.
+3. Every added language doubles the machine-checked human surface. A second
+   language means 48 more golden files, a language axis in the harness, and a
+   reviewer who reads that language for every diff those files show. A golden
+   nobody in the review can read is a golden that is regenerated rather than
+   read, which is the failure the golden directory exists to prevent.
+4. The review has no owner. The release rule for a translated build would be a
+   native reader signing off before each release. There is no published
+   release and no reviewer who has committed to that recurring work, so
+   adopting the rule now would mean adopting a rule that cannot be kept.
+5. No integrator is affected. The JSON form is the scripting contract: field
+   names, `command`, `error.code`, and the exit codes are stable identifiers
+   and stay English whatever the human form does. A caller branches on the
+   code and the exit code, never on `message` wording, so nothing that reads
+   openPapir programmatically depends on this decision at all.
+
+Only the fourth reason is about effort. The first three would still apply to a
+funded translation, and they are why the answer is not simply "later, when
+there is time".
+
+The path a demand for Hungarian output should take is a compiled-in message
+table, and naming it here is the point of recording the decision. It would be
+a module in `openpapir-cli` with one function per message, each taking typed
+arguments and returning the rendered line, so the format strings stay in the
+source and no format string ever comes from data. It needs no new dependency:
+the selected language is one enum value threaded from the command layer, from
+`--lang hu|en` or `OPENPAPIR_LANG`, and the functions match on it. Under such
+a table the rules are that every human line goes through it with no literal
+left at a call site, that goldens exist for each language, and that a native
+reader reviews the Hungarian before each release. Adopting it is a ticket per
+command family so that no single change has to move all 61 templates at once.
+The trigger is a stated need from a user who reads Hungarian together with a
+named reviewer who accepts the per-release review; until both exist, the
+answer stays English only.
+
 ## Planned ownership
 
 Cases, submissions, receipts, and user-asserted associations are implemented

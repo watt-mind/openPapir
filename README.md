@@ -213,6 +213,14 @@ The closing line is not decoration. A receipt is a file the user believes to
 be one, an association is what the user asserts about it, and neither is a
 verification: openPapir reads no artefact bytes and opens no socket.
 
+These lines are English only, because their careful wording and the argument
+parser's own text would each need a native reviewer before every release while
+the JSON form remains the scripting contract for anyone who needs to read a
+result programmatically, and
+[human output language](docs/architecture.md#human-output-language) records
+that decision together with the compiled-in message table a demand for
+Hungarian output would go through.
+
 ## Documentation
 
 The [specification index](docs/specification.md) is the single entry point to
