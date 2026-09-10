@@ -840,6 +840,24 @@ envelope.
   `docs/architecture.md` now states. The ignored benchmark times one import of
   a full batch against the archive it built, so the cost that grew is asserted
   against a ceiling rather than only described.
+- `case delete --purge` removes the derived-metadata record of every object it
+  purges, in the same all-or-nothing record pass and counted under
+  `records_removed` as the new kind `derived_metadata`. A purge that unlinked
+  an object left a record about bytes that were gone until the next
+  `archive derive` discarded it. The record is disposable and nothing
+  references one, so nothing the user wrote is lost with it, and a deletion
+  that removes no object removes none of them.
+- `archive check` reports `derived_orphans`, how many derived records name an
+  object the store no longer holds. It is a count and never a problem: it does
+  not appear in `problems`, it changes no exit code, and the next
+  `archive derive` still discards such a record. It makes a purge that stopped
+  between its record pass and its object pass visible instead of silent.
+  `derived_records` is now the count of the files the derived directory holds
+  under a digest name, so the check no longer parses every derived record only
+  to count them; a record that cannot be read is counted like any other and is
+  still not damage.
+- `archive derive` retries a read a signal interrupted rather than leaving the
+  object unchecked and without a record.
 - The human form of `association show` prints the shown record once. The
   chain it reports always holds that record, so printing its block before the
   chain as well printed the same record twice; the first line now names the

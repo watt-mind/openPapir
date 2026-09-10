@@ -987,10 +987,24 @@ holds, never with their size.
 | A symbolic link, or any other non-regular file, inside `objects/`. | `path.symlink` |
 
 `data` also carries `derived_records`, how many derived-metadata records the
-archive holds. A derived record is openPapir's own disposable computation
-about a stored object, so a missing one is nothing at all rather than a
-problem, one that cannot be read is not counted and is not damage either, and
-neither ever changes the exit code.
+archive holds, and `derived_orphans`, how many of those name an object the
+store no longer holds. A derived record is openPapir's own disposable
+computation about a stored object, so a missing one is nothing at all rather
+than a problem, and an orphaned one is a count rather than a problem too:
+nothing references it and the next `archive derive` discards it. Neither ever
+changes the exit code, and neither appears in `problems`.
+
+`derived_records` counts the files the derived directory holds under a digest
+name. The check does not open or parse one: what a disposable computation
+contains decides nothing here, and `archive derive` rewrites the file whether
+it still parses or not, so a record that cannot be read is counted like any
+other and is not damage either. `derived_orphans` is read from the same names
+against the objects the store pass found, so no derived record is opened for
+it. A record whose object lies in a fan-out directory the check could not
+list is not counted as an orphan, exactly as no reference into an unread
+directory is called dangling. The count is reported because it is the one
+visible trace of a purge that stopped between its record pass and its object
+pass.
 
 `data` is the whole-archive integrity report of
 [error-contract](error-contract.md): counts and stable codes only. It never
@@ -1005,6 +1019,8 @@ question the privacy rule allows an answer to.
   "command": "archive.check",
   "data": {
     "bytes_digested": 16,
+    "derived_orphans": 0,
+    "derived_records": 0,
     "objects_checked": 1,
     "orphan_objects": 0,
     "objects_unchecked": 0,
@@ -1907,9 +1923,12 @@ digest of any particular object reaches the output.
 ```
 
 Beyond the shared refusals of a writing command it emits nothing of its own.
-A purge that removes an object leaves that object's derived record behind
-until the next `archive derive` discards it, which is the one place the
-derived directory is maintained.
+A purge takes the derived record of every object it removes with it, in the
+same all-or-nothing record pass, so an archive that has been purged holds no
+record about bytes that are gone. `archive derive` is still the one place a
+stale record is discarded: a purge that stopped between its record pass and
+its object pass leaves one behind, `archive check` counts it under
+`derived_orphans`, and the next derivation removes it.
 
 ## `case delete`
 
@@ -1929,6 +1948,7 @@ What goes, and why:
 | Associations | The unit is the supersession chain, because a record that supersedes another cannot go without it: removing the older record alone would leave the newer one naming a record the archive no longer holds. A chain goes when one of its records names a submission that is going and its live record, the one no other record supersedes, names none that remains. That is the ordinary case, where every candidate the chain ever named belongs to this case, and the retired one, where the live record asserts nothing at all, so the withdrawn history goes with the case it was about. Every record of a departing chain is counted under `records_removed` as `association`. A chain naming no departing submission is no business of this deletion and stays, and one whose live record still names submissions in this case **and** in another is refused rather than resolved; see below. |
 | Receipts | A receipt is its own record. It goes when an association tied it to a submission that is going and no remaining association still names it. A receipt no association names is not tied to this case and stays. |
 | Import events | History, and kept. The one exception is an import event naming an object `--purge` removed: it goes with that object, because an event describing content that is gone describes nothing. An object the purge could not unlink keeps its import event, so it stays a referenced object rather than becoming an orphan. |
+| Derived-metadata records | The record of an object `--purge` is removing goes with the record pass, counted under `records_removed` as `derived_metadata`. It is openPapir's own disposable computation about those bytes, so once they are gone it describes nothing, and nothing in the archive references one. It goes in the record pass rather than the object pass because it is a record: it is probed with the others, and a purge that removes no object removes none of them. |
 | Objects | Only with `--purge`, and only an object no remaining import event, receipt, or submission references. |
 
 The whole archive is read first, under the writer lock, and the removal set is
@@ -2039,7 +2059,10 @@ not go, the deletion is refused with `delete.records_retained` before the
 first unlink, and the archive is exactly as it was. The directories probed
 are the ones the plan touches: associations, receipts, submissions, the case,
 and, when a purge would remove them, the import events naming the objects
-going with it.
+going with it and the derived records describing them. A derived record is
+disposable, but it is part of the same all-or-nothing pass: one that will not
+go refuses the deletion before the first unlink rather than leaving the
+archive half deleted.
 
 The rule exists because a record pass that stops part way through cannot be
 resumed. The documents it did remove are gone, so the next run plans a
@@ -2067,7 +2090,8 @@ candidate. It does not close it.
 What still holds when the probe is wrong is the older rule: the record pass
 stops at the first unlink the filesystem refuses, and takes the object pass
 with it. The kinds go in the order of the references between them,
-associations, receipts, submissions, and then the case, so each kind goes only
+associations, receipts, submissions, the case, and then the derived records,
+which nothing names at all, so each kind goes only
 once everything that could name it has gone; carrying on past a refusal would
 remove a record something still there names, and purging afterwards would
 remove bytes a surviving record still names. Both are dangling references, so
@@ -2112,11 +2136,12 @@ record is written and no audit log is kept
     "records_removed": [
       { "kind": "association", "count": 0 },
       { "kind": "case", "count": 1 },
+      { "kind": "derived_metadata", "count": 1 },
       { "kind": "import_event", "count": 1 },
       { "kind": "receipt", "count": 0 },
       { "kind": "submission", "count": 2 }
     ],
-    "records_removed_total": 4,
+    "records_removed_total": 5,
     "records_retained": 0
   },
   "verified": false
