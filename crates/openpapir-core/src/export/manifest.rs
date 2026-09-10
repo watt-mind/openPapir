@@ -15,6 +15,12 @@
 //! alone, and the filename the user's own import recorded stays where it has
 //! always been: an attribute inside the exported import-event record
 //! (`docs/archive-layout.md`).
+//!
+//! `export_scope` says which of the two exports wrote the directory: `case`
+//! for `case export`, which also names its one case in `case_id`, and
+//! `archive` for `archive export`, which holds every case and names none. A
+//! manifest written before the field existed holds one case, so a reader that
+//! meets no `export_scope` reads it as `case`.
 
 use serde::Serialize;
 
@@ -28,13 +34,21 @@ use crate::export::destination::{self, Destination};
 /// The manifest format's own version, independent of the archive's.
 pub const MANIFEST_SCHEMA_VERSION: u32 = 1;
 
+/// The `export_scope` of a directory `case export` wrote.
+pub const CASE_SCOPE: &str = "case";
+/// The `export_scope` of a directory `archive export` wrote.
+pub const ARCHIVE_SCOPE: &str = "archive";
+
 /// The manifest document, rendered with sorted keys.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 struct Manifest<'a> {
     /// The schema version of the archive the export was taken from.
     archive_schema_version: u32,
-    /// The case the export holds.
-    case_id: &'a str,
+    /// The case a `case export` holds, and nothing at all for an archive.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    case_id: Option<&'a str>,
+    /// Which of the two exports wrote the directory.
+    export_scope: &'static str,
     /// When openPapir wrote the export.
     exported_at: String,
     /// Every copied object, ordered by digest.
@@ -53,11 +67,12 @@ struct Manifest<'a> {
 /// `path.symlink`, `export.destination_conflict`, or `write.interrupted`.
 pub fn write(
     destination: &Destination,
-    case_id: &str,
+    scope: &'static str,
+    case_id: Option<&str>,
     objects: &[ObjectEntry],
     records: &[RecordEntry],
 ) -> Result<(), Diagnostic> {
-    let document = render(case_id, objects, records)?;
+    let document = render(scope, case_id, objects, records)?;
     destination.write_new(
         destination.path(),
         destination::MANIFEST_FILE,
@@ -73,13 +88,15 @@ pub fn write(
 /// JSON value whose object is an ordered map, so the document does not depend
 /// on the order the fields were declared in.
 fn render(
-    case_id: &str,
+    scope: &'static str,
+    case_id: Option<&str>,
     objects: &[ObjectEntry],
     records: &[RecordEntry],
 ) -> Result<String, Diagnostic> {
     let manifest = Manifest {
         archive_schema_version: SUPPORTED_SCHEMA_VERSION,
         case_id,
+        export_scope: scope,
         exported_at: clock::now_rfc3339(),
         objects,
         records,
@@ -118,13 +135,20 @@ mod tests {
 
     #[test]
     fn the_manifest_has_sorted_keys_and_lists_what_was_written() {
-        let document = render("0123456789abcdef0123456789abcdef", &objects(), &records()).unwrap();
+        let document = render(
+            CASE_SCOPE,
+            Some("0123456789abcdef0123456789abcdef"),
+            &objects(),
+            &records(),
+        )
+        .unwrap();
         assert!(document.ends_with('\n'));
         assert!(
             document.find("\"archive_schema_version\"") < document.find("\"case_id\""),
             "keys are sorted"
         );
-        assert!(document.find("\"case_id\"") < document.find("\"exported_at\""));
+        assert!(document.find("\"case_id\"") < document.find("\"export_scope\""));
+        assert!(document.find("\"export_scope\"") < document.find("\"exported_at\""));
         assert!(document.find("\"exported_at\"") < document.find("\"objects\""));
         assert!(document.find("\"objects\"") < document.find("\"records\""));
         assert!(document.find("\"records\"") < document.find("\"schema_version\""));
@@ -137,6 +161,19 @@ mod tests {
         assert_eq!(parsed["objects"][0]["algorithm"], "sha256");
         assert_eq!(parsed["records"][0]["kind"], "case");
         assert!(parsed["exported_at"].as_str().unwrap().ends_with('Z'));
+        assert_eq!(parsed["export_scope"], CASE_SCOPE);
+        assert_eq!(parsed.as_object().unwrap().len(), 7);
+    }
+
+    /// A whole-archive manifest names no case at all: every case it holds is
+    /// one of its own record rows, so a single `case_id` would describe none
+    /// of them.
+    #[test]
+    fn a_whole_archive_manifest_names_its_scope_and_no_case() {
+        let document = render(ARCHIVE_SCOPE, None, &objects(), &records()).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&document).unwrap();
+        assert_eq!(parsed["export_scope"], ARCHIVE_SCOPE);
+        assert!(parsed.as_object().unwrap().get("case_id").is_none());
         assert_eq!(parsed.as_object().unwrap().len(), 6);
     }
 
@@ -155,7 +192,13 @@ mod tests {
         let destination = home.path().join("export");
         let prepared = destination::prepare(&root, &destination).unwrap();
         std::fs::set_permissions(&destination, std::fs::Permissions::from_mode(0o500)).unwrap();
-        let refused = write(&prepared, "0123456789abcdef0123456789abcdef", &[], &[]);
+        let refused = write(
+            &prepared,
+            CASE_SCOPE,
+            Some("0123456789abcdef0123456789abcdef"),
+            &[],
+            &[],
+        );
         std::fs::set_permissions(&destination, std::fs::Permissions::from_mode(0o700)).unwrap();
         let Err(refusal) = refused else {
             // The process can write anyway, which happens when the tests run
@@ -170,7 +213,13 @@ mod tests {
 
     #[test]
     fn an_export_of_nothing_still_lists_its_empty_arrays() {
-        let document = render("0123456789abcdef0123456789abcdef", &[], &[]).unwrap();
+        let document = render(
+            CASE_SCOPE,
+            Some("0123456789abcdef0123456789abcdef"),
+            &[],
+            &[],
+        )
+        .unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&document).unwrap();
         assert!(parsed["objects"].as_array().unwrap().is_empty());
         assert!(parsed["records"].as_array().unwrap().is_empty());

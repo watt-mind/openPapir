@@ -25,7 +25,9 @@
       "receipt.show",
       "association.show",
       "completions",
-      "manpage"
+      "manpage",
+      "archive.export",
+      "archive.import"
     ],
     "project": "openPapir",
     "stage": "alpha"

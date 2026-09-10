@@ -466,6 +466,36 @@ that a record the manifest names is not there, and `export.record_conflict`
 that the archive holds a different record under one of the identifiers. Every
 one of them leaves the archive exactly as it was.
 
+### 9b. Export and import a whole archive
+
+```sh
+openpapir archive export --archive ./archive --to ./whole --json
+openpapir archive import --archive ./archive --from ./whole --json
+```
+
+The same plain copy at the other scope: every object the store holds, every
+record of every kind, one manifest, and a copy of the archive marker as
+`papir-archive.json`, so the schema version travels with the copy. The
+objects come from the store rather than from what the records reference, so
+an object no record names is copied too. `data` holds `case_count` where a
+case export holds `case_id`, and never the destination or the source.
+
+`archive import` restores the whole export as one set: all of it or none of
+it. A record identifier a different record already holds refuses the import
+before anything is written, exactly as it does for one case. Each import
+reads its own kind of export and refuses the other's with
+`export.manifest_malformed`, so hand `case import` a `case export` directory
+and `archive import` an `archive export` one.
+
+An archive whose objects come to more than 512 MiB in total meets
+`input.cap.import_bytes` on the way back in. For an archive that large, a
+plain copy of the archive root is the backup, followed by
+`archive repair-permissions`.
+
+`integrity.digest_mismatch` from `archive export` means an entry under
+`objects/` is not an object filed under its own digest; run `archive check`
+to see the whole picture before doing anything else.
+
 ### 10. Delete one case
 
 ```sh
@@ -555,8 +585,8 @@ create a hard link cannot host one (`platform.filesystem_unsupported`).
 - It verifies no signature and asserts no authenticity or legal effect.
 - It parses no receipt, derives no metadata, and matches nothing on its own.
 - It edits no stored record but the case record, which `case update` rewrites
-  in place; it migrates nothing, never deletes a single submission, receipt,
-  or archive, and never exports a whole archive. `case delete` is the one
+  in place; it migrates nothing and never deletes a single submission,
+  receipt, or archive. `case delete` is the one
   removal it performs, and only when asked for by name.
 
 ## Reporting to the user
@@ -587,6 +617,8 @@ openpapir case update --archive ROOT CASE_ID [--title T] \
   [--untag TAG]... --json
 openpapir case export --archive ROOT --case CASE_ID --to DIR --json
 openpapir case import --archive ROOT --from DIR --json
+openpapir archive export --archive ROOT --to DIR --json
+openpapir archive import --archive ROOT --from DIR --json
 openpapir case delete --archive ROOT --case CASE_ID [--purge] --json
 openpapir submission add --archive ROOT --case CASE_ID --description D \
   [--date YYYY-MM-DD] [--artefact 'sha256:HEX[:ROLE]']... --json

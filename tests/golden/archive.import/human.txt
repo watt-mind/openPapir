@@ -1,0 +1,10 @@
+Imported 1 case(s) from <root>/export.
+Stored 2 object(s), 50 byte(s); 1 already present.
+Wrote 7 record(s); 1 already present.
+case 1
+submission 1
+receipt 1
+association 2
+import_event 3
+Recorded 2 import event(s) with source export.
+Every restored copy was re-digested: a digest identifies bytes only, never authenticity, delivery, or legal effect.

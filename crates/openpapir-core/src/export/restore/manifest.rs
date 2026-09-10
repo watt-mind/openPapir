@@ -20,7 +20,7 @@ use crate::archive;
 use crate::error::{Details, Diagnostic, codes};
 use crate::export::KindCount;
 use crate::export::destination::MANIFEST_FILE;
-use crate::export::manifest::MANIFEST_SCHEMA_VERSION;
+use crate::export::manifest::{ARCHIVE_SCOPE, CASE_SCOPE, MANIFEST_SCHEMA_VERSION};
 use crate::export::restore::{SOURCE_SCOPE, Unreadable, linked, read_document, records};
 use crate::records::{document, is_digest};
 
@@ -44,13 +44,43 @@ pub struct RecordRow {
     pub kind: String,
 }
 
+/// Which of the two exports a directory holds.
+///
+/// The two are read by different commands and are never read by the other's,
+/// because what a record identifier already in the archive means differs:
+/// restoring one case is about that case, and restoring a whole archive is
+/// about the whole record set at once.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Scope {
+    /// One case, as `case export` wrote it.
+    Case,
+    /// A whole archive, as `archive export` wrote it.
+    Archive,
+}
+
+impl Scope {
+    /// The `export_scope` this scope spells in a manifest.
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Case => CASE_SCOPE,
+            Self::Archive => ARCHIVE_SCOPE,
+        }
+    }
+}
+
 /// The manifest document as it is stored.
 #[derive(Debug, Deserialize)]
 struct Document {
     /// The schema version of the archive the export was taken from.
     archive_schema_version: u32,
-    /// The case the export holds.
-    case_id: String,
+    /// The case a case export holds, and nothing for a whole archive.
+    #[serde(default)]
+    case_id: Option<String>,
+    /// Which of the two exports wrote the directory. A manifest written
+    /// before the field existed holds one case, so an absent value reads as
+    /// `case`.
+    #[serde(default)]
+    export_scope: Option<String>,
     /// Every copied object.
     objects: Vec<ObjectRow>,
     /// Every written record.
@@ -62,8 +92,10 @@ struct Document {
 /// One export's manifest, checked and ready to be acted on.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Manifest {
-    /// The case the export holds.
-    pub case_id: String,
+    /// The case a case export holds, and nothing for a whole archive.
+    pub case_id: Option<String>,
+    /// How many case records the export holds.
+    pub case_count: u64,
     /// Every object the export holds, in the order the manifest lists them.
     pub objects: Vec<ObjectRow>,
     /// Every record the export holds, in the order the manifest lists them.
@@ -74,22 +106,27 @@ pub struct Manifest {
 
 /// Read and check the manifest at the root of the export.
 ///
+/// `expected` is the scope the command that called it restores. A manifest of
+/// the other scope is refused rather than read: the two describe different
+/// things, and the refusal says which one the directory holds.
+///
 /// # Errors
 ///
 /// Returns `export.manifest_missing` when the export holds no manifest,
 /// `export.manifest_malformed` when it holds one this build cannot read as a
-/// manifest, `path.symlink` when the manifest's path is a symbolic link, and
-/// `archive.schema_newer` or `archive.schema_older` when the export was taken
-/// from an archive of another schema version.
-pub fn read(source: &Path) -> Result<Manifest, Diagnostic> {
+/// manifest of `expected`, `path.symlink` when the manifest's path is a
+/// symbolic link, and `archive.schema_newer` or `archive.schema_older` when
+/// the export was taken from an archive of another schema version.
+pub fn read(source: &Path, expected: Scope) -> Result<Manifest, Diagnostic> {
     let text = read_document(&source.join(MANIFEST_FILE)).map_err(|why| match why {
         Unreadable::Absent => missing(),
         Unreadable::Link => linked(),
         Unreadable::Malformed => malformed(),
     })?;
     let document: Document = serde_json::from_str(&text).map_err(|_| malformed())?;
-    check(&document)?;
+    check(&document, expected)?;
     Ok(Manifest {
+        case_count: cases(&document.records),
         case_id: document.case_id,
         counts: counts(&document.records),
         objects: document.objects,
@@ -103,16 +140,26 @@ pub fn read(source: &Path) -> Result<Manifest, Diagnostic> {
 /// does not support is refused by the schema rules rather than reported as
 /// malformed: it is a document this build has no business reading, not a
 /// broken one.
-fn check(document: &Document) -> Result<(), Diagnostic> {
+fn check(document: &Document, expected: Scope) -> Result<(), Diagnostic> {
     if document.schema_version != MANIFEST_SCHEMA_VERSION {
         return Err(malformed());
     }
     archive::check_schema_version(document.archive_schema_version)?;
-    if !document::is_identifier(&document.case_id) {
-        return Err(malformed());
+    let scope = document.export_scope.as_deref().unwrap_or(CASE_SCOPE);
+    if scope != expected.as_str() {
+        return Err(wrong_scope(expected));
     }
     check_objects(&document.objects)?;
-    check_records(&document.case_id, &document.records)
+    check_rows(&document.records)?;
+    match expected {
+        Scope::Case => check_one_case(document.case_id.as_deref(), &document.records),
+        Scope::Archive => {
+            if document.case_id.is_some() {
+                return Err(wrong_scope(expected));
+            }
+            Ok(())
+        }
+    }
 }
 
 /// Check every object row: its algorithm, its digest, and its uniqueness.
@@ -129,14 +176,9 @@ fn check_objects(objects: &[ObjectRow]) -> Result<(), Diagnostic> {
     Ok(())
 }
 
-/// Check every record row, and that the manifest names its own case once.
-///
-/// A manifest that lists no case record, or more than one, describes no case
-/// this import could restore, so it is refused here rather than part way
-/// through the record pass.
-fn check_records(case_id: &str, rows: &[RecordRow]) -> Result<(), Diagnostic> {
+/// Check every record row: its identifier, its kind, and its uniqueness.
+fn check_rows(rows: &[RecordRow]) -> Result<(), Diagnostic> {
     let mut seen = std::collections::BTreeSet::new();
-    let mut cases = 0_u64;
     for row in rows {
         if !document::is_identifier(&row.id)
             || records::directory_of(&row.kind).is_none()
@@ -144,17 +186,35 @@ fn check_records(case_id: &str, rows: &[RecordRow]) -> Result<(), Diagnostic> {
         {
             return Err(malformed());
         }
-        if row.kind == records::CASE_KIND {
-            cases += 1;
-            if row.id != case_id {
-                return Err(malformed());
-            }
-        }
     }
-    if cases != 1 {
+    Ok(())
+}
+
+/// Check that a case export names its own case once and lists it once.
+///
+/// A manifest that lists no case record, or more than one, describes no case
+/// `case import` could restore, so it is refused here rather than part way
+/// through the record pass. A whole archive holds any number of cases,
+/// including none, and names none of them.
+fn check_one_case(case_id: Option<&str>, rows: &[RecordRow]) -> Result<(), Diagnostic> {
+    let case_id = case_id
+        .filter(|id| document::is_identifier(id))
+        .ok_or_else(malformed)?;
+    let named: Vec<&RecordRow> = rows
+        .iter()
+        .filter(|row| row.kind == records::CASE_KIND)
+        .collect();
+    if named.len() != 1 || named[0].id != case_id {
         return Err(malformed());
     }
     Ok(())
+}
+
+/// How many case records a manifest lists.
+fn cases(rows: &[RecordRow]) -> u64 {
+    rows.iter()
+        .filter(|row| row.kind == records::CASE_KIND)
+        .count() as u64
 }
 
 /// One count per record kind, in the fixed order of the kinds.
@@ -173,6 +233,25 @@ fn missing() -> Diagnostic {
     Diagnostic::new(
         codes::EXPORT_MANIFEST_MISSING,
         "The export directory holds no manifest, so it describes no case.",
+        Details::new()
+            .text("scope", SOURCE_SCOPE)
+            .text("export_path", MANIFEST_FILE),
+    )
+}
+
+/// The refusal for an export of the other scope.
+///
+/// It is a manifest this build reads perfectly well and this command may not
+/// act on, so the message says which of the two the directory holds and which
+/// one was asked for. Nothing about the export is echoed.
+fn wrong_scope(expected: Scope) -> Diagnostic {
+    let message = match expected {
+        Scope::Case => "The export manifest describes a whole archive rather than one case.",
+        Scope::Archive => "The export manifest describes one case rather than a whole archive.",
+    };
+    Diagnostic::new(
+        codes::EXPORT_MANIFEST_MALFORMED,
+        message,
         Details::new()
             .text("scope", SOURCE_SCOPE)
             .text("export_path", MANIFEST_FILE),
@@ -220,8 +299,9 @@ mod tests {
     fn a_manifest_export_wrote_is_read_back_with_its_counts() {
         let source = tempfile::tempdir().unwrap();
         write(source.path(), &valid());
-        let manifest = read(source.path()).unwrap();
-        assert_eq!(manifest.case_id, CASE);
+        let manifest = read(source.path(), Scope::Case).unwrap();
+        assert_eq!(manifest.case_id.as_deref(), Some(CASE));
+        assert_eq!(manifest.case_count, 1);
         assert_eq!(manifest.objects[0].byte_length, 16);
         assert_eq!(manifest.records[0].kind, "case");
         assert_eq!(manifest.counts.len(), records::KINDS.len());
@@ -232,7 +312,7 @@ mod tests {
     #[test]
     fn an_export_without_a_manifest_is_refused_as_missing() {
         let source = tempfile::tempdir().unwrap();
-        let refusal = read(source.path()).unwrap_err();
+        let refusal = read(source.path(), Scope::Case).unwrap_err();
         assert_eq!(refusal.code, codes::EXPORT_MANIFEST_MISSING);
         assert_eq!(refusal.exit_code(), 4);
         assert!(!refusal.is_retryable());
@@ -256,7 +336,7 @@ mod tests {
         for body in bad {
             write(source.path(), &body);
             assert_eq!(
-                read(source.path()).unwrap_err().code,
+                read(source.path(), Scope::Case).unwrap_err().code,
                 codes::EXPORT_MANIFEST_MALFORMED,
                 "refused: {body}"
             );
@@ -274,7 +354,7 @@ mod tests {
             ),
         );
         assert_eq!(
-            read(source.path()).unwrap_err().code,
+            read(source.path(), Scope::Case).unwrap_err().code,
             codes::ARCHIVE_SCHEMA_NEWER
         );
         write(
@@ -285,8 +365,70 @@ mod tests {
             ),
         );
         assert_eq!(
-            read(source.path()).unwrap_err().code,
+            read(source.path(), Scope::Case).unwrap_err().code,
             codes::ARCHIVE_SCHEMA_OLDER
+        );
+    }
+
+    /// A whole-archive manifest names its scope, names no case, and may hold
+    /// any number of cases. Each command refuses the other's export, which is
+    /// what keeps a record conflict the one rule it is.
+    #[test]
+    fn each_scope_reads_its_own_export_and_refuses_the_others() {
+        let source = tempfile::tempdir().unwrap();
+        write(source.path(), &valid());
+        assert_eq!(
+            read(source.path(), Scope::Archive).unwrap_err().code,
+            codes::EXPORT_MANIFEST_MALFORMED
+        );
+
+        let whole = valid()
+            .replace(&format!("\"case_id\":\"{CASE}\","), "")
+            .replace(
+                "\"exported_at\"",
+                "\"export_scope\":\"archive\",\"exported_at\"",
+            );
+        write(source.path(), &whole);
+        let manifest = read(source.path(), Scope::Archive).unwrap();
+        assert_eq!(manifest.case_id, None);
+        assert_eq!(manifest.case_count, 1);
+        assert_eq!(
+            read(source.path(), Scope::Case).unwrap_err().code,
+            codes::EXPORT_MANIFEST_MALFORMED
+        );
+
+        let named = whole.replace(
+            "\"export_scope\"",
+            &format!("\"case_id\":\"{CASE}\",\"export_scope\""),
+        );
+        write(source.path(), &named);
+        assert_eq!(
+            read(source.path(), Scope::Archive).unwrap_err().code,
+            codes::EXPORT_MANIFEST_MALFORMED,
+            "a whole archive names no case of its own"
+        );
+    }
+
+    /// A whole archive with no case at all is still a whole archive, and a
+    /// case export with none is not a case export.
+    #[test]
+    fn a_whole_archive_may_hold_no_case_and_a_case_export_may_not() {
+        let source = tempfile::tempdir().unwrap();
+        let empty = valid()
+            .replace(&format!("\"case_id\":\"{CASE}\","), "")
+            .replace(
+                "\"exported_at\"",
+                "\"export_scope\":\"archive\",\"exported_at\"",
+            )
+            .replace(&format!("[{{\"id\":\"{CASE}\",\"kind\":\"case\"}}]"), "[]");
+        write(source.path(), &empty);
+        assert_eq!(read(source.path(), Scope::Archive).unwrap().case_count, 0);
+
+        let no_case = valid().replace(&format!("[{{\"id\":\"{CASE}\",\"kind\":\"case\"}}]"), "[]");
+        write(source.path(), &no_case);
+        assert_eq!(
+            read(source.path(), Scope::Case).unwrap_err().code,
+            codes::EXPORT_MANIFEST_MALFORMED
         );
     }
 
@@ -302,7 +444,7 @@ mod tests {
         );
         write(source.path(), &twice);
         assert_eq!(
-            read(source.path()).unwrap_err().code,
+            read(source.path(), Scope::Case).unwrap_err().code,
             codes::EXPORT_MANIFEST_MALFORMED
         );
         let two_cases = valid().replace(
@@ -314,7 +456,7 @@ mod tests {
         );
         write(source.path(), &two_cases);
         assert_eq!(
-            read(source.path()).unwrap_err().code,
+            read(source.path(), Scope::Case).unwrap_err().code,
             codes::EXPORT_MANIFEST_MALFORMED
         );
     }

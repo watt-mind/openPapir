@@ -36,6 +36,7 @@ pub mod destination;
 pub mod manifest;
 pub mod repair;
 pub mod restore;
+pub mod whole;
 
 use std::path::Path;
 
@@ -106,7 +107,13 @@ fn write_export(
 ) -> std::result::Result<(Vec<copy::ObjectEntry>, collect::Written), Diagnostic> {
     let objects = copy::copy_objects(root, prepared, &collected.digests)?;
     let records = collect::write_records(prepared, collected)?;
-    manifest::write(prepared, &collected.case.id, &objects, &records.entries)?;
+    manifest::write(
+        prepared,
+        manifest::CASE_SCOPE,
+        Some(&collected.case.id),
+        &objects,
+        &records.entries,
+    )?;
     Ok((objects, records))
 }
 

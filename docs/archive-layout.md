@@ -23,7 +23,7 @@ decision below is about one. Where architecture and this document disagree,
 architecture is authoritative and this page is a defect.
 
 Derived-metadata records, verification results, the rebuildable `cache/`
-index, export of a whole archive, schema migration, and encrypted backup at
+index, schema migration, and encrypted backup at
 rest are **not implemented** and stay a design. `verified`
 is `false` in every envelope ([architecture](architecture.md)).
 
@@ -415,9 +415,10 @@ statement, and the deletion below then treats what it withdrew as history.
 
 ## Export and backup
 
-Export is implemented as `case export` and its import back as `case import`,
-and [architecture](architecture.md) is authoritative for both contracts. What
-follows is the design, reconciled with what was built.
+Export is implemented at two scopes: `case export` for one case and
+`archive export` for a whole archive, with `case import` and `archive import`
+reading each back. [architecture](architecture.md) is authoritative for all
+four contracts. What follows is the design, reconciled with what was built.
 
 Export writes a directory holding the original bytes of each exported
 artefact, copied **byte for byte**, plus readable JSON records and a
@@ -427,7 +428,8 @@ manifest. The implemented layout is:
 | --- | --- |
 | `objects/<digest>` | One copied object, named by its lowercase hexadecimal digest and nothing else. |
 | `records/<kind>/<id>.json` | One record document, exactly as the archive stores it, with `<kind>` one of `case`, `submission`, `receipt`, `association`, or `import_event`. |
-| `manifest.json` | One JSON document with sorted keys listing every copied object with its digest and byte length and every record with its kind and identifier. |
+| `manifest.json` | One JSON document with sorted keys listing every copied object with its digest and byte length and every record with its kind and identifier, and naming its own `export_scope`, `case` or `archive`. |
+| `papir-archive.json` | The archive marker, in a whole-archive export only, copied byte for byte so the schema version travels with the copy. |
 
 An exported object is named by its **digest alone**. The earlier design here
 named an object by a sanitised form of the recorded original filename and
@@ -458,7 +460,36 @@ same archive. Each object the import stores gets one new import event with
 `source` `export`, and the exported import event is restored beside it, so the
 history of the user's own import survives the round trip.
 
-Exporting a whole archive is not implemented.
+Exporting a whole archive is implemented as `archive export`. It is the same
+plain copy outward in the same layout, taken over everything the archive holds
+rather than over one case: every record of every kind, filtered by nothing,
+and every object the store holds. The objects come from the store itself
+rather than from what the records reference, which is the one difference from
+a case export: an object no record names is still the user's own bytes, and a
+copy that left it behind would be a smaller archive rather than the same one.
+The two sets are still compared, so a record naming an object the store does
+not hold refuses the export, and an entry under `objects/` that is not an
+object filed under its own digest refuses it too rather than being passed
+over. The archive marker is copied beside the manifest, so the export says
+which schema version it was taken under without openPapir being run at all.
+
+Reading a whole-archive export back is `archive import`, and it is a separate
+command rather than `case import` accepting both. The reason is the
+record-conflict rule. Whether a record may be written is a question about one
+record identifier and the archive, so a whole-archive import restores the
+whole export as one set, all of it or none of it: an identifier a different
+record holds refuses the import before anything is written, exactly as it does
+for one case, and openPapir edits neither record. Restoring case by case would
+have had to answer what a conflict inside one case means for the receipts,
+associations, and import events it shares with another, and a whole-archive
+export holds records that belong to no case at all, which no per-case result
+could report. Each command reads its own `export_scope` only and refuses the
+other's directory, so the shape of what was handed over is never in doubt.
+
+The practical limit of `archive import` is the per-operation input cap: it
+reads every object the manifest lists in one operation, so an archive whose
+objects come to more than the cap cannot be restored by this build. That is
+why a backup remains the other option below rather than being replaced by it.
 
 A backup is a copy of the whole archive root taken while no openPapir process
 holds the lock; `cache/` may be omitted. Ordinary copy tooling routinely widens
@@ -804,7 +835,8 @@ tracker owns; the sequencing only is recorded here.
   the user's own evidence only and no receipt parsing.
 - **Whole-archive integrity check** (new): **implemented** as `archive check`.
 - **Case export, backup, and the permission-repair action** (new):
-  **implemented** as `case export` and `archive repair-permissions`.
+  **implemented** as `case export`, `case import`, `archive export`,
+  `archive import`, and `archive repair-permissions`.
 - **Case deletion with an explicit purge** (new): **implemented** as
   `case delete`.
 - **Derived-metadata staleness and recompute-on-request** (new): **not

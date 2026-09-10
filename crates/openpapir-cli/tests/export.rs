@@ -1,4 +1,5 @@
-//! Contract tests for `case export` and `archive repair-permissions`.
+//! Contract tests for `case export`, `archive export`, and
+//! `archive repair-permissions`.
 //!
 //! Every fixture here is synthetic and generated at test time from constants
 //! in this file. Nothing is derived from real correspondence. The assertions
@@ -171,6 +172,18 @@ impl Fixture {
             &text(&self.root),
             "--case",
             &self.case_id,
+            "--to",
+            &text(destination),
+            "--json",
+        ])
+    }
+
+    fn export_archive_to(&self, destination: &Path) -> Output {
+        run(&[
+            "archive",
+            "export",
+            "--archive",
+            &text(&self.root),
             "--to",
             &text(destination),
             "--json",
@@ -943,4 +956,122 @@ fn both_documents_name_the_same_paths_for_each_write_stage() {
         ["marker_write", "object_write", "record_write"],
         "the tables name exactly the stages the implementation can report"
     );
+}
+
+/// A whole-archive export holds every object and every record of every kind,
+/// beside a manifest that names its scope and a copy of the archive marker.
+#[test]
+fn a_whole_archive_export_holds_every_object_every_record_and_the_marker() {
+    let fixture = Fixture::build();
+    let before = snapshot(&fixture.root);
+    let destination = fixture.destination("whole");
+
+    let exported = fixture.export_archive_to(&destination);
+    assert!(exported.status.success());
+    let data = &stdout_json(&exported)["data"];
+    assert_eq!(data["case_count"], 1);
+    assert_eq!(data["object_count"], 3);
+    assert!(
+        !serde_json::to_string(data)
+            .expect("the report serialises")
+            .contains("whole"),
+        "no user-supplied path reaches the envelope"
+    );
+
+    // Every object the store holds is copied, whether a record names it or
+    // not: a whole archive is what it holds.
+    for index in 0..3 {
+        let copy = destination.join("objects").join(fixture.bare(index));
+        assert!(copy.is_file(), "object {index} was copied");
+    }
+
+    let marker = fs::read(destination.join("papir-archive.json")).expect("the marker travelled");
+    assert_eq!(
+        marker,
+        fs::read(fixture.root.join("papir-archive.json")).expect("read the archive marker"),
+        "the marker is copied byte for byte"
+    );
+
+    let manifest: Value =
+        serde_json::from_slice(&fs::read(destination.join("manifest.json")).expect("the manifest"))
+            .expect("the manifest is JSON");
+    assert_eq!(manifest["export_scope"], "archive");
+    assert!(
+        manifest
+            .as_object()
+            .expect("an object")
+            .get("case_id")
+            .is_none(),
+        "a whole archive names no single case"
+    );
+    assert_eq!(manifest["archive_schema_version"], 1);
+    assert_eq!(manifest["objects"].as_array().expect("objects").len(), 3);
+
+    // Every record the manifest lists is in the destination, under its kind.
+    for row in manifest["records"].as_array().expect("records") {
+        let kind = row["kind"].as_str().expect("a kind");
+        let id = row["id"].as_str().expect("an identifier");
+        let path = destination
+            .join("records")
+            .join(kind)
+            .join(format!("{id}.json"));
+        assert!(path.is_file(), "the export holds the {kind} it lists");
+    }
+
+    assert_eq!(snapshot(&fixture.root), before, "the archive is unchanged");
+}
+
+/// The destination rules are the case export's rules, at the other scope.
+#[test]
+fn a_whole_archive_export_refuses_a_destination_it_may_not_write() {
+    let fixture = Fixture::build();
+    let inside = fixture.root.join("inside");
+    let refused = fixture.export_archive_to(&inside);
+    assert_eq!(
+        stdout_json(&refused)["error"]["code"],
+        "usage.arguments",
+        "a destination inside the archive is refused"
+    );
+    assert_eq!(refused.status.code(), Some(2));
+    assert!(!inside.exists(), "nothing is created in the archive");
+
+    let occupied = fixture.destination("occupied");
+    fs::create_dir(&occupied).expect("create the destination");
+    fs::write(occupied.join("already-there"), b"\n").expect("write a file into it");
+    let refused = fixture.export_archive_to(&occupied);
+    assert_eq!(
+        stdout_json(&refused)["error"]["code"],
+        "export.destination_conflict"
+    );
+    assert_eq!(refused.status.code(), Some(4));
+}
+
+/// An entry under `objects/` that is not an object filed under its own name
+/// stops the export rather than being passed over, and its name is never
+/// echoed: openPapir did not mint it.
+#[test]
+fn a_malformed_store_entry_refuses_the_whole_archive_export() {
+    let fixture = Fixture::build();
+    let digest = fixture.bare(0);
+    let planted = fixture
+        .root
+        .join("objects/sha256")
+        .join(&digest[0..2])
+        .join(&digest[2..4])
+        .join("not-an-object");
+    fs::write(&planted, b"planted\n").expect("plant the entry");
+
+    let destination = fixture.destination("whole");
+    let refused = fixture.export_archive_to(&destination);
+    let envelope = stdout_json(&refused);
+    assert_eq!(envelope["error"]["code"], "integrity.digest_mismatch");
+    assert_eq!(refused.status.code(), Some(4));
+    assert_eq!(envelope["error"]["details"]["count"], 1);
+    assert!(
+        !serde_json::to_string(&envelope)
+            .expect("the envelope serialises")
+            .contains("not-an-object"),
+        "the name of an entry openPapir did not mint is never echoed"
+    );
+    assert!(!destination.exists(), "nothing is written before the check");
 }
