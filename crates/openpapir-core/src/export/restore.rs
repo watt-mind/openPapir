@@ -90,9 +90,10 @@ pub struct Restored {
 /// `path.symlink` for a link in the source, `export.manifest_missing`,
 /// `export.manifest_malformed`, `export.object_mismatch`,
 /// `export.record_missing`, `export.record_conflict`, `archive.schema_newer`
-/// and `archive.schema_older` for an export of another schema version, the
-/// input caps, `lock.held`, and the write refusals of the atomic write
-/// procedure.
+/// and `archive.schema_older` for an export of another schema version,
+/// `input.cap.restore_bytes` when the objects the manifest names come to more
+/// than the restore cap, the other input caps, `lock.held`, and the write
+/// refusals of the atomic write procedure.
 pub fn import_case(root: &Path, source: &Path) -> Result<Restored> {
     let mut warnings = Vec::new();
     let supplied = source.to_string_lossy().into_owned();
@@ -151,6 +152,11 @@ fn run(
     // Everything the export claims is read and checked here, before the lock
     // is taken and before a single byte is written into the archive.
     let manifest = manifest::read(&source, scope)?;
+    // The restore's own ceiling, over the sum the manifest names, before a
+    // single copy is opened. A restore replays objects the archive already
+    // accepted one command at a time, so the per-operation import ceiling is
+    // not the bound that serves it (`docs/architecture.md`).
+    limits::check_restore_bytes(manifest.object_bytes())?;
     let held = records::read_all(&source, &manifest)?;
     objects::verify(&source, &manifest)?;
 

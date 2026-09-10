@@ -548,10 +548,14 @@ export holds records that belong to no case at all, which no per-case result
 could report. Each command reads its own `export_scope` only and refuses the
 other's directory, so the shape of what was handed over is never in doubt.
 
-The practical limit of `archive import` is the per-operation input cap: it
-reads every object the manifest lists in one operation, so an archive whose
-objects come to more than the cap cannot be restored by this build. That is
-why a backup remains the other option below rather than being replaced by it.
+The practical limit of `archive import` is its own ceiling,
+`input.cap.restore_bytes`, over the sum of the object bytes the manifest names:
+a restore replays inputs the archive already accepted one command at a time, so
+the per-operation import cap is not the bound that serves it. The value and the
+reasoning for it are in [architecture](architecture.md). An archive whose
+objects come to more than that ceiling still cannot be restored by this build,
+which is why a backup remains the other option below rather than being replaced
+by it.
 
 A backup is a copy of the whole archive root taken while no openPapir process
 holds the lock; `cache/` may be omitted. Ordinary copy tooling routinely widens

@@ -104,6 +104,21 @@ pub struct Manifest {
     pub counts: Vec<KindCount>,
 }
 
+impl Manifest {
+    /// The sum of the object bytes the manifest names.
+    ///
+    /// It is what a restore would read out of the export, so it is what the
+    /// restore ceiling is applied to, before anything is opened. The sum
+    /// saturates rather than wrapping: a manifest is user-supplied, and a
+    /// wrapped total would read as a small restore.
+    #[must_use]
+    pub fn object_bytes(&self) -> u64 {
+        self.objects.iter().fold(0_u64, |total, object| {
+            total.saturating_add(object.byte_length)
+        })
+    }
+}
+
 /// Read and check the manifest at the root of the export.
 ///
 /// `expected` is the scope the command that called it restores. A manifest of
