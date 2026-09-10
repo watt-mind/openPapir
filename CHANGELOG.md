@@ -35,7 +35,10 @@ envelope.
   draft GitHub release, attested with `actions/attest-build-provenance`, whose
   notes are the changelog section for that version; a manual dispatch with
   `dry_run` builds the same artefacts, uploads them to the run, and creates
-  nothing. The workflow never tags, never pushes, and never publishes a draft.
+  nothing. A pull request that changes the workflow file itself gets the same
+  dry run, because GitHub registers a manual trigger only from the default
+  branch and the pipeline would otherwise be unexercised until it is merged.
+  The workflow never tags, never pushes, and never publishes a draft.
   Nothing is released, and no crate is published: `publish = false` stays.
 - The Format and lint job additionally runs clippy for
   `x86_64-pc-windows-msvc` from its Linux runner, so the platform-specific

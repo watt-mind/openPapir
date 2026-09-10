@@ -111,7 +111,7 @@ pins every action to a commit SHA with its version comment, as
 grants `contents: write`, `id-token: write`, and `attestations: write` to the
 release job alone. Every build runs `cargo build --release --locked`.
 
-It has two triggers.
+It has three triggers.
 
 - A push of a `v*` tag. The workflow refuses a tag whose commit is not on
   `master`, takes the version from the tag, and creates a **draft** GitHub
@@ -127,6 +127,12 @@ It has two triggers.
 ```sh
 gh workflow run release.yml --ref <branch> -f dry_run=true
 ```
+
+- A pull request that changes `.github/workflows/release.yml` itself. GitHub
+  registers a `workflow_dispatch` trigger only from the default branch, so a
+  change to this workflow could otherwise not be exercised before it is
+  merged. The trigger is filtered to that one path, so it is a dry run on the
+  pull requests that change the pipeline and nothing at all on the rest.
 
 The workflow never creates a tag, never pushes, and never publishes a draft.
 
