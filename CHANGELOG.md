@@ -417,6 +417,19 @@ envelope.
   path a demand for Hungarian output would take, with the trigger that would
   start it. `README.md` states the decision in one sentence. No behaviour,
   contract, or output changes.
+- `docs/receipt-discovery.md` records a second retrieval pass, dated
+  2026-09-10, over the three sources the first pass left open. Every attempt
+  is logged with its route and its result, the two sources that were
+  unreachable were retrieved and are now full evidence-matrix entries, and the
+  normative source was read in full, which establishes its redistribution
+  terms as all rights reserved. The findings and the "What is and is not
+  established" section say what this adds: a normative minimum of what a
+  confirmation about an e-Papír submission evidences, a named reference number
+  linking notifications to a submission in one authority's channel, and
+  confirmation that "receipt" is a family of artefacts rather than one type.
+  None of it states an encoding, so the receipt-format gap is narrowed and not
+  closed, and receipt-shaped fixtures stay deferred. `docs/references.md`
+  follows, requiring a retrieval's route to be recorded alongside its outcome.
 - `case delete` decides an association's fate by supersession chain rather
   than by single record, so a retired history goes with the case it was about.
   A chain goes when one of its records names a departing submission and its
