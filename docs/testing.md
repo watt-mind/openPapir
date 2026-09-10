@@ -26,6 +26,56 @@ need tests for their actual risks: hostile archives, ambiguous associations,
 resource bounds, storage interruption, and unintended disclosure. Do not write
 tests that merely duplicate the implementation.
 
+## Property tests
+
+The boundaries that accept input openPapir did not mint are covered
+generatively as well as by example. The suite lives in
+`crates/openpapir-core/tests/property/` for the library and in
+`crates/openpapir-cli/tests/property.rs` for the binary. Every property module
+and every property in it states its invariant in a documentation comment: a
+record document reader answers or refuses and never panics, a document over
+the record cap is refused before its bytes are read while one inside it is
+read and then refused on its content, a valid record round-trips byte for byte
+with sorted keys, a name carrying a `..`, a separator, a NUL, or an overlong
+component never becomes a path, an export writes a well-formed manifest or a
+documented refusal, and the argument parser answers with one envelope that
+never quotes the caller.
+
+A property whose subject has two answers needs both of them reached. Random
+bytes are never a valid record, so the reader properties pair the random-byte
+generator with a generated valid record carrying one generated difference:
+a difference the reader is documented to ignore must still read back, and one
+it checks must be refused. Prefer that shape to a property that accepts either
+answer, which can pass without ever reaching one of them.
+
+Run the suite with:
+
+```sh
+cargo test --workspace --locked property
+```
+
+Each property carries its own committed case count, chosen so that the whole
+suite finishes in seconds in continuous integration and well inside a minute
+on a slow runner. The counts are deliberate: a property that creates an
+archive or spawns a process pays for every case, so it runs fewer of them than
+a pure one.
+
+`PROPTEST_CASES` overrides every committed count, which is how a contributor
+runs a longer soak locally or in a scheduled job:
+
+```sh
+PROPTEST_CASES=2000 cargo test --workspace --locked property
+```
+
+Failure persistence is off, so a counterexample is never written beside the
+source. When a property finds one, proptest prints the shrunk input; add it to
+the suite as a named regression test with the fix, so the case is pinned by
+name rather than by a generated file.
+
+Property tests do not replace the example-based tests of failure boundaries,
+and they are never the place to weaken an assertion so that a generator can
+pass.
+
 ## Fixtures
 
 Public fixtures live under `tests/fixtures/` and must be wholly synthetic and
