@@ -310,6 +310,7 @@ fn a_removed_count_totals_every_record_kind() {
     let removed = Removed {
         associations: 1,
         cases: 1,
+        derived: 2,
         import_events: 2,
         receipts: 1,
         submissions: 3,
@@ -317,6 +318,6 @@ fn a_removed_count_totals_every_record_kind() {
         records_retained: 0,
         unremovable: 0,
     };
-    assert_eq!(removed.records(), 8);
+    assert_eq!(removed.records(), 10);
     assert_eq!(Removed::default().records(), 0);
 }

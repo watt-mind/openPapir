@@ -226,7 +226,7 @@ fn only_a_reference_of_the_documented_form_reaches_a_path() {
     assert_eq!(hex(DIGEST), None, "the prefix is required");
     assert_eq!(hex("sha256:../../etc/passwd"), None);
     assert_eq!(hex("sha256:"), None);
-    assert_eq!(KINDS.len(), 5);
+    assert_eq!(KINDS.len(), 6);
     assert_eq!(REASONS.len(), 4);
 }
 

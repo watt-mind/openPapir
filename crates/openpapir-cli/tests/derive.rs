@@ -169,7 +169,8 @@ fn an_archive_that_has_never_been_derived_holds_no_derived_record() {
     assert_eq!(checked["data"]["derived_records"], 0);
     assert_eq!(checked["ok"], true, "a missing record is nothing at all");
     let human = stdout_text(&run(&["archive", "check", "--archive", &root]));
-    assert!(human.contains("Derived-metadata record(s): 0. A missing one is not a problem."));
+    assert!(human.contains("Derived-metadata record(s): 0, of which 0 name(s) an object"));
+    assert!(human.contains("A missing one is not a problem"));
 }
 
 #[test]
@@ -327,7 +328,14 @@ fn a_derived_record_that_cannot_be_read_is_replaced_rather_than_reported() {
 
     let checked = stdout_json(&run(&["archive", "check", "--archive", &root, "--json"]));
     assert_eq!(checked["ok"], true, "a disposable record is never damage");
-    assert_eq!(checked["data"]["derived_records"], 2, "it is not counted");
+    assert_eq!(
+        checked["data"]["derived_records"], 3,
+        "the check counts the files and parses none of them"
+    );
+    assert_eq!(
+        checked["data"]["derived_orphans"], 0,
+        "every object is there"
+    );
 
     let again = stdout_json(&run(&["archive", "derive", "--archive", &root, "--json"]));
     assert_eq!(again["data"]["records_written"], 3);
@@ -349,4 +357,160 @@ fn deriving_refuses_a_root_that_is_not_an_archive_and_names_no_path() {
         !stdout_text(&output).contains(&root),
         "a refusal never echoes the path the user typed"
     );
+}
+
+/// The digest name of the entry planted under `objects/sha256/aa/bb/`.
+#[cfg(unix)]
+const PLANTED: &str = "aabb000000000000000000000000000000000000000000000000000000000000";
+
+/// How many files the derived directory holds.
+#[cfg(unix)]
+fn derived_files(root: &str) -> Vec<String> {
+    let directory = Path::new(root).join("records/derived");
+    let Ok(entries) = fs::read_dir(&directory) else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = entries
+        .flatten()
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
+}
+
+#[cfg(unix)]
+#[test]
+fn a_link_planted_in_the_store_is_never_followed_and_gets_no_record() {
+    let (home, root) = archive();
+    let outside = home.path().join("outside.txt");
+    fs::write(&outside, b"%PDF-1.7\nnot an object of this archive\n").expect("write the target");
+    let directory = Path::new(&root).join("objects/sha256/aa/bb");
+    fs::create_dir_all(&directory).expect("create the fan-out directories");
+    std::os::unix::fs::symlink(&outside, directory.join(PLANTED)).expect("plant the link");
+
+    let report = stdout_json(&run(&["archive", "derive", "--archive", &root, "--json"]));
+    assert_eq!(report["ok"], true);
+    assert_eq!(report["data"]["objects_checked"], 4, "the entry is seen");
+    assert_eq!(
+        report["data"]["objects_unchecked"], 1,
+        "and it is not opened, because the open does not follow a link"
+    );
+    assert_eq!(
+        report["data"]["records_written"], 3,
+        "a record is written for the three real objects and for nothing else"
+    );
+    assert_eq!(count_of(&report, "pdf"), 1, "the link's target is not read");
+    let names = derived_files(&root);
+    assert_eq!(names.len(), 3);
+    assert!(
+        !names.contains(&format!("{PLANTED}.json")),
+        "the planted entry gets no derived record at all"
+    );
+    assert!(
+        fs::symlink_metadata(directory.join(PLANTED))
+            .expect("the link is still there")
+            .file_type()
+            .is_symlink(),
+        "the operation changed nothing about it"
+    );
+    assert_eq!(
+        fs::read(&outside).expect("the target is still there"),
+        b"%PDF-1.7\nnot an object of this archive\n",
+        "nothing outside the archive was written"
+    );
+}
+
+#[test]
+fn a_record_orphaned_by_an_interrupted_purge_is_counted_until_the_next_derive() {
+    let (home, root) = archive();
+    let case_id = stdout_json(&run(&[
+        "case",
+        "create",
+        "--archive",
+        &root,
+        "--title",
+        "A local matter",
+        "--json",
+    ]))["data"]["case"]["id"]
+        .as_str()
+        .expect("a case identifier")
+        .to_owned();
+    let only = home.path().join("delta.txt");
+    fs::write(&only, b"synthetic submission delta\n").expect("write a synthetic input");
+    let digest = stdout_json(&run(&[
+        "import",
+        "--archive",
+        &root,
+        &only.to_string_lossy(),
+        "--json",
+    ]))["data"]["artefacts"][0]["digest"]
+        .as_str()
+        .expect("a digest")
+        .to_owned();
+    assert!(
+        run(&[
+            "submission",
+            "add",
+            "--archive",
+            &root,
+            "--case",
+            &case_id,
+            "--description",
+            "The user states they sent this.",
+            "--artefact",
+            &digest,
+            "--json",
+        ])
+        .status
+        .success()
+    );
+    run(&["archive", "derive", "--archive", &root, "--json"]);
+    let hex = digest
+        .strip_prefix("sha256:")
+        .expect("the digest is prefixed");
+    let record = Path::new(&root)
+        .join("records/derived")
+        .join(format!("{hex}.json"));
+    let kept = fs::read(&record).expect("the object has a derived record");
+
+    let deleted = stdout_json(&run(&[
+        "case",
+        "delete",
+        "--archive",
+        &root,
+        "--case",
+        &case_id,
+        "--purge",
+        "--json",
+    ]));
+    assert_eq!(deleted["data"]["objects_removed"], 1);
+    assert!(
+        !record.exists(),
+        "the purge took the derived record with it"
+    );
+
+    // A purge that stopped between its record pass and its object pass leaves
+    // exactly this state: the object gone and the record about it still here.
+    fs::write(&record, &kept).expect("plant the orphaned record");
+    let checked = stdout_json(&run(&["archive", "check", "--archive", &root, "--json"]));
+    assert_eq!(checked["ok"], true, "a disposable record is never damage");
+    assert_eq!(checked["data"]["derived_orphans"], 1, "and it is visible");
+    assert_eq!(checked["data"]["derived_records"], 4);
+    let human = String::from_utf8(
+        run(&["archive", "check", "--archive", &root])
+            .stdout
+            .clone(),
+    )
+    .expect("stdout is UTF-8");
+    assert!(human.contains("of which 1 name(s) an object the store no longer holds"));
+
+    let again = stdout_json(&run(&["archive", "derive", "--archive", &root, "--json"]));
+    assert_eq!(
+        again["data"]["records_removed"], 1,
+        "the next derive discards it"
+    );
+    let checked = stdout_json(&run(&["archive", "check", "--archive", &root, "--json"]));
+    assert_eq!(checked["data"]["derived_orphans"], 0);
+    assert_eq!(checked["data"]["derived_records"], 3);
+    assert_eq!(checked["ok"], true);
 }

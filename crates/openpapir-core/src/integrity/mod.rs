@@ -87,10 +87,22 @@ pub struct Report {
     pub bytes_digested: u64,
     /// How many derived-metadata records the archive holds. A derived record
     /// is openPapir's own disposable computation about a stored object, so a
-    /// missing one is nothing at all rather than a problem, and one that
-    /// cannot be read is not counted and is not damage either. The count says
-    /// how much of `archive derive`'s work is on disk and nothing more.
+    /// missing one is nothing at all rather than a problem. The count is of
+    /// the files the derived directory holds under a digest name: the check
+    /// does not parse one, because what a disposable computation contains
+    /// decides nothing here and `archive derive` rewrites it either way. The
+    /// count says how much of that work is on disk and nothing more.
     pub derived_records: u64,
+    /// How many of those records name an object the store no longer holds.
+    ///
+    /// It is a count and never a problem: the record is disposable, nothing
+    /// references it, and the next `archive derive` discards it. It is
+    /// reported because it is the visible trace of a purge that stopped
+    /// between its record pass and its object pass, which is otherwise
+    /// invisible. A record whose object lies in a fan-out directory the check
+    /// could not list is not counted, exactly as no reference into an unread
+    /// directory is called dangling.
+    pub derived_orphans: u64,
     /// How many object entries were examined.
     pub objects_checked: u64,
     /// How many objects no import event, receipt, or submission references.
@@ -282,9 +294,11 @@ fn run(root: &Path) -> Report {
         .find(|(_, count)| *count > 0)
         .map(|(kind, _)| *kind);
 
+    let derived = crate::records::derived::filed(root);
     Report {
         bytes_digested: store.bytes_digested,
-        derived_records: crate::records::derived::count(root),
+        derived_records: derived.len() as u64,
+        derived_orphans: derived_orphans(&derived, &store),
         objects_checked: store.objects_checked,
         orphan_objects: counts.orphan,
         objects_unchecked: store.objects_unchecked,
@@ -297,6 +311,22 @@ fn run(root: &Path) -> Report {
         malformed_kind,
         dangling: first_dangling,
     }
+}
+
+/// How many derived records describe an object the store no longer holds.
+///
+/// A derived record is filed under the digest of the object it describes, so
+/// the question is answered from the digest alone and the file is never
+/// opened. Only a store the pass actually listed can say an object is absent:
+/// a digest whose fan-out directory could not be read is left uncounted,
+/// because an object the check could not look for is not an object the
+/// archive does not have.
+fn derived_orphans(derived: &std::collections::BTreeSet<String>, store: &store::Store) -> u64 {
+    derived
+        .iter()
+        .filter_map(|digest| references::digest_key(digest))
+        .filter(|key| store.holds(key) == Some(false))
+        .count() as u64
 }
 
 /// Every code the check can report, ordered by code, with its count.

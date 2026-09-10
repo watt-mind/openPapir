@@ -266,8 +266,8 @@ authenticity, delivery, or legal effect. `case show` and `receipt list` show
 the media type and the byte length of an artefact that has a record and say
 nothing at all about one that does not. A document in the derived directory
 that cannot be read as a derived record is therefore not `record.malformed`:
-it is a disposable computation that failed to read, so it counts as no record
-and the next derivation writes it again.
+it is a disposable computation that failed to read, so it holds no facts for a
+reader and the next derivation writes it again.
 
 **Recomputation is explicit and nothing else.** `archive derive` is the only
 thing that writes, replaces, or removes a derived record. It takes the writer
@@ -277,13 +277,22 @@ its cost grows with the number of objects and never with their size. An object
 over the single-file cap is left without a record rather than read, exactly as
 the integrity check leaves it undigested. A record naming an object the
 archive no longer holds is removed, because the record describes the store as
-it is now; a purge that removes an object therefore leaves that object's
-derived record behind until the next derivation discards it.
+it is now. A purge takes the derived record of every object it removes with
+it, in its own all-or-nothing record pass, so the ordinary purge leaves none
+behind; a purge that stopped between its record pass and its object pass
+leaves one, and the next derivation discards it.
 
-**`archive check` counts derived records and judges none of them.** A missing
-record is nothing at all rather than a problem, and an unreadable one is not
-counted and is not damage either. Neither changes the exit code, because
-nothing in the archive depends on a derived record existing.
+**`archive check` counts derived records and judges none of them.** The count
+is of the files the derived directory holds under a digest name: the check
+does not parse one, because a disposable computation decides nothing there and
+the next derivation rewrites the file whether it still parses or not. A
+missing record is nothing at all rather than a problem, and an unreadable one
+is counted like any other and is not damage either. `derived_orphans` counts
+the records naming an object the store no longer holds, read from the same
+names against the objects the store pass found, and it is a count rather than
+a problem for the same reason: nothing references such a record, and the next
+derivation discards it. Neither figure changes the exit code, because nothing
+in the archive depends on a derived record existing.
 
 An export carries no derived record. An export is the case's evidence, and a
 disposable computation is not evidence; an archive that imports one runs
@@ -760,6 +769,16 @@ What goes with the case is fixed:
   because an event describing content that is gone describes nothing. An
   object the purge could not unlink keeps its import event, so it stays a
   referenced object rather than becoming an orphan.
+- **The derived-metadata record of a purged object goes with the purge**,
+  counted under `records_removed` as `derived_metadata`. It is openPapir's own
+  disposable computation about those bytes, so once they are gone it describes
+  nothing; nothing in the archive references one, and no user statement is
+  lost with it. It goes in the record pass rather than the object pass,
+  because it is a record: it is probed with the others, so one that will not
+  go refuses the deletion before the first unlink, and a deletion that removes
+  no object removes none of them. A purge that stops between the two passes
+  therefore leaves a record about bytes that are gone; `archive check` counts
+  one under `derived_orphans` and the next `archive derive` discards it.
 
 An association naming submissions in **two cases** is refused rather than
 resolved while the user still asserts it. It references a submission that

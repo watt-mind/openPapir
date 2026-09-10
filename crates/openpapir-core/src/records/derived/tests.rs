@@ -73,7 +73,11 @@ fn a_disposable_record_that_cannot_be_read_is_no_record_and_no_damage() {
     write_derived(root.path(), &record(DIGEST, "text", 27)).unwrap();
     fs::write(path_of(root.path(), DIGEST), b"{ not a record").unwrap();
     assert_eq!(read_derived(root.path(), DIGEST), None);
-    assert_eq!(count(root.path()), 0, "unreadable is not counted");
+    assert_eq!(
+        count(root.path()),
+        1,
+        "the count names files and parses none of them"
+    );
     assert!(facts_for(root.path(), [DIGEST]).is_empty());
 
     // A document that reads but names another object is not this object's.
@@ -122,7 +126,7 @@ fn a_removed_record_leaves_nothing_and_removing_twice_is_no_error() {
     assert!(remove_derived(root.path(), DIGEST));
     assert!(!remove_derived(root.path(), DIGEST));
     assert_eq!(count(root.path()), 0);
-    assert!(stored(root.path()).is_empty());
+    assert!(filed(root.path()).is_empty());
 }
 
 #[test]
@@ -136,5 +140,5 @@ fn a_directory_entry_that_is_not_a_derived_record_is_passed_over() {
     )
     .unwrap();
     assert_eq!(count(root.path()), 1);
-    assert_eq!(stored(root.path()).len(), 1);
+    assert_eq!(filed(root.path()).len(), 1);
 }
