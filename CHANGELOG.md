@@ -24,6 +24,32 @@ envelope.
 
 ### Added
 
+- `openpapir submission show --archive <root> <submission-id> [--json]`,
+  `openpapir receipt show --archive <root> <receipt-id> [--json]`, and
+  `openpapir association show --archive <root> <association-id> [--json]`,
+  operations `submission.show`, `receipt.show`, and `association.show`, read
+  one stored record back with what relates to it. Each takes no writer lock
+  and changes nothing. `submission.show` reports `submission`,
+  `associations`, and `association_count`, the associations being the ones
+  naming the submission as a candidate or as the `submission_id` an
+  `associated` outcome confirms, live heads first and superseded records after
+  them. `receipt.show` reports `receipt` with the same history
+  `association.list` reports for that receipt, newest first and superseded
+  records included. `association.show` reports `association`, `live`, `chain`,
+  and `chain_length`, the chain being what the record supersedes and what
+  supersedes it, and `live` being true only when no stored record supersedes
+  it. An identifier that names no record is `record.not_found`, naming the
+  kind and how it was referenced and never the value the user supplied. The
+  three join the operations `capabilities` reports. `case.show` gains an
+  additive `receipts` array: every receipt whose live association names a
+  submission of the case, each entry holding `receipt`, `association_id`,
+  `outcome`, and `submission_ids`. Only the live head of a supersession chain
+  is read, so withdrawing an assertion takes the receipt out of the section
+  while both records stay stored, and every entry is the user's own assertion,
+  claiming no delivery, receipt by an authority, authenticity, or legal
+  effect. Goldens added for `submission.show`, `receipt.show`, and
+  `association.show`, and `capabilities` and `case.show` regenerated.
+
 - An ignored benchmark, `crates/openpapir-cli/tests/bench.rs`, times the
   linear scans on a synthetic archive of 10000 cases, 10000 submissions,
   10000 receipts, 10000 associations, and 20000 imported objects, and asserts

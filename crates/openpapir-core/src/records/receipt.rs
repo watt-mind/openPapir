@@ -21,6 +21,7 @@ use crate::archive::{Archive, SUPPORTED_SCHEMA_VERSION};
 use crate::clock;
 use crate::error::{Diagnostic, Failure, Outcome, Result, Warning};
 use crate::ident;
+use crate::records::association::{self, Association};
 use crate::records::document::{self, Record};
 use crate::records::{
     RECEIPTS_DIR, checked_digest, checked_label, inconsistent, refuse_absent_object,
@@ -66,6 +67,19 @@ impl Record for Receipt {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ReceiptAdded {
     /// The receipt as it was stored.
+    pub receipt: Receipt,
+}
+
+/// What showing one receipt reports.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ReceiptView {
+    /// Every association about the receipt, newest first and superseded
+    /// records included, exactly as `association list` reports them. History
+    /// is never collapsed or filtered.
+    pub associations: Vec<Association>,
+    /// How many associations the receipt holds.
+    pub association_count: u64,
+    /// The receipt itself, as stored.
     pub receipt: Receipt,
 }
 
@@ -198,6 +212,43 @@ fn list_records(
     document::list_records::<Receipt>(archive.root())
 }
 
+/// Show one receipt with its whole association history, without the lock.
+///
+/// The history is the one `association list` reports for the same receipt:
+/// newest first, superseded records included, nothing collapsed and nothing
+/// filtered. The receipt itself is reported exactly as it is stored.
+///
+/// # Errors
+///
+/// Returns `record.not_found` when the identifier names no receipt,
+/// `record.malformed` for an unreadable document, and any archive refusal.
+pub fn show(root: &Path, receipt_id: &str) -> Result<ReceiptView> {
+    let mut warnings = Vec::new();
+    match show_record(root, receipt_id, &mut warnings) {
+        Ok(view) => Ok(Outcome {
+            data: view,
+            warnings,
+        }),
+        Err(error) => Err(Failure::with_warnings(error, warnings)),
+    }
+}
+
+fn show_record(
+    root: &Path,
+    receipt_id: &str,
+    warnings: &mut Vec<Warning>,
+) -> std::result::Result<ReceiptView, Diagnostic> {
+    let mut archive = Archive::open(root)?;
+    warnings.extend(archive.take_warnings());
+    let receipt = document::read_record::<Receipt>(archive.root(), receipt_id, "receipt_id")?;
+    let associations = association::history_of(archive.root(), &receipt.id)?;
+    Ok(ReceiptView {
+        association_count: associations.len() as u64,
+        associations,
+        receipt,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -225,6 +276,28 @@ mod tests {
             archive::import::import(root.path(), &[PathBuf::from(&file)]).unwrap();
         }
         root
+    }
+
+    /// Showing a receipt reports the record as stored beside the history
+    /// `association list` reports, and needs no writer lock to do it.
+    #[test]
+    fn a_shown_receipt_carries_its_record_and_its_history_without_the_lock() {
+        let root = archive_with_artefact(1);
+        let receipt = add(root.path(), PAYLOAD_DIGEST, None, Some("Envelope"))
+            .unwrap()
+            .data
+            .receipt;
+        let _held = WriterLock::acquire(root.path()).unwrap();
+        let view = show(root.path(), &receipt.id).unwrap().data;
+        assert_eq!(view.receipt, receipt);
+        assert_eq!(view.association_count, 0);
+        assert!(view.associations.is_empty());
+
+        let refusal = show(root.path(), ABSENT_ID).unwrap_err().error;
+        assert_eq!(refusal.code, codes::RECORD_NOT_FOUND);
+        let json = serde_json::to_value(&refusal).unwrap();
+        assert_eq!(json["details"]["record_kind"], "receipt");
+        assert_eq!(json["details"]["reference_kind"], "receipt_id");
     }
 
     #[test]

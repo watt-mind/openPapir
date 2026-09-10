@@ -1,0 +1,24 @@
+Case <id>.
+Submission <id>, recorded <time>.
+Description: Posted the completed form.
+Date stated by the user: 2026-01-13. openPapir does not interpret it.
+Artefacts referenced: 1.
+sha256:<digest> as cover letter
+Associations naming this submission: 2, live first.
+Association <id>, recorded <time> by user.
+Receipt: <id>
+Outcome: candidate
+Confirmed submission: none
+Supersedes: <id>
+Candidates: 1.
+<id> confidence strong
+user_assertion from user: The case number is the same.
+Association <id>, recorded <time> by user.
+Receipt: <id>
+Outcome: candidate
+Confirmed submission: none
+Supersedes: <id>
+Candidates: 1.
+<id> confidence moderate
+user_assertion from user: The reference matches the submission.
+These are the user's own assertions. openPapir checked nothing about the file and reports no delivery, authenticity, or legal effect.

@@ -42,6 +42,9 @@ cargo run --locked -p openpapir-cli -- receipt add --archive ./my-archive --arte
 cargo run --locked -p openpapir-cli -- receipt list --archive ./my-archive --json
 cargo run --locked -p openpapir-cli -- association create --archive ./my-archive --receipt <receipt-id> --outcome candidate --candidate "<submission-id>:moderate:The reference matches." --json
 cargo run --locked -p openpapir-cli -- association list --archive ./my-archive --receipt <receipt-id> --json
+cargo run --locked -p openpapir-cli -- submission show --archive ./my-archive <submission-id> --json
+cargo run --locked -p openpapir-cli -- receipt show --archive ./my-archive <receipt-id> --json
+cargo run --locked -p openpapir-cli -- association show --archive ./my-archive <association-id> --json
 cargo run --locked -p openpapir-cli -- archive check --archive ./my-archive --json
 cargo run --locked -p openpapir-cli -- archive status --archive ./my-archive --json
 cargo run --locked -p openpapir-cli -- case export --archive ./my-archive --case <case-id> --to ./my-export --json
@@ -80,7 +83,10 @@ The capabilities command reports the current implementation honestly:
       "archive.repair_permissions",
       "case.delete",
       "skill",
-      "case.update"
+      "case.update",
+      "submission.show",
+      "receipt.show",
+      "association.show"
     ]
   },
   "verified": false
@@ -101,8 +107,9 @@ each. All but the last can process input:
   every `--tag`, and a `--query` matched as a case-insensitive substring of
   the title or notes in one linear scan, with no index. The query is never
   echoed back.
-- `case show` shows one case, with its status, tags, and update time, and the
-  submissions recorded against it and their artefact references.
+- `case show` shows one case, with its status, tags, and update time, the
+  submissions recorded against it and their artefact references, and the
+  receipts a live association ties to one of those submissions.
 - `case update` rewrites one case record in place, keeping its identifier and
   creation time and reporting the names of the fields it changed. It is the
   one invocation that rewrites a stored record.
@@ -119,6 +126,14 @@ each. All but the last can process input:
 - `association retire` withdraws one assertion by writing a record that
   supersedes it and claims nothing; both records stay, and nothing is edited
   or removed.
+- `submission show` shows one submission as it is stored, with every
+  association naming it: the live heads first and the superseded records after
+  them.
+- `receipt show` shows one receipt as it is stored, with its whole association
+  history, newest first and superseded records included.
+- `association show` shows one association as it is stored, whether it is the
+  live head of its chain, and the chain it belongs to: what it supersedes and
+  what supersedes it.
 - `archive check` re-digests what the store holds and reports counts only; it
   takes no lock, changes nothing, and a passing check is storage integrity
   rather than authenticity.

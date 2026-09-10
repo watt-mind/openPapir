@@ -1,0 +1,20 @@
+Receipt <id>, recorded <time>.
+Artefact: sha256:<digest>
+Import event: <id>
+Label: Envelope from the post
+Associations about this receipt: 2, newest first.
+Association <id>, recorded <time> by user.
+Receipt: <id>
+Outcome: candidate
+Confirmed submission: none
+Supersedes: <id>
+Candidates: 1.
+<id> confidence moderate
+user_assertion from user: The reference matches the submission.
+Association <id>, recorded <time> by user.
+Receipt: <id>
+Outcome: unassociated
+Confirmed submission: none
+Supersedes: nothing
+Candidates: 0.
+These are the user's own assertions. openPapir checked nothing about the file and reports no delivery, authenticity, or legal effect.

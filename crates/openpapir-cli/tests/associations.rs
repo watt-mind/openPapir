@@ -734,6 +734,15 @@ fn a_held_lock_refuses_a_write_and_permits_every_read() {
         "--json",
     ]);
     assert!(listed.status.success(), "a read needs no lock");
+    let shown = run(&[
+        "receipt",
+        "show",
+        "--archive",
+        path(f.root.path()),
+        &receipt,
+        "--json",
+    ]);
+    assert!(shown.status.success(), "a read needs no lock");
     assert!(lock.exists(), "the lock is not broken");
 }
 
@@ -888,6 +897,182 @@ fn the_human_form_of_a_retirement_prints_the_record_and_not_the_reason() {
     assert!(text.contains("Outcome: unassociated"));
     assert!(text.contains(&format!("Supersedes: {asserted}")));
     assert!(!text.contains(REASON), "the reason is not printed back");
+    assert!(!text.contains(path(f.root.path())), "no path is printed");
+    let lower = text.to_lowercase();
+    for word in ["delivered", "accepted", "official", "legally effective"] {
+        assert!(!lower.contains(word), "no wording implies an authority");
+    }
+}
+
+/// `receipt show` reports the record as stored beside the same history
+/// `association list` reports, so a caller needs one call instead of two.
+#[test]
+fn a_shown_receipt_carries_its_record_and_its_whole_association_history() {
+    let f = fixture();
+    let receipt = add_receipt(f.root.path());
+    let first = identifier(
+        &stdout_json(&create_association(
+            f.root.path(),
+            &receipt,
+            "unassociated",
+            &[],
+        )),
+        "/data/association/id",
+    );
+    let retired = run(&[
+        "association",
+        "retire",
+        "--archive",
+        path(f.root.path()),
+        &first,
+        "--json",
+    ]);
+    assert!(retired.status.success());
+
+    let output = run(&[
+        "receipt",
+        "show",
+        "--archive",
+        path(f.root.path()),
+        &receipt,
+        "--json",
+    ]);
+    let envelope = stdout_json(&output);
+    assert_envelope(&envelope, "receipt.show", true);
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(envelope["data"]["receipt"]["id"], receipt);
+    assert_eq!(
+        envelope["data"]["receipt"]["artefact_digest"],
+        PAYLOAD_DIGEST
+    );
+    assert_eq!(envelope["data"]["association_count"], 2);
+
+    let listed = stdout_json(&run(&[
+        "association",
+        "list",
+        "--archive",
+        path(f.root.path()),
+        "--receipt",
+        &receipt,
+        "--json",
+    ]));
+    assert_eq!(
+        envelope["data"]["associations"], listed["data"]["associations"],
+        "one history, reported the same way by both commands"
+    );
+}
+
+/// An association's chain is what it supersedes and what supersedes it, and
+/// `live` says which end of it the record sits at.
+#[test]
+fn a_shown_association_carries_its_chain_and_says_whether_it_is_live() {
+    let f = fixture();
+    let receipt = add_receipt(f.root.path());
+    let first = identifier(
+        &stdout_json(&create_association(
+            f.root.path(),
+            &receipt,
+            "unassociated",
+            &[],
+        )),
+        "/data/association/id",
+    );
+    let second = identifier(
+        &stdout_json(&run(&[
+            "association",
+            "retire",
+            "--archive",
+            path(f.root.path()),
+            &first,
+            "--json",
+        ])),
+        "/data/association/id",
+    );
+
+    let shown = stdout_json(&run(&[
+        "association",
+        "show",
+        "--archive",
+        path(f.root.path()),
+        &first,
+        "--json",
+    ]));
+    assert_envelope(&shown, "association.show", true);
+    assert_eq!(shown["data"]["association"]["id"], first);
+    assert_eq!(shown["data"]["live"], false, "another record supersedes it");
+    assert_eq!(shown["data"]["chain_length"], 2);
+    let chain = shown["data"]["chain"].as_array().expect("a chain");
+    assert_eq!(chain[0]["id"], second, "newest first");
+    assert_eq!(chain[1]["id"], first);
+
+    let head = stdout_json(&run(&[
+        "association",
+        "show",
+        "--archive",
+        path(f.root.path()),
+        &second,
+        "--json",
+    ]));
+    assert_eq!(head["data"]["live"], true, "nothing supersedes the head");
+    assert_eq!(
+        head["data"]["chain"], shown["data"]["chain"],
+        "both ends read the same chain"
+    );
+}
+
+/// An identifier that names no record is `record.not_found`, and neither
+/// show command echoes the value the user supplied.
+#[test]
+fn an_unknown_identifier_is_refused_by_both_show_commands_without_an_echo() {
+    let f = fixture();
+    for (command, kind) in [("receipt", "receipt"), ("association", "association")] {
+        for supplied in [ABSENT_ID, "not-an-identifier", "../../etc/passwd"] {
+            let output = run(&[
+                command,
+                "show",
+                "--archive",
+                path(f.root.path()),
+                supplied,
+                "--json",
+            ]);
+            assert_refusal(&output, &format!("{command}.show"), "record.not_found", 4);
+            let envelope = stdout_json(&output);
+            assert_eq!(envelope["error"]["details"]["record_kind"], kind);
+            assert_eq!(
+                envelope["error"]["details"]["reference_kind"],
+                format!("{kind}_id")
+            );
+            let rendered = String::from_utf8(output.stdout).unwrap();
+            assert!(
+                !rendered.contains("not-an-identifier"),
+                "no supplied value is echoed"
+            );
+        }
+    }
+}
+
+/// The human form prints the record and the history and claims nothing.
+#[test]
+fn the_human_form_of_a_shown_receipt_claims_nothing_and_prints_no_path() {
+    let f = fixture();
+    let receipt = add_receipt(f.root.path());
+    create_association(
+        f.root.path(),
+        &receipt,
+        "candidate",
+        &[candidate(&f.first, "moderate")],
+    );
+    let output = run(&[
+        "receipt",
+        "show",
+        "--archive",
+        path(f.root.path()),
+        &receipt,
+    ]);
+    assert!(output.status.success());
+    let text = String::from_utf8(output.stdout).expect("stdout is UTF-8");
+    assert!(text.contains("Associations about this receipt: 1, newest first."));
+    assert!(text.contains("Outcome: candidate"));
     assert!(!text.contains(path(f.root.path())), "no path is printed");
     let lower = text.to_lowercase();
     for word in ["delivered", "accepted", "official", "legally effective"] {

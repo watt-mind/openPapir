@@ -543,3 +543,68 @@ fn retiring_needs_a_stored_record_a_usable_reason_and_the_writer_lock() {
         "no refusal wrote a record"
     );
 }
+
+/// A hand-edited archive can hold a record that supersedes itself. The chain
+/// walk keeps a visited set, so such an archive yields a finite chain rather
+/// than looping, and the record is honestly reported as not live.
+#[test]
+fn a_chain_that_points_at_itself_is_finite_and_is_not_live() {
+    let f = fixture();
+    let asserted = create(f.root.path(), &f.receipt_id, "unassociated", &[], None)
+        .unwrap()
+        .data
+        .association;
+    let path = f
+        .root
+        .path()
+        .join(ASSOCIATIONS_DIR)
+        .join(format!("{}.json", asserted.id));
+    let mut edited = asserted.clone();
+    edited.supersedes = Some(asserted.id.clone());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    fs::write(&path, serde_json::to_vec(&edited).unwrap()).unwrap();
+
+    let view = show(f.root.path(), &asserted.id).unwrap().data;
+    assert_eq!(view.chain_length, 1, "the walk terminates");
+    assert_eq!(view.chain[0].id, asserted.id);
+    assert!(!view.live, "a record another record supersedes is not live");
+}
+
+/// Showing a record reports the chain in the same order `association list`
+/// reports the whole history, and reads the same records from both ends.
+#[test]
+fn a_shown_association_reads_the_same_chain_from_either_end() {
+    let f = fixture();
+    let first = create(f.root.path(), &f.receipt_id, "unassociated", &[], None)
+        .unwrap()
+        .data
+        .association;
+    let second = create(
+        f.root.path(),
+        &f.receipt_id,
+        "candidate",
+        &[format!("{}:moderate:The reference matches.", f.first)],
+        Some(&first.id),
+    )
+    .unwrap()
+    .data
+    .association;
+
+    let older = show(f.root.path(), &first.id).unwrap().data;
+    let newer = show(f.root.path(), &second.id).unwrap().data;
+    assert_eq!(older.chain, newer.chain, "one chain, read from either end");
+    assert_eq!(older.chain_length, 2);
+    assert_eq!(older.chain[0].id, second.id, "newest first");
+    assert!(!older.live);
+    assert!(newer.live);
+
+    let absent = show(f.root.path(), ABSENT_ID).unwrap_err().error;
+    assert_eq!(absent.code, codes::RECORD_NOT_FOUND);
+    let json = serde_json::to_value(&absent).unwrap();
+    assert_eq!(json["details"]["record_kind"], "association");
+    assert_eq!(json["details"]["reference_kind"], "association_id");
+}

@@ -69,6 +69,10 @@ pub fn case_updated(updated: &CaseUpdated) -> Vec<String> {
 }
 
 /// The lines `case show` prints when it succeeds.
+///
+/// The receipts are the ones a live association ties to a submission of the
+/// case. Each is the user's own assertion, so the line names the outcome the
+/// user recorded and claims nothing beyond it.
 #[must_use]
 pub fn case_shown(view: &CaseView) -> Vec<String> {
     let mut lines = case_lines(&view.case);
@@ -76,13 +80,26 @@ pub fn case_shown(view: &CaseView) -> Vec<String> {
     for submission in &view.submissions {
         lines.extend(submission_lines(submission));
     }
+    lines.push(format!(
+        "Receipts a live association names: {}.",
+        view.receipts.len()
+    ));
+    for entry in &view.receipts {
+        lines.push(format!(
+            "Receipt {} outcome {} by association {}",
+            entry.receipt.id, entry.outcome, entry.association_id
+        ));
+        for submission_id in &entry.submission_ids {
+            lines.push(format!("names submission {submission_id}"));
+        }
+    }
     lines.push(RECORD_DISCLAIMER.to_owned());
     lines
 }
 
 #[cfg(test)]
 mod tests {
-    use super::super::fixtures::{CASE_ID, submission};
+    use super::super::fixtures::{CASE_ID, SUBMISSION_ID, submission};
     use super::*;
 
     fn case() -> Case {
@@ -158,6 +175,7 @@ mod tests {
         without_date.artefacts.clear();
         let text = case_shown(&CaseView {
             case: case(),
+            receipts: Vec::new(),
             submissions: vec![without_date],
             submission_count: 1,
         })
@@ -165,5 +183,41 @@ mod tests {
         assert!(text.contains("Submissions recorded: 1."));
         assert!(text.contains("Artefacts referenced: 0."));
         assert!(!text.contains("Date stated by the user"));
+        assert!(text.contains("Receipts a live association names: 0."));
+    }
+
+    /// A receipt reaches the case only through a live association, so the
+    /// line names that association and the outcome the user recorded, and
+    /// claims nothing else about the file.
+    #[test]
+    fn a_shown_case_names_the_receipts_its_live_associations_name() {
+        const RECEIPT_ID: &str = "aaaabbbbccccddddeeeeffff00001111";
+        const ASSOCIATION_ID: &str = "1111000fffeeeeddddccccbbbbaaaa00";
+        let text = case_shown(&CaseView {
+            case: case(),
+            receipts: vec![openpapir_core::CaseReceipt {
+                association_id: ASSOCIATION_ID.to_owned(),
+                outcome: "candidate".to_owned(),
+                receipt: openpapir_core::Receipt {
+                    archive_schema_version: 1,
+                    artefact_digest: "sha256:bb".to_owned(),
+                    created_at: "2026-01-16T11:00:00Z".to_owned(),
+                    id: RECEIPT_ID.to_owned(),
+                    import_event_id: "22223333444455556666777788889999".to_owned(),
+                    label: None,
+                    record_kind: "receipt".to_owned(),
+                },
+                submission_ids: vec![SUBMISSION_ID.to_owned()],
+            }],
+            submissions: vec![submission()],
+            submission_count: 1,
+        })
+        .join("\n");
+        assert!(text.contains("Receipts a live association names: 1."));
+        assert!(text.contains(&format!(
+            "Receipt {RECEIPT_ID} outcome candidate by association {ASSOCIATION_ID}"
+        )));
+        assert!(text.contains(&format!("names submission {SUBMISSION_ID}")));
+        assert!(!text.contains('/'), "no path ever reaches human output");
     }
 }
