@@ -96,7 +96,7 @@ page's last update.
 - The entangled-deletion remedy (`association retire`) marks an association
   withdrawn instead of removing it, so that separating a receipt from a case
   leaves the earlier record readable, gated on the record and deletion
-  contracts in [architecture and CLI contract](architecture.md): planned.
+  contracts in [architecture and CLI contract](architecture.md): implemented.
 - Generative testing drives the archive operations with generated inputs to
   reach the orderings and limits the example-based tests in
   [testing and fixture policy](testing.md) do not, gated on nothing outside
