@@ -3,7 +3,7 @@
 use super::*;
 use crate::archive;
 use crate::error::codes;
-use crate::records::submission;
+use crate::records::{receipt, submission};
 use std::fs;
 
 fn archive_root() -> tempfile::TempDir {
@@ -679,4 +679,81 @@ fn a_case_without_a_submission_shows_an_empty_receipts_section() {
         view.receipts.is_empty(),
         "a submission no association names brings no receipt with it"
     );
+}
+
+/// The bytes one imported object holds, and the digest the archive stores it
+/// under. Nothing here comes from real correspondence.
+const PAYLOAD: &[u8] = b"synthetic bytes\n";
+const PAYLOAD_DIGEST: &str =
+    "sha256:a002fd0595c559505437ce754971d911b703373addf2b59e425ec057d631614f";
+
+/// One submission of `case_id`, and its identifier.
+fn submission_id(root: &Path, case_id: &str, description: &str) -> String {
+    submission::add(root, case_id, description, None, &[])
+        .unwrap()
+        .data
+        .submission
+        .id
+}
+
+/// The receipts section reads the live head of each chain, names every
+/// submission of the case one association names, ordered by identifier, and
+/// leaves out an association about another case's submission.
+#[test]
+fn a_shown_case_reads_live_heads_and_orders_the_submissions_it_names() {
+    let root = archive_root();
+    let inputs = tempfile::tempdir().unwrap();
+    let file = inputs.path().join("note.txt");
+    fs::write(&file, PAYLOAD).unwrap();
+    archive::import::import(root.path(), &[file]).unwrap();
+    let root = root.path();
+
+    let case = create(root, "Tax matter", None).unwrap().data.case;
+    let other = create(root, "Other matter", None).unwrap().data.case;
+    let first = submission_id(root, &case.id, "First");
+    let second = submission_id(root, &case.id, "Second");
+    let elsewhere = submission_id(root, &other.id, "Elsewhere");
+    let receipt_id = receipt::add(root, PAYLOAD_DIGEST, None, None)
+        .unwrap()
+        .data
+        .receipt
+        .id;
+
+    // One association names both submissions of the case, in the order the
+    // section reports rather than the order the candidates were supplied in.
+    let candidates = [
+        format!("{second}:moderate:The reference matches."),
+        format!("{first}:weak:The reference matches."),
+    ];
+    let live = association::create(root, &receipt_id, "contradictory", &candidates, None)
+        .unwrap()
+        .data
+        .association;
+    let view = show(root, &case.id).unwrap().data;
+    assert_eq!(view.receipts.len(), 1);
+    assert_eq!(view.receipts[0].association_id, live.id);
+    assert_eq!(view.receipts[0].outcome, "contradictory");
+    assert_eq!(view.receipts[0].receipt.id, receipt_id);
+    let mut expected = vec![first, second];
+    expected.sort();
+    assert_eq!(
+        view.receipts[0].submission_ids, expected,
+        "the submissions one entry names are ordered by identifier"
+    );
+
+    // The withdrawal supersedes that record, so the live head names nothing
+    // of this case and the receipt leaves the section. Both records stay.
+    association::retire(root, &live.id, None).unwrap();
+    assert!(
+        show(root, &case.id).unwrap().data.receipts.is_empty(),
+        "only the live head of a chain is read"
+    );
+
+    // A live association about another case's submission is not this case's.
+    let candidates = [format!("{elsewhere}:weak:The reference matches.")];
+    association::create(root, &receipt_id, "candidate", &candidates, None).unwrap();
+    assert!(show(root, &case.id).unwrap().data.receipts.is_empty());
+    let view = show(root, &other.id).unwrap().data;
+    assert_eq!(view.receipts.len(), 1);
+    assert_eq!(view.receipts[0].submission_ids, vec![elsewhere]);
 }

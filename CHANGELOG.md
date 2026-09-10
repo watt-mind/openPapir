@@ -785,6 +785,11 @@ envelope.
 
 ### Fixed
 
+- The human form of `association show` prints the shown record once. The
+  chain it reports always holds that record, so printing its block before the
+  chain as well printed the same record twice; the first line now names the
+  record, and its entry in the chain is marked. The `--json` form is
+  unchanged: `data` still carries `association` beside `chain`.
 - `case export` no longer succeeds with fewer records than the case holds when
   a record directory cannot be listed. Reading such a directory as empty made
   the export describe a smaller case than the archive holds; it is now a

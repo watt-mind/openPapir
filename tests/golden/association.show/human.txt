@@ -1,11 +1,6 @@
-Association <id>, recorded <time> by user.
-Receipt: <id>
-Outcome: unassociated
-Confirmed submission: none
-Supersedes: nothing
-Candidates: 0.
+Association <id>, with its chain.
 Live head of its chain: no.
-Records in the chain: 2, newest first.
+Records in the chain: 2, newest first. The record shown is marked.
 Association <id>, recorded <time> by user.
 Receipt: <id>
 Outcome: candidate
@@ -14,6 +9,7 @@ Supersedes: <id>
 Candidates: 1.
 <id> confidence moderate
 user_assertion from user: The reference matches the submission.
+The record shown:
 Association <id>, recorded <time> by user.
 Receipt: <id>
 Outcome: unassociated
