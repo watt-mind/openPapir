@@ -475,6 +475,35 @@ fn permissions(path: &Path, mode: u32) {
         .expect("set a mode the case depends on");
 }
 
+/// Export the one case and delete it with a purge, so the archive is ready
+/// for the import that restores it.
+///
+/// It is the round trip the design describes: an export is a plain copy
+/// outward, and the import that follows puts the same bytes and the same
+/// records back under their original identifiers.
+pub fn export_and_purge(world: &World) {
+    let mut arguments = world.command(&["case", "export"]);
+    arguments.extend([
+        "--case".to_owned(),
+        world.case_id.clone(),
+        "--to".to_owned(),
+        world.export_destination(),
+    ]);
+    world.json(&arguments);
+    world.json(&world.delete_arguments(true));
+}
+
+/// Create a directory that holds no export at all.
+pub fn write_empty_source(world: &World) {
+    fs::create_dir(world.root().join("empty")).expect("create the empty source");
+}
+
+/// Name the directory [`write_empty_source`] created.
+#[must_use]
+pub fn empty_source(world: &World) -> String {
+    world.root().join("empty").to_string_lossy().into_owned()
+}
+
 /// Write one more input than an import accepts.
 pub fn write_over_the_import_file_cap(world: &World) {
     let directory = world.root().join("many");

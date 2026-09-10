@@ -10,7 +10,7 @@ use openpapir_core::archive::Created;
 use openpapir_core::archive::import::Imported;
 use openpapir_core::{
     Association, AssociationCreated, AssociationHistory, Case, CaseCreated, CaseList, CaseUpdated,
-    CaseView, Deleted, Exported, Receipt, ReceiptAdded, ReceiptList, Repaired, Submission,
+    CaseView, Deleted, Exported, Receipt, ReceiptAdded, ReceiptList, Repaired, Restored, Submission,
     SubmissionAdded,
 };
 
@@ -119,6 +119,41 @@ pub fn exported(exported: &Exported) -> Vec<String> {
     }
     lines.push(
         "The archive was not changed. Every copy was re-digested: a digest identifies bytes only, never authenticity, delivery, or legal effect."
+            .to_owned(),
+    );
+    lines
+}
+
+/// The lines `case import` prints when it succeeds.
+///
+/// The source is the one thing here the JSON does not carry, exactly as the
+/// destination is for an export: the line repeats the `--from` argument the
+/// user typed in the same invocation and nothing else ever echoes it.
+#[must_use]
+pub fn restored(restored: &Restored) -> Vec<String> {
+    let mut lines = vec![
+        format!(
+            "Imported case {} from {}.",
+            restored.case_id, restored.source
+        ),
+        format!(
+            "Stored {} object(s), {} byte(s); {} already present.",
+            restored.objects_stored, restored.bytes_stored, restored.objects_present
+        ),
+        format!(
+            "Wrote {} record(s); {} already present.",
+            restored.record_count, restored.records_present
+        ),
+    ];
+    for kind in &restored.records {
+        lines.push(format!("{} {}", kind.kind, kind.count));
+    }
+    lines.push(format!(
+        "Recorded {} import event(s) with source export.",
+        restored.events_recorded
+    ));
+    lines.push(
+        "Every restored copy was re-digested: a digest identifies bytes only, never authenticity, delivery, or legal effect."
             .to_owned(),
     );
     lines

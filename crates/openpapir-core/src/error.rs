@@ -87,6 +87,16 @@ pub mod codes {
     pub const EXPORT_DESTINATION_CONFLICT: &str = "export.destination_conflict";
     /// An exported copy re-digested to something other than the original.
     pub const EXPORT_COPY_MISMATCH: &str = "export.copy_mismatch";
+    /// The export directory holds no manifest, so it describes nothing.
+    pub const EXPORT_MANIFEST_MISSING: &str = "export.manifest_missing";
+    /// The export manifest cannot be read as a manifest of this format.
+    pub const EXPORT_MANIFEST_MALFORMED: &str = "export.manifest_malformed";
+    /// An exported object's bytes disagree with the digest that names them.
+    pub const EXPORT_OBJECT_MISMATCH: &str = "export.object_mismatch";
+    /// The manifest names a record document the export does not hold.
+    pub const EXPORT_RECORD_MISSING: &str = "export.record_missing";
+    /// A record's identifier is taken in the archive by a different record.
+    pub const EXPORT_RECORD_CONFLICT: &str = "export.record_conflict";
 
     /// A purge could not remove every object it planned to remove.
     pub const DELETE_OBJECTS_RETAINED: &str = "delete.objects_retained";

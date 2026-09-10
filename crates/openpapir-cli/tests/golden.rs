@@ -180,6 +180,28 @@ fn archive_cases() -> Vec<Case> {
             arguments: |world| world.delete_arguments(true),
         },
         Case {
+            name: "case.import",
+            stage: Stage::Associated,
+            second_submission: false,
+            prepare: golden_support::export_and_purge,
+            arguments: |world| {
+                let mut arguments = world.command(&["case", "import"]);
+                arguments.extend(["--from".to_owned(), world.export_destination()]);
+                arguments
+            },
+        },
+        Case {
+            name: "case.import.manifest-missing",
+            stage: Stage::Associated,
+            second_submission: false,
+            prepare: golden_support::write_empty_source,
+            arguments: |world| {
+                let mut arguments = world.command(&["case", "import"]);
+                arguments.extend(["--from".to_owned(), golden_support::empty_source(world)]);
+                arguments
+            },
+        },
+        Case {
             name: "case.export",
             stage: Stage::Associated,
             second_submission: false,

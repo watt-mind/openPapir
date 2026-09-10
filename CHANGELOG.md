@@ -24,6 +24,27 @@ envelope.
 
 ### Added
 
+- `openpapir case import --archive <root> --from <dir> [--json]`, operation
+  `case.import`, reads a directory `case export` wrote back into an archive.
+  The manifest is authoritative: every object it lists is re-digested from the
+  export's own bytes and every record it lists is read and parsed before the
+  archive is written to at all, and the record set is then staged and
+  published under the writer lock all at once or not at all, so an interrupted
+  import leaves the whole case or nothing of it and `archive check` stays
+  clean. Every record keeps its original identifier; a record or an object the
+  archive already holds is not an error and is not written again, so importing
+  one export twice leaves the same archive. Each object the import stores gets
+  one new import event carrying the additive `source` `export`, and the
+  exported import event is restored beside it, so the provenance of the user's
+  own import survives the round trip. Five codes are added in the `export`
+  bucket, all exiting `4`: `export.manifest_missing`,
+  `export.manifest_malformed`, `export.object_mismatch`,
+  `export.record_missing`, and `export.record_conflict`. `capabilities` now
+  reports nineteen operations, and human output echoes the `--from` argument
+  the user typed exactly as `case export` echoes `--to`; no JSON field carries
+  either. Goldens added for `case.import` and `case.import.manifest-missing`,
+  and `capabilities` regenerated.
+
 - `openpapir archive status --archive <root> [--as-of <yyyy-mm-dd>] [--json]`
   (operation `archive.status`) summarises one archive without changing it and
   reminds the user where to look in their delivery storage for a submission
@@ -56,9 +77,8 @@ envelope.
   delivery, receipt by an authority, authenticity, or legal effect. A case's
   status changes no reminder: closing a case is the user's own filing, so a
   submission in a closed case is listed exactly as one in an open case.
-- `capabilities` now lists `archive.status`, so eighteen operations are
-  reported, and every document that states the number or the list of
-  operations states eighteen.
+- `capabilities` now lists `archive.status`, and every document that states
+  the number or the list of operations states the number reported here.
 - `tests/golden/archive.status/` pins the JSON and human output of the summary
   against a fixture holding one submission whose window has elapsed, one whose
   window is open, one a live candidate association already names, and one with
@@ -114,7 +134,7 @@ envelope.
   `statement`, which only a retirement carries, and no message, warning, or
   count repeats it. Retiring a record something already supersedes is
   `record.inconsistent` with the new rule `already_superseded`. `capabilities`
-  lists `association.retire`, so eighteen operations are reported.
+  lists `association.retire`.
 - `case update` rewrites one case record in place, keeping its `id` and its
   `created_at` and adding an `updated_at`. It is the one operation that
   rewrites a stored record, and it rewrites only the case record: a
@@ -128,8 +148,8 @@ envelope.
   reports the changed fields by name only. A tag both added and removed in one
   invocation stays on the case, and a `--untag` value is checked against the
   record rather than against the tag caps, because a value no case could carry
-  is simply not on this one. `capabilities` lists it, so eighteen operations
-  are reported. The rewrite is reachable only for a record kind that implements
+  is simply not on this one. `capabilities` lists it. The rewrite is
+  reachable only for a record kind that implements
   the `Rewritable` marker in `openpapir-core`, which the case record alone
   does, so the append-only rule holds at compile time rather than by
   convention.

@@ -44,6 +44,7 @@ cargo run --locked -p openpapir-cli -- association list --archive ./my-archive -
 cargo run --locked -p openpapir-cli -- archive check --archive ./my-archive --json
 cargo run --locked -p openpapir-cli -- archive status --archive ./my-archive --json
 cargo run --locked -p openpapir-cli -- case export --archive ./my-archive --case <case-id> --to ./my-export --json
+cargo run --locked -p openpapir-cli -- case import --archive ./my-archive --from ./my-export --json
 cargo run --locked -p openpapir-cli -- archive repair-permissions --archive ./my-archive --json
 cargo run --locked -p openpapir-cli -- case delete --archive ./my-archive --case <case-id> --purge --json
 cargo run --locked -p openpapir-cli -- skill
@@ -74,6 +75,7 @@ The capabilities command reports the current implementation honestly:
       "archive.check",
       "archive.status",
       "case.export",
+      "case.import",
       "archive.repair_permissions",
       "case.delete",
       "skill",
@@ -127,6 +129,10 @@ each. All but the last can process input:
 - `case export` copies one case out as plain files, the original bytes named
   by their digest plus readable JSON records and a manifest, without changing
   the archive, and re-digests every copy.
+- `case import` reads such a copy back into an archive, checked against the
+  export's manifest before anything is written; a record keeps the identifier
+  it had, an object or a record already there is not an error, and importing
+  one export twice leaves the same archive.
 - `archive repair-permissions` narrows a restored archive back to owner-only;
   it never widens anything.
 - `case delete` is the one destructive command: it removes a case and its
