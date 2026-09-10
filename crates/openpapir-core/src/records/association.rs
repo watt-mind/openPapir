@@ -580,6 +580,46 @@ pub(crate) fn is_live(associations: &[Association], id: &str) -> bool {
         .any(|association| association.supersedes.as_deref() == Some(id))
 }
 
+/// The identifiers some record in `associations` supersedes.
+///
+/// [`is_live`] answers the same question for one identifier by reading every
+/// record again, which is what a caller holding one identifier needs. A
+/// caller asking it of every record in the same slice reads this set once
+/// instead, so the answer costs one pass rather than one pass per record.
+pub(crate) fn superseded_ids(associations: &[Association]) -> BTreeSet<&str> {
+    associations
+        .iter()
+        .filter_map(|association| association.supersedes.as_deref())
+        .collect()
+}
+
+/// Which of `submissions` one association names, ordered by identifier.
+///
+/// [`names_submission`] answers the same question one submission at a time,
+/// which is what a caller holding one submission needs. This reads the
+/// association's own references instead, so a caller holding many submissions
+/// pays what the association carries rather than one pass over its
+/// submissions per association.
+pub(crate) fn named_of<'a>(
+    association: &Association,
+    submissions: &BTreeSet<&'a str>,
+) -> Vec<&'a str> {
+    let mut named: BTreeSet<&'a str> = BTreeSet::new();
+    if let Some(id) = association
+        .submission_id
+        .as_deref()
+        .and_then(|id| submissions.get(id))
+    {
+        named.insert(id);
+    }
+    for candidate in &association.candidates {
+        if let Some(id) = submissions.get(candidate.submission_id.as_str()) {
+            named.insert(id);
+        }
+    }
+    named.into_iter().collect()
+}
+
 /// Whether one association names this submission, as a candidate or as the
 /// confirmed submission of an `associated` outcome.
 pub(crate) fn names_submission(association: &Association, submission_id: &str) -> bool {

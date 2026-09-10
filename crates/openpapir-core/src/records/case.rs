@@ -21,7 +21,7 @@
 //! reasoning are recorded in `docs/archive-layout.md` and
 //! `docs/architecture.md`.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -609,6 +609,18 @@ fn show_record(
 /// receipt whose live association names no submission of the case is left
 /// out, and one entry is reported per live association, however many
 /// submissions of the case that one association names.
+///
+/// The stored associations are read once into the two structures the loop
+/// needs: the identifiers something supersedes, and the live records grouped
+/// by the receipt each one is about. Asking of every receipt which
+/// associations are about it, and asking of every one of those whether
+/// anything supersedes it, rescans the whole listing per receipt and costs
+/// receipts times associations, which on a large archive is what `case show`
+/// spends its time on. Grouping first costs one pass over the associations
+/// and one lookup per receipt, and reports the same entries in the same
+/// order: the grouping keeps each receipt's associations in the order the
+/// listing read them, and the submissions one entry names stay ordered by
+/// identifier.
 fn case_receipts(
     root: &Path,
     submissions: &[Submission],
@@ -621,18 +633,24 @@ fn case_receipts(
         return Ok(Vec::new());
     }
     let associations = document::list_records::<Association>(root)?;
+    let superseded = association::superseded_ids(&associations);
+    let mut live_by_receipt: BTreeMap<&str, Vec<&Association>> = BTreeMap::new();
+    for association in &associations {
+        if superseded.contains(association.id.as_str()) {
+            continue;
+        }
+        live_by_receipt
+            .entry(association.receipt_id.as_str())
+            .or_default()
+            .push(association);
+    }
     let mut found = Vec::new();
     for receipt in document::list_records::<Receipt>(root)? {
-        for live in associations
-            .iter()
-            .filter(|association| association.receipt_id == receipt.id)
-            .filter(|association| association::is_live(&associations, &association.id))
-        {
-            let named: Vec<String> = mine
-                .iter()
-                .filter(|id| association::names_submission(live, id))
-                .map(|id| (*id).to_owned())
-                .collect();
+        let Some(live_records) = live_by_receipt.get(receipt.id.as_str()) else {
+            continue;
+        };
+        for live in live_records {
+            let named = association::named_of(live, &mine);
             if named.is_empty() {
                 continue;
             }
@@ -640,7 +658,7 @@ fn case_receipts(
                 association_id: live.id.clone(),
                 outcome: live.outcome.clone(),
                 receipt: receipt.clone(),
-                submission_ids: named,
+                submission_ids: named.into_iter().map(str::to_owned).collect(),
             });
         }
     }
