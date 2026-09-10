@@ -99,7 +99,7 @@ slower and which the ceilings still allow.
 `OPENPAPIR_BENCH_CASES` sets the size, and the default is 10000. Building the
 archive is the slow part, not the measurements: it imports 20000 objects and
 writes 10000 cases, submissions, receipts, and associations, which took about
-9 minutes with `--release` on the machine the Performance section names. Use
+11 minutes with `--release` on the machine the Performance section names. Use
 `--release` at the default size. Without it the same setup takes hours, for
 the reason that section records: recording an import event reads the import
 events already stored, so the cost of importing grows with what the archive

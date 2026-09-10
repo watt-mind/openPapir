@@ -12,7 +12,7 @@
 
 mod bench_support;
 
-use std::process::Command;
+use std::process::{Command, Output};
 use std::time::{Duration, Instant};
 
 /// One timed invocation.
@@ -23,6 +23,9 @@ struct Measurement {
     elapsed: Duration,
     /// The ceiling the run must stay under.
     ceiling: Duration,
+    /// What the run printed, so a measurement can be shown to have scanned
+    /// what it claims to have scanned.
+    stdout: Vec<u8>,
 }
 
 /// The ceilings the Performance section of `docs/architecture.md` documents.
@@ -114,6 +117,18 @@ fn the_linear_scans_stay_under_their_documented_ceilings() {
     ));
 
     report(cases, setup, &measurements);
+    // A scan that matched nothing would be fast for the wrong reason, so what
+    // each listing reported is checked before its time is believed.
+    assert_eq!(
+        reported_count(&measurements[0]),
+        cases as u64,
+        "the listing did not report every case"
+    );
+    assert_eq!(
+        reported_count(&measurements[1]),
+        cases.div_ceil(bench_support::QUERY_ONE_IN) as u64,
+        "the query matched a different share of the archive than it filed"
+    );
     for measurement in &measurements {
         assert!(
             measurement.elapsed <= measurement.ceiling,
@@ -127,12 +142,7 @@ fn the_linear_scans_stay_under_their_documented_ceilings() {
 
 /// Time one invocation of the built binary and require it to succeed.
 fn measure(name: &'static str, ceiling: Duration, arguments: &[&str]) -> Measurement {
-    let started = Instant::now();
-    let output = Command::new(env!("CARGO_BIN_EXE_openpapir"))
-        .args(arguments)
-        .output()
-        .expect("run the openpapir binary under test");
-    let elapsed = started.elapsed();
+    let (elapsed, output) = timed(arguments);
     assert_eq!(
         output.status.code(),
         Some(0),
@@ -142,6 +152,7 @@ fn measure(name: &'static str, ceiling: Duration, arguments: &[&str]) -> Measure
         name,
         elapsed,
         ceiling,
+        stdout: output.stdout,
     }
 }
 
@@ -151,16 +162,46 @@ fn measure(name: &'static str, ceiling: Duration, arguments: &[&str]) -> Measure
 /// bucket, which is `2`, and is reported as absent rather than measured. Any
 /// other outcome is a real measurement, so an operation is timed from the
 /// commit that adds it without this file changing again.
+///
+/// The one run is both the probe and the measurement. Running it a second
+/// time to measure it would time a warm run and put it in the same table as
+/// the others, which are timed once each.
 fn optional(name: &'static str, ceiling: Duration, arguments: &[&str]) -> Option<Measurement> {
-    let probe = Command::new(env!("CARGO_BIN_EXE_openpapir"))
-        .args(arguments)
-        .output()
-        .expect("run the openpapir binary under test");
-    if probe.status.code() == Some(USAGE_EXIT) {
+    let (elapsed, output) = timed(arguments);
+    if output.status.code() == Some(USAGE_EXIT) {
         println!("{name}: not implemented in this build, not measured");
         return None;
     }
-    Some(measure(name, ceiling, arguments))
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{name} did not succeed on the synthetic archive"
+    );
+    Some(Measurement {
+        name,
+        elapsed,
+        ceiling,
+        stdout: output.stdout,
+    })
+}
+
+/// Run the built binary once and return how long it took and what it wrote.
+fn timed(arguments: &[&str]) -> (Duration, Output) {
+    let started = Instant::now();
+    let output = Command::new(env!("CARGO_BIN_EXE_openpapir"))
+        .args(arguments)
+        .output()
+        .expect("run the openpapir binary under test");
+    (started.elapsed(), output)
+}
+
+/// The `count` one listing envelope reports.
+fn reported_count(measurement: &Measurement) -> u64 {
+    let envelope: serde_json::Value =
+        serde_json::from_slice(&measurement.stdout).expect("a listing prints one envelope");
+    envelope["data"]["count"]
+        .as_u64()
+        .expect("a listing reports its count")
 }
 
 /// Print what was measured, on the machine it was measured on.

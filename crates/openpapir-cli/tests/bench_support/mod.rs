@@ -28,11 +28,17 @@ pub const DEFAULT_CASES: usize = 10_000;
 /// The environment variable that names another number of cases.
 pub const CASES_VARIABLE: &str = "OPENPAPIR_BENCH_CASES";
 
-/// The word one case in a hundred carries in its notes.
+/// The word one case in [`QUERY_ONE_IN`] carries in its notes.
 ///
-/// `case list --query` is timed against it, so the query matches a hundredth
-/// of the archive and the scan still has to read every record to know that.
+/// `case list --query` is timed against it, so the query matches a small
+/// share of the archive and the scan still has to read every record to know
+/// that. The share is fixed, so the benchmark can check that the scan it
+/// timed matched what it was built to match.
 pub const QUERY_WORD: &str = "escalated";
+
+/// How many cases carry [`QUERY_WORD`]: one in this many, starting at the
+/// first, so an archive of `cases` holds `cases.div_ceil(QUERY_ONE_IN)`.
+pub const QUERY_ONE_IN: usize = 100;
 
 /// Files per import, which is the per-import file cap itself.
 const IMPORT_BATCH: usize = 1_000;
@@ -67,17 +73,37 @@ impl Synthetic {
     }
 }
 
+/// The smallest archive the measurements have something to measure on.
+///
+/// The benchmark exports one case and deletes another, so there have to be
+/// two of them.
+pub const MINIMUM_CASES: usize = 2;
+
 /// The number of cases to build: the environment's, or the default.
 ///
-/// An unreadable or zero value is the default, because a benchmark that
-/// silently measured an empty archive would report a ceiling it never tested.
+/// A setting that is absent or is not a number at all gives the documented
+/// default. A number below the minimum is refused rather than rounded up: it
+/// was asked for deliberately, and a benchmark that quietly measured a size
+/// nobody chose would report a ceiling for a shape that was never run.
+///
+/// # Panics
+///
+/// Panics when the variable names a number below [`MINIMUM_CASES`], naming
+/// the variable and the value.
 #[must_use]
 pub fn requested_cases() -> usize {
-    std::env::var(CASES_VARIABLE)
+    let Some(cases) = std::env::var(CASES_VARIABLE)
         .ok()
         .and_then(|value| value.trim().parse::<usize>().ok())
-        .filter(|cases| *cases > 0)
-        .unwrap_or(DEFAULT_CASES)
+    else {
+        return DEFAULT_CASES;
+    };
+    assert!(
+        cases >= MINIMUM_CASES,
+        "{CASES_VARIABLE} is {cases}, and the benchmark needs at least \
+         {MINIMUM_CASES}: it exports one case and deletes another"
+    );
+    cases
 }
 
 /// Build an archive of `cases` cases, submissions, receipts, and
@@ -210,9 +236,9 @@ fn record_one(root: &Path, index: usize, submitted: &Stored, received: &Stored) 
     case.id
 }
 
-/// The notes of the case at `index`, one in a hundred of them queryable.
+/// The notes of the case at `index`, one in [`QUERY_ONE_IN`] queryable.
 fn notes(index: usize) -> String {
-    if index.is_multiple_of(100) {
+    if index.is_multiple_of(QUERY_ONE_IN) {
         format!("Synthetic notes for case {index:07}, {QUERY_WORD}.")
     } else {
         format!("Synthetic notes for case {index:07}.")

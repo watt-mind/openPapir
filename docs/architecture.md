@@ -1780,12 +1780,12 @@ associations, and 20000 imported objects of 256 bytes each.
 
 | Invocation | Wall time | Ceiling |
 | --- | --- | --- |
-| `case list` | 0.10 s | 5 s |
-| `case list --query` | 0.05 s | 5 s |
-| `archive check` | 0.59 s | 10 s |
-| `archive status` | 0.27 s | 5 s |
+| `case list` | 0.06 s | 5 s |
+| `case list --query` | 0.06 s | 5 s |
+| `archive check` | 1.41 s | 10 s |
+| `archive status` | 0.24 s | 5 s |
 | `case export` of one case | 0.22 s | 5 s |
-| `case delete --purge` of one case | 0.32 s | 10 s |
+| `case delete --purge` of one case | 0.31 s | 10 s |
 
 The ceiling is what `crates/openpapir-cli/tests/bench.rs` asserts. It is loose
 on purpose: the same assertion has to hold on an unoptimised build, on a
@@ -1794,7 +1794,7 @@ kind rather than drifted. [Testing](testing.md) says how to run the
 measurement and how to change its size.
 
 One cost is not in the table, because it is not a scan a user asks for.
-Building that archive took 9.4 minutes, and almost all of it was `import`:
+Building that archive took 11 minutes, and almost all of it was `import`:
 recording an import event reads the import events already stored, so the cost
 of importing a file grows with the number of imports the archive has ever
 seen. In a separate run on the same machine and date, importing 1000 files
