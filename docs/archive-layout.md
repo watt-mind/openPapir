@@ -533,9 +533,10 @@ Constraints any of them must satisfy before it is admitted: the licence must be
 one `deny.toml` already allows, the crate must build on the minimum supported
 Rust version this repository pins, and the `age` plugin feature must stay off,
 because the plugin path is what that crate's one advisory is about and this
-project runs no external binary. The RustCrypto AEAD crates state a minimum
-supported Rust version of 1.85 in their READMEs; the `age` crate's own minimum
-supported Rust version is not verified from the sources read here. Every row
+project runs no external binary. The three RustCrypto crates state a minimum
+supported Rust version of 1.85 in their READMEs, and the crates.io metadata for
+`age` 0.12.1 publishes `rust_version` 1.74. All four therefore clear the 1.88
+minimum this repository pins, so none of them would move that floor. Every row
 above is a reading of a public repository or crates.io page taken while this
 section was written, not a standing guarantee: the review that admits a crate
 re-reads it.
@@ -563,13 +564,23 @@ future prompt says so before it takes a passphrase for a new container.
 | The bytes of every artefact in the backup. | The existence of the backup file, and that it is an openPapir backup, if its name or its location says so. |
 | The record contents: case, submission, receipt, association, and import-event documents, and with them the original filenames, titles, notes, and digests they carry. | The total size of the container, which bounds the total size of what it holds. |
 | The manifest, and with it the number of objects and the length of each one. | The file's timestamps, and that it changed between two backups. |
-| The order and the boundaries of the payload chunks, which the STREAM construction binds. | Anything in the live archive, on the medium that held it, or in any plaintext copy taken before. |
+| The tar entry names and sizes, because the tar stream sits inside the encrypted payload. | Anything in the live archive, on the medium that held it, or in any plaintext copy taken before. |
 
-The number, the size, and the name of each file inside are protected because
-the tar stream sits inside the encrypted payload, but the container's own size
-leaks the aggregate. No padding is designed, and none is claimed. A host
-compromised while the passphrase is being typed, or while a restore is running,
-is outside this design.
+The chunk order and the final-chunk marker are **authenticated, not hidden**.
+The STREAM construction binds them so that a reordered or truncated container
+is refused, which is a recovery property and not a confidentiality one. The
+chunk size is fixed at 64 KiB by the format, so the container's length reveals
+the payload's length up to that granularity. No padding is designed, and none
+is claimed.
+
+The floor this design had to meet was that contents are protected while the
+existence, the size, and the count of files are not. The container's own
+existence and size are indeed unprotected, as that floor allows. On the rest
+the design goes further than the floor rather than contradicting it: putting
+the tar stream inside the encrypted payload hides the number of files and the
+size of each one, which the rejected per-object encryption would have exposed.
+The tables above are what this design promises. A host compromised while the
+passphrase is being typed, or while a restore is running, is outside all of it.
 
 ### Recovery semantics
 
