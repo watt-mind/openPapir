@@ -658,6 +658,24 @@ envelope.
 
 ### Fixed
 
+- `archive check` reports the `supersedes` cycles the stored association
+  records form as `record.inconsistent` with rule `supersedes_cycle`, so a
+  cycle is found wherever it sits rather than only where a deletion would have
+  touched it. The `problems` array gains the code with its count, ordered by
+  code and reported as a count alone; the count is of cycles rather than of
+  the records in them, and no identifier is named. The code ranks after
+  `record.malformed` and before the object conditions in the check's fixed
+  precedence, and exits `4` like the rest of its group.
+- `case delete` refuses any supersession chain that holds a cycle anywhere in
+  it and that the deletion would otherwise have removed, rather than only a
+  chain with no live record. A live record that supersedes a cycle behind it
+  used to be read as a head withdrawing its history, so the whole chain, cycle
+  included, went silently and took a record about another case with it. The
+  cycle is what makes that history unreadable in order, so what the head
+  withdraws cannot be told either, and the chain is refused with the same
+  `record.inconsistent` and rule `supersedes_cycle` before anything is
+  touched. A cycle-free archive is unaffected: a chain with no live record was
+  already refused, and every other chain is decided exactly as before.
 - `case delete` refuses a `supersedes` cycle among the stored association
   records with `record.inconsistent` and the new rule `supersedes_cycle`
   instead of removing it. A cycle has no live record, so the entanglement rule

@@ -811,6 +811,7 @@ question the privacy rule allows an answer to.
       { "code": "integrity.length_mismatch", "count": 0 },
       { "code": "integrity.orphan_object", "count": 0 },
       { "code": "path.symlink", "count": 0 },
+      { "code": "record.inconsistent", "count": 0 },
       { "code": "record.malformed", "count": 0 }
     ],
     "records_checked": 1,
@@ -853,9 +854,9 @@ A clean archive exits `0` with `ok` `true`. When the check finds something,
 `ok` is `false`, the report stays in `data`, and `error` names the first
 problem in this fixed precedence:
 
-`path.symlink`, `record.malformed`, `integrity.digest_mismatch`,
-`integrity.length_mismatch`, `integrity.dangling_reference`,
-`integrity.orphan_object`.
+`path.symlink`, `record.malformed`, `record.inconsistent`,
+`integrity.digest_mismatch`, `integrity.length_mismatch`,
+`integrity.dangling_reference`, `integrity.orphan_object`.
 
 The order runs from what stopped the check reading something, through what it
 read and disbelieved, to what is merely unreferenced, and it is fixed so that
@@ -863,6 +864,17 @@ one archive always reports one code. The exit code is the highest of the
 buckets' groups, as the contract requires of any command that reports several
 conditions: `4` whenever a `record` or `integrity` condition was found, and
 `3` for an archive whose only complaint is a link inside the store.
+
+`record.inconsistent` counts the `supersedes` cycles the association records
+form, archive-wide. An association supersedes at most one record, so the
+supersession graph has out-degree one and every walk along it ends, leaves the
+archive at a reference nothing stored answers, or closes on itself; a closed
+walk is a cycle. The count is of cycles rather than of the records in them,
+and the record pass keeps two fixed-size identifier keys per edge and nothing
+else, so the graph costs the check what a pair of identifiers costs. The
+`error` carries `record_kind` and rule `supersedes_cycle` and never an
+identifier, exactly as the refusal `case delete` raises for a chain holding
+one.
 
 Human output prints the same counts in the same order and no path.
 
@@ -1507,19 +1519,24 @@ would leave the newer one naming a record the archive no longer holds. The
 chain is therefore the unit in both directions
 ([archive-layout](archive-layout.md)).
 
-A chain with no live record at all is a `supersedes` cycle, which no openPapir
-command writes: `association retire` refuses a record something already
+A chain holding a `supersedes` cycle anywhere in it is refused, and the unit of
+the refusal is the chain rather than the cycle alone. No openPapir command
+writes a cycle: `association retire` refuses a record something already
 supersedes, and `association create` refuses a `--supersedes` outside the
-receipt. A cycle therefore reaches an archive only by hand. Both rules above
-read the chain's live record, and a cycle has none, so a cycle naming a
-departing submission and a remaining one would otherwise be read as history
-nobody asserts and removed whole. A deletion that would otherwise have removed
-one is refused with `record.inconsistent` and rule `supersedes_cycle`, before
-anything is touched, carrying the kind and the rule and never an identifier or
-a count. A cycle this deletion would not have touched is left alone: the scan
-reads the whole archive, so refusing on a cycle anywhere would describe the
-archive rather than the command the user ran, and finding one wherever it sits
-is `archive check`'s work.
+receipt, so a cycle reaches an archive only by hand. Inside a cycle every
+record is superseded by another, so nothing in it says what the user asserts
+today. A chain that is only a cycle has no live record for the two rules above
+to read, so one naming a departing submission and a remaining one would
+otherwise be read as history nobody asserts and removed whole; a chain whose
+live record supersedes a cycle behind it is the same anomaly one layer up,
+where the head's claim about that history cannot be checked because the
+history cannot be read in order. A deletion that would otherwise have removed
+such a chain is refused with `record.inconsistent` and rule `supersedes_cycle`,
+before anything is touched, carrying the kind and the rule and never an
+identifier or a count. A cycle this deletion would not have touched is left
+alone: the scan reads the whole archive, so refusing on a cycle anywhere would
+describe the archive rather than the command the user ran, and finding one
+wherever it sits is `archive check`'s work.
 
 The record pass is **all or nothing per case**. Before a single document is
 unlinked, every record directory the deletion would remove an entry from is

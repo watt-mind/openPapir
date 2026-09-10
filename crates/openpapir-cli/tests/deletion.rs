@@ -652,6 +652,82 @@ fn a_supersedes_cycle_naming_a_departing_submission_refuses_the_deletion() {
     }
 }
 
+/// The same anomaly one layer up: a live record sits over a cycle. The user
+/// asserts `A` about the departing case, then `B` about the other case
+/// superseding `A`, then retires `B`, which writes a live record asserting
+/// nothing. Hand-editing `A` to supersede `B` closes a cycle behind that live
+/// head. Reading the head alone would say the whole history is withdrawn and
+/// remove it, taking the record about the other case with it; the cycle means
+/// the history cannot be read in order at all, so the deletion is refused for
+/// either case and the archive is left exactly as it was. `archive check`
+/// reports the same anomaly wherever it sits.
+#[test]
+fn a_live_record_over_a_supersedes_cycle_refuses_the_deletion() {
+    let fixture = Fixture::new();
+    let first = fixture.import("first.bin", FIRST);
+    let second = fixture.import("second.bin", SECOND);
+    let going = fixture.case("A local matter");
+    let staying = fixture.case("Another local matter");
+    let departing = fixture.submission(&going, &first);
+    let remaining = fixture.submission(&staying, &second);
+    let receipt = fixture.receipt(&second);
+    let older = association(&fixture, &receipt, &departing, None);
+    let newer = association(&fixture, &receipt, &remaining, Some(&older));
+    let live = data(&[
+        "association",
+        "retire",
+        "--archive",
+        &fixture.root_text(),
+        &newer,
+        "--reason",
+        "The user withdrew the statement.",
+        "--json",
+    ])["association"]["id"]
+        .as_str()
+        .expect("an association identifier")
+        .to_owned();
+    rewrite_document(&fixture, "associations", &older, |stored| {
+        stored["supersedes"] = Value::String(newer.clone());
+    });
+    let before = snapshot(&fixture.root);
+
+    for case_id in [&going, &staying] {
+        for purge in [false, true] {
+            let output = fixture.delete(case_id, purge);
+            assert_eq!(output.status.code(), Some(4));
+            let envelope = stdout_json(&output);
+            assert_eq!(envelope["ok"], false);
+            assert_eq!(envelope["error"]["code"], "record.inconsistent");
+            assert_eq!(envelope["error"]["details"]["record_kind"], "association");
+            assert_eq!(envelope["error"]["details"]["rule"], "supersedes_cycle");
+            assert_private(&envelope);
+            let text = envelope.to_string();
+            assert!(
+                !text.contains(&older) && !text.contains(&newer) && !text.contains(&live),
+                "the refusal names no record"
+            );
+            assert_eq!(
+                snapshot(&fixture.root),
+                before,
+                "the refusal comes before anything is unlinked"
+            );
+        }
+    }
+
+    let checked = fixture.check();
+    assert_eq!(checked.status.code(), Some(4));
+    let report = stdout_json(&checked);
+    assert_eq!(report["error"]["code"], "record.inconsistent");
+    let problems = report["data"]["problems"]
+        .as_array()
+        .expect("the problems array");
+    let cycles = problems
+        .iter()
+        .find(|problem| problem["code"] == "record.inconsistent")
+        .expect("the cycle is one of the codes the check reports");
+    assert_eq!(cycles["count"], 1, "the two records form one cycle");
+}
+
 /// A record directory the process cannot write to is the one way to refuse a
 /// record unlink from outside. The probe that precedes the record pass sees
 /// it and refuses the whole deletion before the first unlink, so no object is
