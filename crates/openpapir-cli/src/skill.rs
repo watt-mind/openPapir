@@ -59,7 +59,7 @@ mod tests {
             "openpapir archive init ROOT --json",
             "openpapir archive check --archive ROOT --json",
             "openpapir archive repair-permissions --archive ROOT --json",
-            "openpapir import --archive ROOT FILE... --json",
+            "openpapir import --archive ROOT FILE... [--case CASE_ID --description D",
             "openpapir case list --archive ROOT [--status open|closed] [--tag TAG]...",
             "openpapir case update --archive ROOT CASE_ID [--title T]",
             "openpapir case show --archive ROOT CASE_ID --json",
