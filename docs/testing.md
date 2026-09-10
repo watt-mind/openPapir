@@ -76,6 +76,49 @@ Property tests do not replace the example-based tests of failure boundaries,
 and they are never the place to weaken an assertion so that a generator can
 pass.
 
+## Scan benchmark
+
+Every listing and the integrity check are linear scans over the records they
+could report, because the archive keeps no index, so what they cost grows with
+what the archive holds. `crates/openpapir-cli/tests/bench.rs` measures that on
+a synthetic archive of ten thousand cases and asserts that each scan stays
+under the ceiling in the Performance section of
+[architecture](architecture.md), which also records the last measured numbers.
+
+The test is ignored, so no CI job runs it and `./scripts/check.sh` only
+compiles it. Run it deliberately:
+
+```sh
+cargo test --release --locked -p openpapir-cli --test bench -- --ignored --nocapture
+```
+
+`--release` measures the optimised binary, which is the one a user runs. The
+same command without it measures the unoptimised test profile, which is
+slower and which the ceilings still allow.
+
+`OPENPAPIR_BENCH_CASES` sets the size, and the default is 10000. Building the
+archive is the slow part, not the measurements: it imports 20000 objects and
+writes 10000 cases, submissions, receipts, and associations, which took about
+9 minutes with `--release` on the machine the Performance section names. Use
+`--release` at the default size. Without it the same setup takes hours, for
+the reason that section records: recording an import event reads the import
+events already stored, so the cost of importing grows with what the archive
+already holds. At `OPENPAPIR_BENCH_CASES=2000` the unoptimised profile builds
+its archive in about a minute, which is enough to watch the ceilings hold.
+
+The archive is a temporary directory and is removed when the test ends. It
+needs about 230 MB of free space in the temporary directory at the default
+size, most of it filesystem overhead for 20000 small objects and their
+records.
+
+The generator in `crates/openpapir-cli/tests/bench_support/` builds that
+archive through the library API rather than the binary, because forty thousand
+process starts would measure the process starts. Every byte it stores comes
+from a counter and a mixing function, so it is wholly synthetic in the sense
+the fixture policy below requires and is reproducible from this repository
+alone. It stays inside the input caps: the objects are imported in batches of
+the per-import file cap.
+
 ## Fixtures
 
 Public fixtures live under `tests/fixtures/` and must be wholly synthetic and

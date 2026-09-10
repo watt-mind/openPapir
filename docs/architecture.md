@@ -1764,6 +1764,45 @@ length one reports the tag's position among the tags supplied, which is how a
 repeated flag says which value it refused without echoing the value. All of
 them are `input` refusals and all exit `3`.
 
+## Performance
+
+There is no index. Every listing, the integrity check, the export, and the
+deletion plan read the records they could report, in one linear scan, so their
+cost grows with what the archive holds. The numbers below say what that costs
+at a size a user could reach. They are indicative: they are one run on one
+machine on one date, not a guarantee and not a benchmark result to compare
+builds by.
+
+Measured on 2026-09-10 on a 13th Gen Intel Core i9-13900 with an NVMe
+solid-state disk and an ext4 filesystem, with the release binary, on a
+synthetic archive of 10000 cases, 10000 submissions, 10000 receipts, 10000
+associations, and 20000 imported objects of 256 bytes each.
+
+| Invocation | Wall time | Ceiling |
+| --- | --- | --- |
+| `case list` | 0.10 s | 5 s |
+| `case list --query` | 0.05 s | 5 s |
+| `archive check` | 0.59 s | 10 s |
+| `archive status` | 0.27 s | 5 s |
+| `case export` of one case | 0.22 s | 5 s |
+| `case delete --purge` of one case | 0.32 s | 10 s |
+
+The ceiling is what `crates/openpapir-cli/tests/bench.rs` asserts. It is loose
+on purpose: the same assertion has to hold on an unoptimised build, on a
+slower disk, and on a busy machine, so crossing one means the cost changed in
+kind rather than drifted. [Testing](testing.md) says how to run the
+measurement and how to change its size.
+
+One cost is not in the table, because it is not a scan a user asks for.
+Building that archive took 9.4 minutes, and almost all of it was `import`:
+recording an import event reads the import events already stored, so the cost
+of importing a file grows with the number of imports the archive has ever
+seen. In a separate run on the same machine and date, importing 1000 files
+into an empty archive took 1.6 s, while importing the twentieth batch of 1000,
+with 19000 import events already stored, took 46 s. Resolving a receipt's
+artefact to its earliest import event reads the same records, which took
+0.12 s over 20000 of them; naming `--import-event` reads one record instead.
+
 ## Implemented codes and exit codes
 
 The exit code carries the error's bucket and nothing else. `1` is never
