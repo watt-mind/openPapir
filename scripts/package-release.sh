@@ -80,12 +80,44 @@ shell_list() {
   prose_list ", and " "${shells[@]}"
 }
 
+# The width the described sentence is folded to.
+#
+# It is under the 80 columns the repository wraps prose at, so the sentence
+# still fits once a reader or a release note indents it.
+readonly DESCRIBE_WIDTH=76
+
+# Fold prose read from standard input to at most DESCRIBE_WIDTH columns.
+#
+# The tables the sentence names grow, so the width of a line is settled here
+# rather than by where the words happen to sit in the here-document: adding one
+# shell or one document would otherwise push a line past the column the rest of
+# the repository wraps at. The break is at a space and nowhere else, so a
+# backticked path is never split, and a word longer than the width stands on
+# its own line rather than being cut.
+fold_prose() {
+  local word line=""
+  set -f
+  # shellcheck disable=SC2013 # the input is prose, so word splitting is wanted.
+  for word in $(cat); do
+    if [ -z "$line" ]; then
+      line="$word"
+    elif [ "$((${#line} + 1 + ${#word}))" -le "$DESCRIBE_WIDTH" ]; then
+      line="${line} ${word}"
+    else
+      printf '%s\n' "$line"
+      line="$word"
+    fi
+  done
+  set +f
+  [ -z "$line" ] || printf '%s\n' "$line"
+}
+
 describe() {
   local shells documents
   shells=$(shell_list)
   # shellcheck disable=SC2086 # the table is a deliberate word list.
   documents=$(prose_list ", " $DOCUMENTS)
-  cat <<EOF
+  fold_prose <<EOF
 Each archive holds the \`openpapir\` binary, ${documents}, a shell completion
 script for each of ${shells} under \`completions/\`, and the man page at
 \`${MAN_PAGE}\`, under one directory named

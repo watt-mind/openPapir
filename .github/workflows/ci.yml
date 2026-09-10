@@ -107,6 +107,12 @@ jobs:
         run: |
           set -euo pipefail
           staging=staging/openpapir-ci
+          # The script refuses a staging directory that already holds files,
+          # so that one staging cannot mix into another. The tree a previous
+          # run of this step left is this run's own, so it is removed first
+          # and the step can be run again on a working copy that has already
+          # run it.
+          rm -rf "$staging"
           scripts/package-release.sh target/release/openpapir "$staging"
           name=openpapir
           if [ -f "${staging}/openpapir.exe" ]; then
