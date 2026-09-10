@@ -90,6 +90,9 @@ never observes what the JSON run wrote.
 | `submission.add` | `submission add` with a stated date and one artefact |
 | `receipt.add` | `receipt add` with a label |
 | `receipt.list` | `receipt list` over one receipt |
+| `submission.show` | `submission show` over a submission two associations name, one live and one superseded |
+| `receipt.show` | `receipt show` over a two-record history |
+| `association.show` | `association show` over the superseded record of that history |
 | `association.create.unassociated` | `association create --outcome unassociated` |
 | `association.create.candidate` | The same with one candidate |
 | `association.create.associated` | The same with exactly one candidate |

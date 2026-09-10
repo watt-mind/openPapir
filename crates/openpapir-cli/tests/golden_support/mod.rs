@@ -426,6 +426,21 @@ pub fn record_window_submissions(world: &World) {
     world.add_closed_case();
 }
 
+/// Supersede the receipt's live association with a second candidate naming
+/// the same submission.
+///
+/// The submission is then named by two records at once: the live head and the
+/// record it superseded. That is the shape `submission show` orders, so the
+/// case pins both groups rather than only the live one.
+pub fn supersede_the_live_association(world: &World) {
+    let mut arguments = world.association_arguments(
+        "candidate",
+        &[(0, "strong", "The case number is the same.")],
+    );
+    arguments.extend(["--supersedes".to_owned(), world.association_ids[1].clone()]);
+    world.json(&arguments);
+}
+
 /// The same world, with the receipt's live association retired.
 ///
 /// The candidate record that named the first submission is superseded by the

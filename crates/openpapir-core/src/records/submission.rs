@@ -20,6 +20,7 @@ use crate::archive::{Archive, SUPPORTED_SCHEMA_VERSION};
 use crate::clock;
 use crate::error::{Details, Diagnostic, Failure, Outcome, Result, Warning, codes};
 use crate::ident;
+use crate::records::association::{self, Association};
 use crate::records::case::Case;
 use crate::records::document::{self, Record};
 use crate::records::{
@@ -79,6 +80,21 @@ impl Record for Submission {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SubmissionAdded {
     /// The submission as it was stored.
+    pub submission: Submission,
+}
+
+/// What showing one submission reports.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SubmissionView {
+    /// Every association naming the submission, as a candidate or as the
+    /// confirmed submission of an `associated` outcome. The live heads come
+    /// first and the superseded records after them, each group newest first,
+    /// so what the user asserts today reads before what they asserted before
+    /// it. Nothing is collapsed and nothing is filtered.
+    pub associations: Vec<Association>,
+    /// How many associations name the submission.
+    pub association_count: u64,
+    /// The submission itself, as stored.
     pub submission: Submission,
 }
 
@@ -185,6 +201,57 @@ fn unusable_reference() -> Diagnostic {
     )
 }
 
+/// Show one submission with the associations naming it, without the lock.
+///
+/// An association names a submission when it is the confirmed submission of
+/// an `associated` outcome or one of the candidates. Every such record is
+/// reported, whatever its outcome and whether or not another record
+/// supersedes it: the live heads first, then the superseded records, each
+/// group newest first. openPapir matched nothing here; every one of these
+/// records is the user's own assertion.
+///
+/// # Errors
+///
+/// Returns `record.not_found` when the identifier names no submission,
+/// `record.malformed` for an unreadable document, and any archive refusal.
+pub fn show(root: &Path, submission_id: &str) -> Result<SubmissionView> {
+    let mut warnings = Vec::new();
+    match show_record(root, submission_id, &mut warnings) {
+        Ok(view) => Ok(Outcome {
+            data: view,
+            warnings,
+        }),
+        Err(error) => Err(Failure::with_warnings(error, warnings)),
+    }
+}
+
+fn show_record(
+    root: &Path,
+    submission_id: &str,
+    warnings: &mut Vec<Warning>,
+) -> std::result::Result<SubmissionView, Diagnostic> {
+    let mut archive = Archive::open(root)?;
+    warnings.extend(archive.take_warnings());
+    let submission =
+        document::read_record::<Submission>(archive.root(), submission_id, "submission_id")?;
+    let stored = document::list_records::<Association>(archive.root())?;
+    let mut naming: Vec<Association> = stored
+        .iter()
+        .filter(|candidate| association::names_submission(candidate, &submission.id))
+        .cloned()
+        .collect();
+    association::sort_newest_first(&mut naming);
+    let (mut live, superseded): (Vec<Association>, Vec<Association>) = naming
+        .into_iter()
+        .partition(|candidate| association::is_live(&stored, &candidate.id));
+    live.extend(superseded);
+    Ok(SubmissionView {
+        association_count: live.len() as u64,
+        associations: live,
+        submission,
+    })
+}
+
 /// Check a user-supplied date: `YYYY-MM-DD`, stored verbatim.
 ///
 /// The shape and the calendar are checked so that nothing unreadable is
@@ -269,6 +336,30 @@ mod tests {
         }
         let case = case::create(root.path(), "Case", None).unwrap().data.case;
         (root, case.id)
+    }
+
+    /// A submission nothing asserts about reports an empty listing rather
+    /// than an absent one, and an unknown identifier is refused without the
+    /// value the user supplied.
+    #[test]
+    fn a_shown_submission_lists_no_association_when_none_names_it() {
+        let (root, case_id) = archive_with_case(false);
+        let submission = add(root.path(), &case_id, "Posted the form.", None, &[])
+            .unwrap()
+            .data
+            .submission;
+        let view = show(root.path(), &submission.id).unwrap().data;
+        assert_eq!(view.submission, submission);
+        assert_eq!(view.association_count, 0);
+        assert!(view.associations.is_empty());
+
+        let refusal = show(root.path(), "0123456789abcdef0123456789abcdef")
+            .unwrap_err()
+            .error;
+        assert_eq!(refusal.code, codes::RECORD_NOT_FOUND);
+        let json = serde_json::to_value(&refusal).unwrap();
+        assert_eq!(json["details"]["record_kind"], "submission");
+        assert_eq!(json["details"]["reference_kind"], "submission_id");
     }
 
     #[test]

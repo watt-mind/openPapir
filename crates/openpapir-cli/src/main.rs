@@ -33,11 +33,14 @@
 //! - `openpapir case delete --archive <root> --case <id> [--purge] [--json]`,
 //!   deleting a case and, only with `--purge`, the objects nothing else
 //!   references.
-//! - `openpapir submission add ... [--json]`, what the user states they sent.
-//! - `openpapir receipt add|list ... [--json]`, an artefact the user believes
-//!   to be a receipt.
-//! - `openpapir association create|list ... [--json]`, what the user asserts
-//!   about whether a receipt relates to a submission.
+//! - `openpapir submission add|show ... [--json]`, what the user states they
+//!   sent, and one such record with the associations naming it.
+//! - `openpapir receipt add|list|show ... [--json]`, an artefact the user
+//!   believes to be a receipt, and one such record with its association
+//!   history.
+//! - `openpapir association create|list|show ... [--json]`, what the user
+//!   asserts about whether a receipt relates to a submission, and one such
+//!   record with the supersession chain it belongs to.
 //! - `openpapir association retire --archive <root> <association-id>
 //!   [--reason <text>] [--json]`, the withdrawal of one assertion, written as
 //!   a new record superseding it.
@@ -214,6 +217,18 @@ enum SubmissionCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Show one submission and the associations naming it.
+    Show {
+        /// The archive root, which is always supplied explicitly.
+        #[arg(long, value_name = "ROOT")]
+        archive: PathBuf,
+        /// The submission's own identifier, as `submission add` reported it.
+        #[arg(value_name = "SUBMISSION_ID")]
+        submission_id: String,
+        /// Emit one JSON object instead of human-readable text.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -241,6 +256,18 @@ enum ReceiptCommand {
         /// The archive root, which is always supplied explicitly.
         #[arg(long, value_name = "ROOT")]
         archive: PathBuf,
+        /// Emit one JSON object instead of human-readable text.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show one receipt and its whole association history.
+    Show {
+        /// The archive root, which is always supplied explicitly.
+        #[arg(long, value_name = "ROOT")]
+        archive: PathBuf,
+        /// The receipt's own identifier, as `receipt add` reported it.
+        #[arg(value_name = "RECEIPT_ID")]
+        receipt_id: String,
         /// Emit one JSON object instead of human-readable text.
         #[arg(long)]
         json: bool,
@@ -315,16 +342,22 @@ fn run(command: Command) -> i32 {
         ),
         Command::Skill => skill::emit(),
         Command::Case { command } => cases::run(command),
-        Command::Submission {
-            command:
-                SubmissionCommand::Add {
-                    archive,
-                    case_id,
-                    description,
-                    date,
-                    artefacts,
-                    json,
-                },
+        Command::Submission { command } => run_submission(command),
+        Command::Receipt { command } => run_receipt(command),
+        Command::Association { command } => associations::run(command),
+    }
+}
+
+/// Dispatch one `submission` subcommand and return the process exit code.
+fn run_submission(command: SubmissionCommand) -> i32 {
+    match command {
+        SubmissionCommand::Add {
+            archive,
+            case_id,
+            description,
+            date,
+            artefacts,
+            json,
         } => emit(
             "submission.add",
             records::submission::add(
@@ -337,8 +370,16 @@ fn run(command: Command) -> i32 {
             json,
             report::submission_added,
         ),
-        Command::Receipt { command } => run_receipt(command),
-        Command::Association { command } => associations::run(command),
+        SubmissionCommand::Show {
+            archive,
+            submission_id,
+            json,
+        } => emit(
+            "submission.show",
+            records::submission::show(&archive, &submission_id),
+            json,
+            report::submission_shown,
+        ),
     }
 }
 
@@ -367,6 +408,16 @@ fn run_receipt(command: ReceiptCommand) -> i32 {
             records::receipt::list(&archive),
             json,
             report::receipt_list,
+        ),
+        ReceiptCommand::Show {
+            archive,
+            receipt_id,
+            json,
+        } => emit(
+            "receipt.show",
+            records::receipt::show(&archive, &receipt_id),
+            json,
+            report::receipt_shown,
         ),
     }
 }

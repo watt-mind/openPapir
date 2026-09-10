@@ -660,3 +660,23 @@ fn a_listing_keeps_its_order_under_a_filter() {
     assert_eq!(identifiers, sorted, "the order is the identifier order");
     assert_eq!(filtered.count, 5);
 }
+
+/// A case with no submission has no receipt to name, and the section is an
+/// empty array rather than an absent key: a caller reads a length instead of
+/// testing for a field.
+#[test]
+fn a_case_without_a_submission_shows_an_empty_receipts_section() {
+    let root = archive_root();
+    let case = create(root.path(), "Tax matter", None).unwrap().data.case;
+    let view = show(root.path(), &case.id).unwrap().data;
+    assert_eq!(view.submission_count, 0);
+    assert!(view.receipts.is_empty());
+
+    submission::add(root.path(), &case.id, "Posted the form.", None, &[]).unwrap();
+    let view = show(root.path(), &case.id).unwrap().data;
+    assert_eq!(view.submission_count, 1);
+    assert!(
+        view.receipts.is_empty(),
+        "a submission no association names brings no receipt with it"
+    );
+}

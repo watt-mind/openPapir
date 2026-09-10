@@ -54,6 +54,18 @@ pub enum AssociationCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Show one association and the supersession chain it belongs to.
+    Show {
+        /// The archive root, which is always supplied explicitly.
+        #[arg(long, value_name = "ROOT")]
+        archive: PathBuf,
+        /// The association to show, as it was reported when it was written.
+        #[arg(value_name = "ASSOCIATION_ID")]
+        association_id: String,
+        /// Emit one JSON object instead of human-readable text.
+        #[arg(long)]
+        json: bool,
+    },
     /// Withdraw an assertion by superseding it with a record claiming nothing.
     Retire {
         /// The archive root, which is always supplied explicitly.
@@ -103,6 +115,16 @@ pub fn run(command: AssociationCommand) -> i32 {
             association::list(&archive, &receipt_id),
             json,
             report::association_history,
+        ),
+        AssociationCommand::Show {
+            archive,
+            association_id,
+            json,
+        } => emit(
+            "association.show",
+            association::show(&archive, &association_id),
+            json,
+            report::association_shown,
         ),
         AssociationCommand::Retire {
             archive,

@@ -72,13 +72,14 @@ pub use export::restore::{Restored, import_case};
 pub use export::{Exported, KindCount, export_case};
 pub use integrity::{Report, check};
 pub use records::association::{
-    Association, AssociationCreated, AssociationHistory, Candidate, Evidence,
+    Association, AssociationCreated, AssociationHistory, AssociationView, Candidate, Evidence,
 };
 pub use records::case::{
-    Case, CaseCreated, CaseList, CaseUpdated, CaseView, Filter as CaseFilter, Status as CaseStatus,
+    Case, CaseCreated, CaseList, CaseReceipt, CaseUpdated, CaseView, Filter as CaseFilter,
+    Status as CaseStatus,
 };
-pub use records::receipt::{Receipt, ReceiptAdded, ReceiptList};
-pub use records::submission::{ArtefactRef, Submission, SubmissionAdded};
+pub use records::receipt::{Receipt, ReceiptAdded, ReceiptList, ReceiptView};
+pub use records::submission::{ArtefactRef, Submission, SubmissionAdded, SubmissionView};
 
 use serde::Serialize;
 use std::fmt;
@@ -104,6 +105,9 @@ const OPERATIONS: &[&str] = &[
     "case.delete",
     "skill",
     "case.update",
+    "submission.show",
+    "receipt.show",
+    "association.show",
 ];
 
 /// The closed set of implementation stages `capabilities` may report, in
@@ -192,7 +196,10 @@ mod tests {
                 "archive.repair_permissions",
                 "case.delete",
                 "skill",
-                "case.update"
+                "case.update",
+                "submission.show",
+                "receipt.show",
+                "association.show"
             ]
         );
         assert_eq!(reported.project, "openPapir");

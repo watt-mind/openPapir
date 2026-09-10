@@ -4,7 +4,8 @@ description: >-
   Keep Hungarian government correspondence in one local, offline archive with
   the openpapir CLI: create the archive, import files with their bytes
   preserved, record cases, submissions, receipts and the user's own assertions
-  about them, withdraw an assertion, update a case's title, notes, status and
+  about them, withdraw an assertion, look at one submission, receipt or
+  association on its own, update a case's title, notes, status and
   tags, search and filter the case list, check the archive against its
   records, see what is in it and where to look for the submission receipts
   still outstanding, copy one case out, delete one case, and narrow a restored
@@ -35,7 +36,8 @@ submits nothing, and it opens no socket at all.
 Use it to build or inspect a local archive of correspondence: importing files,
 recording what the user says they sent, recording an artefact the user
 believes to be a receipt, recording the user's own link between the two,
-withdrawing such a link when the user says it no longer stands,
+withdrawing such a link when the user says it no longer stands, reading back
+one submission, receipt, or association with what relates to it,
 keeping a case's own title, notes, status, and tags current, finding a case
 again by status, tag, or a substring of its title or notes, checking storage
 integrity, summarising what the archive holds and what is still worth looking
@@ -210,8 +212,16 @@ match in one linear scan, so its cost grows with the number of cases. The
 query is the user's own text and appears in no output, so never quote it back
 from a result.
 
-`case show` returns `case`, `submissions[]` ordered by identifier, and
-`submission_count`. An identifier that names no case is `record.not_found`.
+`case show` returns `case`, `submissions[]` ordered by identifier,
+`submission_count`, and `receipts[]`. An identifier that names no case is
+`record.not_found`.
+
+`receipts[]` is every receipt whose live association names a submission of the
+case, each entry holding `receipt`, `association_id`, `outcome`, and
+`submission_ids`. Only the live head of a supersession chain counts, so
+retiring an assertion takes the receipt out of the section while both records
+stay stored. It is the user's own assertion read back: never report an entry
+there as a delivery, a receipt by an authority, or a verified match.
 
 A case record written by an earlier build reads as `open` with no tag, and
 `updated_at` is absent until an update sets it.
@@ -257,12 +267,23 @@ is never compared, interpreted, or read as a delivery or receipt date.
 `artefacts[]` of `{digest, role?}`. A digest that names no stored object is
 `record.not_found` with `record_kind` `artefact`.
 
+```sh
+openpapir submission show --archive ./archive <submission-id> --json
+```
+
+`submission show` returns `submission`, `associations[]`, and
+`association_count`. The associations are the ones naming this submission, as
+a candidate or as the `submission_id` an `associated` outcome confirms, live
+heads first and superseded records after them. An identifier that names no
+submission is `record.not_found`.
+
 ### 5. Record a receipt
 
 ```sh
 openpapir receipt add --archive ./archive --artefact sha256:<digest> \
   --label "Envelope from the post" --json
 openpapir receipt list --archive ./archive --json
+openpapir receipt show --archive ./archive <receipt-id> --json
 ```
 
 This records that the user believes one stored artefact to be a receipt. The
@@ -272,6 +293,10 @@ bytes are never opened and never parsed. `data.receipt` holds
 that records another artefact is `record.inconsistent` with rule
 `import_event_digest_mismatch`.
 
+`receipt show` returns `receipt`, `associations[]`, and `association_count`.
+The history is the one `association list` returns for the same receipt, in the
+same order. An identifier that names no receipt is `record.not_found`.
+
 ### 6. Record what the user asserts
 
 ```sh
@@ -279,6 +304,7 @@ openpapir association create --archive ./archive --receipt <receipt-id> \
   --outcome candidate \
   --candidate '<submission-id>:moderate:The reference matches.' --json
 openpapir association list --archive ./archive --receipt <receipt-id> --json
+openpapir association show --archive ./archive <association-id> --json
 openpapir association retire --archive ./archive <association-id> \
   [--reason 'The user withdrew it.'] --json
 ```
@@ -309,6 +335,12 @@ an earlier association for the same
 receipt, and the superseded record is never modified or removed.
 `association list` returns the whole history newest first, superseded records
 included, with `associations[]`, `count`, and `receipt_id`.
+
+`association show` returns one record with the chain it belongs to:
+`association`, `live`, `chain[]`, and `chain_length`. `chain[]` is what the
+record supersedes and what supersedes it, newest first, and `live` is `true`
+only when no stored record supersedes it. Read `live` before reporting what
+the user asserts today, because a superseded record is history.
 
 `association retire` withdraws an assertion the user no longer stands behind.
 It writes a new record for the same receipt with outcome `unassociated`, no
@@ -551,14 +583,17 @@ openpapir case import --archive ROOT --from DIR --json
 openpapir case delete --archive ROOT --case CASE_ID [--purge] --json
 openpapir submission add --archive ROOT --case CASE_ID --description D \
   [--date YYYY-MM-DD] [--artefact 'sha256:HEX[:ROLE]']... --json
+openpapir submission show --archive ROOT SUBMISSION_ID --json
 openpapir receipt add --archive ROOT --artefact sha256:HEX \
   [--import-event ID] [--label L] --json
 openpapir receipt list --archive ROOT --json
+openpapir receipt show --archive ROOT RECEIPT_ID --json
 openpapir association create --archive ROOT --receipt RECEIPT_ID \
   --outcome unassociated|candidate|associated|contradictory \
   [--candidate 'SUBMISSION_ID:weak|moderate|strong:STATEMENT']... \
   [--supersedes ASSOCIATION_ID] --json
 openpapir association list --archive ROOT --receipt RECEIPT_ID --json
+openpapir association show --archive ROOT ASSOCIATION_ID --json
 openpapir association retire --archive ROOT ASSOCIATION_ID [--reason TEXT] \
   --json
 openpapir skill

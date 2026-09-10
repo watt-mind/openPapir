@@ -20,7 +20,10 @@
       "archive.repair_permissions",
       "case.delete",
       "skill",
-      "case.update"
+      "case.update",
+      "submission.show",
+      "receipt.show",
+      "association.show"
     ],
     "project": "openPapir",
     "stage": "alpha"

@@ -3,8 +3,8 @@
 //! whether the two relate.
 
 use openpapir_core::{
-    Association, AssociationCreated, AssociationHistory, Receipt, ReceiptAdded, ReceiptList,
-    SubmissionAdded,
+    Association, AssociationCreated, AssociationHistory, AssociationView, Receipt, ReceiptAdded,
+    ReceiptList, ReceiptView, SubmissionAdded, SubmissionView,
 };
 
 use super::{RECORD_DISCLAIMER, submission_lines};
@@ -131,6 +131,65 @@ pub fn submission_added(added: &SubmissionAdded) -> Vec<String> {
     let mut lines = vec![format!("Case {}.", added.submission.case_id)];
     lines.extend(submission_lines(&added.submission));
     lines.push(RECORD_DISCLAIMER.to_owned());
+    lines
+}
+
+/// The lines `submission show` prints when it succeeds.
+///
+/// The associations naming the submission follow it, the live heads first and
+/// the superseded records after them, each one printed whole.
+#[must_use]
+pub fn submission_shown(view: &SubmissionView) -> Vec<String> {
+    let mut lines = vec![format!("Case {}.", view.submission.case_id)];
+    lines.extend(submission_lines(&view.submission));
+    lines.push(format!(
+        "Associations naming this submission: {}, live first.",
+        view.association_count
+    ));
+    for association in &view.associations {
+        lines.extend(association_lines(association));
+    }
+    lines.push(ASSERTION_DISCLAIMER.to_owned());
+    lines
+}
+
+/// The lines `receipt show` prints when it succeeds.
+///
+/// The whole association history follows the receipt, newest first and
+/// superseded records included, exactly as `association list` prints it.
+#[must_use]
+pub fn receipt_shown(view: &ReceiptView) -> Vec<String> {
+    let mut lines = receipt_lines(&view.receipt);
+    lines.push(format!(
+        "Associations about this receipt: {}, newest first.",
+        view.association_count
+    ));
+    for association in &view.associations {
+        lines.extend(association_lines(association));
+    }
+    lines.push(ASSERTION_DISCLAIMER.to_owned());
+    lines
+}
+
+/// The lines `association show` prints when it succeeds.
+///
+/// The record comes first, then whether it is the live head of its chain, and
+/// then the chain itself, newest first and superseded records included.
+#[must_use]
+pub fn association_shown(view: &AssociationView) -> Vec<String> {
+    let mut lines = association_lines(&view.association);
+    lines.push(format!(
+        "Live head of its chain: {}.",
+        if view.live { "yes" } else { "no" }
+    ));
+    lines.push(format!(
+        "Records in the chain: {}, newest first.",
+        view.chain_length
+    ));
+    for association in &view.chain {
+        lines.extend(association_lines(association));
+    }
+    lines.push(ASSERTION_DISCLAIMER.to_owned());
     lines
 }
 
