@@ -36,7 +36,8 @@ cargo run --locked -p openpapir-cli -- import --archive ./my-archive ./a-file --
 cargo run --locked -p openpapir-cli -- case create --archive ./my-archive --title "Tax matter" --json
 cargo run --locked -p openpapir-cli -- case list --archive ./my-archive --status open --tag tax --json
 cargo run --locked -p openpapir-cli -- case update --archive ./my-archive <case-id> --status closed --tag appeal --json
-cargo run --locked -p openpapir-cli -- submission add --archive ./my-archive --case <case-id> --description "Posted the form." --json
+cargo run --locked -p openpapir-cli -- submission add --archive ./my-archive --case <case-id> --description "Posted the form." --file ./a-file --json
+cargo run --locked -p openpapir-cli -- import --archive ./my-archive ./a-file --case <case-id> --description "Posted the form." --json
 cargo run --locked -p openpapir-cli -- case show --archive ./my-archive <case-id> --json
 cargo run --locked -p openpapir-cli -- receipt add --archive ./my-archive --artefact sha256:<digest> --label "Envelope" --json
 cargo run --locked -p openpapir-cli -- receipt list --archive ./my-archive --json
@@ -108,7 +109,8 @@ each. All but the last three can process input:
   the marker first and refusing to adopt anything else.
 - `import` stores each file's bytes unchanged, records one import event per
   input, and reports a re-import of the same bytes as a duplicate rather than
-  an error.
+  an error. With `--case` and `--description` it also records one submission
+  naming every file it imported, under the same writer lock.
 - `case create` records one case, the user's own folder of related
   correspondence, with the status and the tags the user gave it.
 - `case list` lists the cases that match every filter given: `--status`,

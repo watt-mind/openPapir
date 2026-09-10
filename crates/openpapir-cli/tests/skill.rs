@@ -6,8 +6,9 @@
 //! the opposite case: `openpapir skill | head -3` is in the documentation and
 //! is not a failure of the command.
 //!
-//! The unit tests in `src/skill.rs` pin the same rule against writers that
-//! fail deterministically; these run the binary itself.
+//! The rule itself lives in `src/stdout.rs`, shared with `completions` and
+//! `manpage`, and its unit tests pin it against writers that fail
+//! deterministically; these run the binary itself.
 #![cfg(unix)]
 
 use std::io::Read;
@@ -81,7 +82,11 @@ fn a_destination_that_cannot_take_the_bytes_exits_four() {
     );
     let stderr = String::from_utf8(output.stderr).expect("stderr is UTF-8");
     assert_eq!(stderr.lines().count(), 1, "one line and nothing else");
-    assert!(stderr.contains("could not be written"));
+    assert_eq!(
+        stderr.trim_end(),
+        "error: the skill document could not be written to stdout",
+        "the line names this document and nothing the caller supplied"
+    );
     assert!(
         !stderr.contains('/'),
         "no path reaches the message: {stderr}"
@@ -90,13 +95,13 @@ fn a_destination_that_cannot_take_the_bytes_exits_four() {
 
 /// Everywhere without `/dev/full` the failing-destination case is stated
 /// rather than silently absent, and the deterministic form of it lives in the
-/// unit tests of `src/skill.rs`.
+/// unit tests of `src/stdout.rs`.
 #[test]
 #[cfg(not(target_os = "linux"))]
 fn the_failing_destination_case_is_covered_by_the_unit_tests_here() {
     println!(
         "skipped: this platform has no /dev/full; the failing-writer rule is \
-         pinned by the unit tests in src/skill.rs"
+         pinned by the unit tests in src/stdout.rs"
     );
 }
 
