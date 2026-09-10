@@ -333,6 +333,20 @@ fn operation_named_by(invocation: &str) -> Option<String> {
     (!path.is_empty()).then(|| path.join(".").replace('-', "_"))
 }
 
+/// One invocation cell as the comparison reads it.
+///
+/// Backticks and the padding a Markdown table uses to align its columns are
+/// presentation, and so is a run of spaces inside a cell, so an invocation
+/// that reads the same reads equal however either document spaces it. Nothing
+/// else is dropped: a flag one document names and the other does not stays a
+/// difference.
+fn normalised_invocation(cell: &str) -> String {
+    cell.trim_matches('`')
+        .split_whitespace()
+        .collect::<Vec<&str>>()
+        .join(" ")
+}
+
 /// Both documented enumerations of the operations agree with the binary.
 ///
 /// Prose everywhere else defers to the list `capabilities` reports, and the
@@ -402,5 +416,151 @@ fn the_documented_tables_list_exactly_the_reported_operations() {
     assert_eq!(
         specified, reported,
         "docs/specification.md and capabilities disagree about the operations"
+    );
+}
+
+/// The two tables spell every operation's invocation the same way.
+///
+/// The operation names alone are guarded above, which leaves the invocation
+/// columns free to drift: a flag added to one table and not the other
+/// documents the same command two ways, and a reader who follows the wrong
+/// row is told to run something the binary refuses. The rule is equality
+/// after whitespace normalisation, not a prefix, because a terse row would
+/// let the specification keep an invocation that is merely no longer wrong
+/// while the flag it omits stays undocumented there. The Documentation
+/// section of `CONTRIBUTING.md` records that rule for contributors.
+#[test]
+fn the_two_tables_document_the_same_invocation_for_every_operation() {
+    let repository = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+
+    let architecture = std::fs::read_to_string(repository.join("docs/architecture.md"))
+        .expect("read the architecture document");
+    let authoritative: std::collections::BTreeMap<String, String> = table_under(
+        &architecture,
+        "Current implementation",
+        &["Operation", "Invocation"],
+    )
+    .iter()
+    .map(|row| {
+        (
+            row[0].trim_matches('`').to_owned(),
+            normalised_invocation(&row[1]),
+        )
+    })
+    .collect();
+
+    let specification = std::fs::read_to_string(repository.join("docs/specification.md"))
+        .expect("read the specification index");
+    let mut compared = 0;
+    for row in table_under(
+        &specification,
+        "Implemented today",
+        &["Invocation", "Result"],
+    ) {
+        let Some(operation) = operation_named_by(&row[0]) else {
+            continue;
+        };
+        let Some(expected) = authoritative.get(&operation) else {
+            continue;
+        };
+        assert_eq!(
+            &normalised_invocation(&row[0]),
+            expected,
+            "docs/specification.md and docs/architecture.md document {operation} differently"
+        );
+        compared += 1;
+    }
+    assert_eq!(
+        compared,
+        authoritative.len(),
+        "every operation the architecture table names has a specification row"
+    );
+}
+
+/// The operations `capabilities` reports, as the binary reports them.
+fn reported_operations() -> Vec<String> {
+    let output = run(&["capabilities", "--json"]);
+    assert!(output.status.success());
+    let envelope: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("capabilities is one JSON object");
+    envelope["data"]["operations"]
+        .as_array()
+        .expect("operations is an array")
+        .iter()
+        .map(|name| {
+            name.as_str()
+                .expect("every operation name is a string")
+                .to_owned()
+        })
+        .collect()
+}
+
+/// Every fenced `json` block of a document, in the order it reads in.
+fn fenced_json_blocks(document: &str) -> Vec<String> {
+    let mut blocks = Vec::new();
+    let mut open: Option<String> = None;
+    for line in document.lines() {
+        match open.as_mut() {
+            Some(block) if line.trim_end() == "```" => {
+                blocks.push(std::mem::take(block));
+                open = None;
+            }
+            Some(block) => {
+                block.push_str(line);
+                block.push('\n');
+            }
+            None if line.trim_end() == "```json" => open = Some(String::new()),
+            None => {}
+        }
+    }
+    assert!(open.is_none(), "a fenced block was left unclosed");
+    blocks
+}
+
+/// Every documented `capabilities` sample is valid JSON and reports the
+/// operations the binary reports.
+///
+/// A sample is what a reader copies before they run anything, so one that no
+/// parser accepts is worse than no sample: a dropped comma between two
+/// operation names turned both samples into text that only looks like JSON,
+/// and nothing failed. Parsing each block as JSON is what catches that, and
+/// comparing the array it holds is what keeps the samples from drifting the
+/// way the tables can. The comparison is order-sensitive, because a sample
+/// claims to be the output of one run.
+#[test]
+fn every_documented_capabilities_sample_is_json_and_reports_what_the_binary_does() {
+    let repository = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let reported = reported_operations();
+    let mut checked = 0;
+    for name in ["README.md", "docs/architecture.md", "docs/specification.md"] {
+        let document = std::fs::read_to_string(repository.join(name))
+            .unwrap_or_else(|_| panic!("read {name}"));
+        for (index, block) in fenced_json_blocks(&document).iter().enumerate() {
+            if !block.contains("\"operations\"") {
+                continue;
+            }
+            let sample: serde_json::Value = serde_json::from_str(block)
+                .unwrap_or_else(|error| panic!("block {index} of {name} is not JSON: {error}"));
+            let operations: Vec<String> = sample["data"]["operations"]
+                .as_array()
+                .unwrap_or_else(|| panic!("block {index} of {name} has no operations array"))
+                .iter()
+                .map(|value| {
+                    value
+                        .as_str()
+                        .expect("every operation name is a string")
+                        .to_owned()
+                })
+                .collect();
+            assert_eq!(
+                operations, reported,
+                "the capabilities sample in {name} and the binary disagree"
+            );
+            checked += 1;
+        }
+    }
+    assert!(
+        checked >= 2,
+        "README.md and docs/architecture.md each carry a capabilities sample"
     );
 }
