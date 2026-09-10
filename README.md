@@ -94,7 +94,7 @@ The capabilities command reports the current implementation honestly:
       "receipt.show",
       "association.show",
       "completions",
-      "manpage"
+      "manpage",
       "archive.export",
       "archive.import",
       "archive.derive"

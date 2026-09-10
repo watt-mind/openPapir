@@ -585,7 +585,13 @@ envelope.
   before the field existed holds one case, so a reader that meets no
   `export_scope` reads it as `case`, and `case export` writes the same
   `case_id` it always did. A whole-archive manifest names no `case_id` at all.
-
+- The two operation tables are guarded against each other, not only against
+  the binary. `crates/openpapir-cli/tests/contract.rs` now also compares the
+  invocation cell of every operation in the Implemented today table of
+  `docs/specification.md` with the one in the Current implementation table of
+  `docs/architecture.md`, which are equal once backticks and repeated spaces
+  are ignored, so a flag added to one table and not the other fails the test
+  suite. The Documentation section of `CONTRIBUTING.md` records the rule.
 - The documentation names no operation count. `docs/architecture.md` gains
   one authoritative table under "Current implementation", listing each
   operation `capabilities` reports beside its invocation, and
@@ -816,6 +822,14 @@ envelope.
   chain as well printed the same record twice; the first line now names the
   record, and its entry in the chain is marked. The `--json` form is
   unchanged: `data` still carries `association` beside `chain`.
+- The `capabilities` sample in `README.md` and in `docs/architecture.md` is
+  valid JSON again. Both lost the comma after `"manpage"` when the
+  whole-archive export entries were added, so a reader who copied either
+  sample into a parser was handed text no parser accepts. The contract test
+  now parses every fenced `json` block that names `operations` in
+  `README.md`, `docs/architecture.md`, and `docs/specification.md` and
+  compares the array it holds with the list the binary reports, so a sample
+  cannot go invalid or stale unnoticed.
 - `case export` no longer succeeds with fewer records than the case holds when
   a record directory cannot be listed. Reading such a directory as empty made
   the export describe a smaller case than the archive holds; it is now a
