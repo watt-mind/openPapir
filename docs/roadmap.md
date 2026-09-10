@@ -126,7 +126,8 @@ page's last update.
   stored object and nothing else, never parsing a receipt, gated on the
   derived-metadata design in
   [local archive layout and storage design](archive-layout.md) and on the
-  request being explicit rather than implied by an import: planned.
+  request being explicit rather than implied by an import: implemented as
+  `archive derive`.
 - Encrypted backup at rest protects a copy of the archive kept outside it, and
   never the live archive. Its key handling is now decided in
   [local archive layout and storage design](archive-layout.md): a standard AEAD

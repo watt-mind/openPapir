@@ -33,6 +33,10 @@ pub fn integrity(report: &Report) -> Vec<String> {
         report.staging_files,
         report.records_staging_files
     ));
+    lines.push(format!(
+        "Derived-metadata record(s): {}. A missing one is not a problem.",
+        report.derived_records
+    ));
     lines.push(
         "The check read the archive and changed nothing. A digest identifies bytes only: a passing check is storage integrity, never authenticity, delivery, or legal effect."
             .to_owned(),

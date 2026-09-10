@@ -13,11 +13,11 @@ copies one case, or a whole archive, out as plain files and reads such a copy
 back in, keeps a case record current, narrows a restored archive's permissions back
 to owner-only, deletes a case when asked, removing stored bytes only on an
 explicit `--purge`, writes the agent skill document it carries, and generates
-its own shell completions and man page. Automatic matching, derived metadata,
-receipt parsing, KRX and `.es3` handling, editing of a stored record other
-than the case record `case update` rewrites, deleting a single submission or
-receipt, deleting an archive, signature verification, and government delivery
-are not implemented. There is no published release.
+its own shell completions and man page. Automatic matching, receipt parsing,
+KRX and `.es3` handling, editing of a stored record other than the case record
+`case update` rewrites, deleting a single submission or receipt, deleting an
+archive, signature verification, and government delivery are not implemented.
+There is no published release.
 
 openPapir is an independent open-source project. It is not the government's
 e-Papír service, is not affiliated with its operators, and does not submit
@@ -53,6 +53,7 @@ cargo run --locked -p openpapir-cli -- case import --archive ./my-archive --from
 cargo run --locked -p openpapir-cli -- archive export --archive ./my-archive --to ./my-archive-export --json
 cargo run --locked -p openpapir-cli -- archive import --archive ./my-archive --from ./my-archive-export --json
 cargo run --locked -p openpapir-cli -- archive repair-permissions --archive ./my-archive --json
+cargo run --locked -p openpapir-cli -- archive derive --archive ./my-archive --json
 cargo run --locked -p openpapir-cli -- case delete --archive ./my-archive --case <case-id> --purge --json
 cargo run --locked -p openpapir-cli -- skill
 cargo run --locked -p openpapir-cli -- completions bash
@@ -93,9 +94,10 @@ The capabilities command reports the current implementation honestly:
       "receipt.show",
       "association.show",
       "completions",
-      "manpage"
+      "manpage",
       "archive.export",
-      "archive.import"
+      "archive.import",
+      "archive.derive"
     ]
   },
   "verified": false
@@ -167,6 +169,11 @@ each. All but the last three can process input:
   refuses the other's.
 - `archive repair-permissions` narrows a restored archive back to owner-only;
   it never widens anything.
+- `archive derive` computes, for every stored object, its byte length and a
+  media type from a closed table decided by the first 4 KiB of bytes. It runs
+  only when asked, the records are disposable and never authoritative, and a
+  media type states what the leading bytes look like and never that a file is
+  a receipt, is authentic, or was delivered.
 - `case delete` is the one destructive command: it removes a case and its
   submissions, and the receipts and associations tied only to them, but it
   removes no stored bytes unless `--purge` is given, and even then only bytes
@@ -184,8 +191,9 @@ each. All but the last three can process input:
   subcommand. Both are generated from the same command definition the parser
   uses, take no file and no `--json`, and touch no archive.
 
-Every record is the user's own local record: openPapir sends nothing and reads
-no artefact bytes, so a submission is what the user states they sent, a
+Every record is the user's own local record: openPapir sends nothing and forms
+no opinion of its own about what an artefact says, so a submission is what the
+user states they sent, a
 receipt is an artefact the user believes to be one, an association is what the
 user asserts about it, and a date they supply is stored verbatim and never
 read as a delivery or receipt date. `verified: false` means no cryptographic
@@ -198,7 +206,7 @@ exit codes, is in [architecture and CLI contract](docs/architecture.md).
 | Responsibility | State |
 | --- | --- |
 | Preserve original submission and receipt bytes in a local case archive. | Implemented by `import` and the write-once artefact store. |
-| Associate submissions, attachments, and receipts with explicit provenance. | Implemented for the user's own assertions; automatic matching, derived metadata, and receipt parsing are not implemented. |
+| Associate submissions, attachments, and receipts with explicit provenance. | Implemented for the user's own assertions; automatic matching and receipt parsing are not implemented, and the only derived metadata is the media type and the byte length `archive derive` computes on request. |
 | Expose case information through a CLI and structured JSON. | Implemented by the list, show, and export commands; search is not implemented. |
 | Delegate KRX container processing to [openKRX](https://github.com/watt-mind/openKRX) and `.es3` processing to [openSzigno](https://github.com/watt-mind/openSzigno). | Not implemented. Neither sibling project is a build dependency of this project, and neither parser is copied into it. |
 | Delegated authenticity verification, reported with its exact scope and trust context. | Not implemented. No cryptographic check of any kind exists here. |

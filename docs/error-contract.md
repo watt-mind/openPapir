@@ -302,7 +302,7 @@ it is about how many tags there are rather than about any one of them.
 - **`input.cap.import_files`**: input, not retryable. The import names more
   files than the per-operation cap (proposed 1000).
 - **`input.cap.record_size`**: input, not retryable. A record document,
-  including derived metadata, would exceed the record cap (proposed 1 MiB).
+  including a derived-metadata record, would exceed the record cap (1 MiB).
 - **`input.cap.filename_length`**: input, not retryable. A supplied original
   filename exceeds the attribute cap (proposed 255 bytes). Only the length is
   reported, never the name.
@@ -950,8 +950,9 @@ authority, which is never emitted.
 
 The shape above is what this build writes. `created_by` `automatic`, an
 evidence `kind` other than `user_assertion`, a `source` other than `user`, and
-an `extractor` field remain **proposed**: no automatic matching, derived
-metadata, or extractor exists, so no other value could be recorded honestly
+an `extractor` field remain **proposed**: no automatic matching exists, and
+the one extractor that does names a media type from leading bytes and writes
+no evidence at all, so no other value could be recorded honestly
 ([architecture](architecture.md)).
 
 `submission_id` is `null` for `unassociated`, `candidate`, and
@@ -1028,8 +1029,9 @@ The receipt and user-asserted association records are implemented, so the four
 association outcomes and the association shape above are contract rather than
 proposal, and `record.inconsistent` is emitted. Withdrawing an assertion is
 implemented as `association retire`, which supersedes a record rather than
-editing or removing one, so `already_superseded` is contract as well. Automatic association,
-derived metadata, and any extractor stay unimplemented: every evidence entry
+editing or removing one, so `already_superseded` is contract as well. Automatic
+association stays unimplemented, and the derived metadata that exists is a
+media type and a byte length no evidence entry may cite: every evidence entry
 this build writes carries `kind` `user_assertion` and `source` `user`, and
 every association carries `created_by` `user`.
 
@@ -1077,8 +1079,10 @@ written and reviewed, and all but one are now implemented:
   ([architecture](architecture.md)).
 - **Whole-archive integrity check**: implemented as `archive check`, with the
   counts-and-buckets report shape above.
-- **Derived-metadata staleness and recompute-on-request**: not implemented.
-  It has the record and cap codes it needs.
+- **Derived-metadata staleness and recompute-on-request**: implemented as
+  `archive derive`, for a media type and a byte length. It emits no code of
+  its own: the record and cap codes it needs are the shared ones every writing
+  command has.
 - **Case deletion with an explicit purge**: implemented as `case delete`,
   with the counts-and-reasons report shape and `delete.objects_retained`.
 - **Export, backup, and the permission-repair action**: implemented as

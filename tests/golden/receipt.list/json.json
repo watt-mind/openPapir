@@ -2,6 +2,7 @@
   "command": "receipt.list",
   "data": {
     "count": 1,
+    "derived": [],
     "receipts": [
       {
         "archive_schema_version": 1,

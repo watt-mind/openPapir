@@ -7,7 +7,7 @@ use openpapir_core::{
     ReceiptList, ReceiptView, Submission, SubmissionView,
 };
 
-use super::{RECORD_DISCLAIMER, submission_lines};
+use super::{RECORD_DISCLAIMER, derived_lines, submission_lines};
 
 /// The closing line every receipt and association command prints.
 ///
@@ -47,6 +47,7 @@ pub fn receipt_list(list: &ReceiptList) -> Vec<String> {
             receipt.id, receipt.created_at, receipt.artefact_digest
         ));
     }
+    lines.extend(derived_lines(&list.derived));
     lines.push(ASSERTION_DISCLAIMER.to_owned());
     lines
 }
@@ -261,6 +262,7 @@ mod tests {
         plain.label = None;
         let listed = receipt_list(&ReceiptList {
             count: 1,
+            derived: Vec::new(),
             receipts: vec![plain],
         })
         .join("\n");
@@ -270,6 +272,7 @@ mod tests {
 
         let empty = receipt_list(&ReceiptList {
             count: 0,
+            derived: Vec::new(),
             receipts: Vec::new(),
         });
         assert!(empty[0].starts_with("0 receipt(s)"));

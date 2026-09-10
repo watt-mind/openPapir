@@ -16,9 +16,10 @@ the Documentation section of [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Unreleased
 
-Automatic matching, derived metadata, extractors, receipt parsing, KRX and
-`.es3` handling, verification results, and government delivery stay
-unimplemented, and no output or field claims delivery, receipt by an
+Automatic matching, receipt parsing, KRX and `.es3` handling, verification
+results, and government delivery stay unimplemented, and the only derived
+metadata is the media type and the byte length `archive derive` computes on
+request, and no output or field claims delivery, receipt by an
 authority, authenticity, or legal effect. `verified` is `false` in every
 envelope.
 
@@ -93,6 +94,31 @@ envelope.
   so that the record-conflict rule stays one rule; each import reads its own
   `export_scope` and refuses the other's directory with
   `export.manifest_malformed`.
+- `openpapir archive derive --archive <root> [--json]`, operation
+  `archive.derive`, computes one derived-metadata record for every stored
+  object, at `records/derived/<digest>.json`, carrying the object's byte
+  length and a `media_type` from a closed table of `pdf`, `png`, `jpeg`,
+  `zip`, `xml`, `text`, and `unknown`, decided by a hand-written signature
+  list over the object's first 4 KiB and no new dependency. It takes the
+  writer lock, opens each object once with the no-follow flag, leaves an
+  object over the single-file cap unread and without a record, replaces every
+  record it recomputes in place, and removes a record naming an object the
+  archive no longer holds. `data` reports `objects_checked`,
+  `objects_unchecked`, `records_written`, `records_removed`, `bytes_sniffed`,
+  and one `media_types` entry per value of the table, counts only. Nothing
+  recomputes on its own, nothing needs a derived record, and a media type
+  states what leading bytes look like and never authenticity, delivery, or
+  legal effect.
+- `case show` and `receipt list` carry an additive `derived` array with the
+  `artefact_digest`, `media_type`, and `byte_length` of each artefact they
+  name that has a derived-metadata record, and nothing for one that does not.
+  The human form prints the same facts as a closing block, and prints no block
+  when nothing has been derived. Nothing infers anything about a receipt from
+  a media type.
+- `archive check` reports `derived_records`, how many derived-metadata records
+  the archive holds. A missing record is nothing at all rather than a problem,
+  an unreadable one is not counted and is not damage, and neither changes the
+  exit code.
 - An ignored benchmark, `crates/openpapir-cli/tests/bench.rs`, times the
   linear scans on a synthetic archive of 10000 cases, 10000 submissions,
   10000 receipts, 10000 associations, and 20000 imported objects, and asserts
@@ -559,7 +585,13 @@ envelope.
   before the field existed holds one case, so a reader that meets no
   `export_scope` reads it as `case`, and `case export` writes the same
   `case_id` it always did. A whole-archive manifest names no `case_id` at all.
-
+- The two operation tables are guarded against each other, not only against
+  the binary. `crates/openpapir-cli/tests/contract.rs` now also compares the
+  invocation cell of every operation in the Implemented today table of
+  `docs/specification.md` with the one in the Current implementation table of
+  `docs/architecture.md`, which are equal once backticks and repeated spaces
+  are ignored, so a flag added to one table and not the other fails the test
+  suite. The Documentation section of `CONTRIBUTING.md` records the rule.
 - The documentation names no operation count. `docs/architecture.md` gains
   one authoritative table under "Current implementation", listing each
   operation `capabilities` reports beside its invocation, and
@@ -805,6 +837,14 @@ envelope.
   chain as well printed the same record twice; the first line now names the
   record, and its entry in the chain is marked. The `--json` form is
   unchanged: `data` still carries `association` beside `chain`.
+- The `capabilities` sample in `README.md` and in `docs/architecture.md` is
+  valid JSON again. Both lost the comma after `"manpage"` when the
+  whole-archive export entries were added, so a reader who copied either
+  sample into a parser was handed text no parser accepts. The contract test
+  now parses every fenced `json` block that names `operations` in
+  `README.md`, `docs/architecture.md`, and `docs/specification.md` and
+  compares the array it holds with the list the binary reports, so a sample
+  cannot go invalid or stale unnoticed.
 - `case export` no longer succeeds with fewer records than the case holds when
   a record directory cannot be listed. Reading such a directory as empty made
   the export describe a smaller case than the archive holds; it is now a

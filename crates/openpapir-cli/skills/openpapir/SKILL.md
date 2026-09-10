@@ -403,8 +403,9 @@ Read-only in the strongest sense: no lock is taken, every file is opened with
 the platform's no-follow flag, and nothing is created, renamed, removed, or
 repaired. `data` holds `bytes_digested`, `objects_checked`,
 `objects_unchecked`, `orphan_objects`, `records_checked`, `records_unchecked`,
-`staging_files`, and `problems[]`, one entry per code with a `count`,
-including the codes it did not see, ordered by code.
+`staging_files`, `derived_records`, and `problems[]`, one entry per code with
+a `count`, including the codes it did not see, ordered by code. A derived
+record is counted and never judged: a missing one is not a problem.
 
 A clean archive exits `0`. When something is found, `ok` is `false`, the
 report stays in `data`, and `error` names the first problem in this fixed
@@ -587,6 +588,43 @@ to owner-only and reports `paths_checked`, `paths_changed`, and `changed[]`
 per kind. It only ever narrows, it reads no file content, and it refuses a
 symbolic link inside the archive rather than narrowing it.
 
+### 12. Derive the media type and the size of what is stored
+
+```sh
+openpapir archive derive --archive ./archive --json
+```
+
+Computes one disposable record per stored object: its byte length, and a
+media type from a closed table decided by the leading bytes. It takes the
+writer lock, opens each object once, and reads at most 4 KiB of it, so its
+cost grows with the number of objects and never with their size. `data` holds
+`objects_checked`, `objects_unchecked`, `records_written`, `records_removed`,
+`bytes_sniffed`, and `media_types[]`, one entry per value with a `count`,
+including the values the archive holds none of, ordered by value.
+
+| Value | What the leading bytes are |
+| --- | --- |
+| `pdf` | `%PDF-` |
+| `png` | The PNG signature. |
+| `jpeg` | The JPEG start-of-image marker. |
+| `zip` | Any zip-family container, an `.asice` or a `.krx` package included. |
+| `xml` | An XML declaration, after an optional byte-order mark. |
+| `text` | UTF-8 with no control character but tab, line feed, and carriage return. |
+| `unknown` | Anything else, an empty object included. |
+
+Nothing recomputes on its own: run this again when you want the records
+refreshed, and they are replaced in place. Nothing needs them, either. A
+missing record is not a problem, `archive check` only counts them, and
+deleting all of them loses nothing that cannot be computed again.
+
+Once they exist, `case show` and `receipt list` carry a `derived[]` array with
+`artefact_digest`, `media_type`, and `byte_length` for each artefact they name
+that has a record, and nothing at all for one that does not.
+
+A media type says what the first bytes look like. It never says a file is a
+receipt, is authentic, was delivered, or has any legal effect. Never report it
+as more than that, and never infer anything about a receipt from it.
+
 ## Hard limits
 
 No flag, environment variable, or configuration relaxes any of these.
@@ -618,7 +656,8 @@ create a hard link cannot host one (`platform.filesystem_unsupported`).
 - It opens no socket. There is no network access and no background work.
 - It submits nothing and delivers nothing. No government integration exists.
 - It verifies no signature and asserts no authenticity or legal effect.
-- It parses no receipt, derives no metadata, and matches nothing on its own.
+- It parses no receipt and matches nothing on its own. The only metadata it
+  derives is a media type and a byte length, on request, disposable.
 - It edits no stored record but the case record, which `case update` rewrites
   in place; it migrates nothing and never deletes a single submission,
   receipt, or archive. `case delete` is the one
@@ -641,6 +680,7 @@ openpapir archive init ROOT --json
 openpapir archive check --archive ROOT --json
 openpapir archive status --archive ROOT [--as-of YYYY-MM-DD] --json
 openpapir archive repair-permissions --archive ROOT --json
+openpapir archive derive --archive ROOT --json
 openpapir import --archive ROOT FILE... [--case CASE_ID --description D \
   [--date YYYY-MM-DD]] --json
 openpapir case create --archive ROOT --title T [--notes N] [--tag TAG]... \

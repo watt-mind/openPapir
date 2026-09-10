@@ -123,7 +123,22 @@ pub fn malformed(record_kind: &'static str, path_count: u64) -> Diagnostic {
 /// Returns `input.cap.record_size` when the document exceeds the record cap,
 /// and `internal.unexpected` when a record cannot be serialised at all.
 pub fn document<R: Record>(record: &R) -> Result<String, Diagnostic> {
-    let value = serde_json::to_value(record).map_err(|_| {
+    json_document(record)
+}
+
+/// Serialise one stored document the same way, for a kind that is not named
+/// by a minted identifier.
+///
+/// The derived-metadata record is filed under the digest of the object it
+/// describes rather than under an identifier of its own, so it is not a
+/// [`Record`]; the bytes it is written as are still exactly these.
+///
+/// # Errors
+///
+/// Returns `input.cap.record_size` when the document exceeds the record cap,
+/// and `internal.unexpected` when the value cannot be serialised at all.
+pub fn json_document<T: Serialize>(value: &T) -> Result<String, Diagnostic> {
+    let value = serde_json::to_value(value).map_err(|_| {
         Diagnostic::new(
             codes::INTERNAL_UNEXPECTED,
             "A record could not be serialised.",

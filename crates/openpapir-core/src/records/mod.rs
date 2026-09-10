@@ -30,6 +30,7 @@
 
 pub mod association;
 pub mod case;
+pub mod derived;
 pub mod document;
 pub mod receipt;
 pub mod submission;
@@ -48,6 +49,8 @@ pub const SUBMISSIONS_DIR: &str = "records/submissions";
 pub const RECEIPTS_DIR: &str = "records/receipts";
 /// The directory holding association records, relative to the archive root.
 pub const ASSOCIATIONS_DIR: &str = "records/associations";
+/// The directory holding derived-metadata records, relative to the root.
+pub const DERIVED_DIR: &str = "records/derived";
 
 /// The largest case title, in bytes.
 pub const MAX_TITLE_BYTES: u64 = 200;

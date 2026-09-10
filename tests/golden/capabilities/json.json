@@ -27,7 +27,8 @@
       "completions",
       "manpage",
       "archive.export",
-      "archive.import"
+      "archive.import",
+      "archive.derive"
     ],
     "project": "openPapir",
     "stage": "alpha"

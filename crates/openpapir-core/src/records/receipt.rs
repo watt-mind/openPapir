@@ -88,6 +88,12 @@ pub struct ReceiptView {
 pub struct ReceiptList {
     /// How many receipts the archive holds.
     pub count: u64,
+    /// What a derived-metadata record says about the artefacts the receipts
+    /// below reference, ordered by digest. A receipt whose artefact has no
+    /// derived record contributes no entry, and nothing here says an artefact
+    /// is a receipt: a media type is a statement about leading bytes, and the
+    /// receipt is the user's own assertion exactly as it was before.
+    pub derived: Vec<crate::records::derived::DerivedFacts>,
     /// Every receipt in the archive, ordered by identifier.
     pub receipts: Vec<Receipt>,
 }
@@ -198,9 +204,10 @@ pub mod rules {
 pub fn list(root: &Path) -> Result<ReceiptList> {
     let mut warnings = Vec::new();
     match list_records(root, &mut warnings) {
-        Ok(receipts) => Ok(Outcome {
+        Ok((receipts, derived)) => Ok(Outcome {
             data: ReceiptList {
                 count: receipts.len() as u64,
+                derived,
                 receipts,
             },
             warnings,
@@ -209,13 +216,22 @@ pub fn list(root: &Path) -> Result<ReceiptList> {
     }
 }
 
+type Listing = (Vec<Receipt>, Vec<crate::records::derived::DerivedFacts>);
+
 fn list_records(
     root: &Path,
     warnings: &mut Vec<Warning>,
-) -> std::result::Result<Vec<Receipt>, Diagnostic> {
+) -> std::result::Result<Listing, Diagnostic> {
     let mut archive = Archive::open(root)?;
     warnings.extend(archive.take_warnings());
-    document::list_records::<Receipt>(archive.root())
+    let receipts = document::list_records::<Receipt>(archive.root())?;
+    let derived = crate::records::derived::facts_for(
+        archive.root(),
+        receipts
+            .iter()
+            .map(|receipt| receipt.artefact_digest.as_str()),
+    );
+    Ok((receipts, derived))
 }
 
 /// Show one receipt with its whole association history, without the lock.

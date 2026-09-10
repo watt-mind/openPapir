@@ -1,4 +1,4 @@
-Narrowed 1 of 29 archive path(s) to owner-only.
+Narrowed 1 of 30 archive path(s) to owner-only.
 cache 0
 directory 1
 marker 0

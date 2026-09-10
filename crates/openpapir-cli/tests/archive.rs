@@ -1091,7 +1091,8 @@ fn capabilities_report_exactly_the_implemented_operations() {
             "completions",
             "manpage",
             "archive.export",
-            "archive.import"
+            "archive.import",
+            "archive.derive"
         ])
     );
     assert_eq!(output.status.code(), Some(0));
