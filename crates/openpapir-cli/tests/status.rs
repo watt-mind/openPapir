@@ -370,7 +370,13 @@ fn the_human_form_words_a_reminder_as_a_reminder_to_fetch() {
         AS_OF,
     ]);
     assert_eq!(output.status.code(), Some(0));
-    assert!(output.stderr.is_empty());
+    let reported = String::from_utf8(output.stderr.clone()).expect("stderr is UTF-8");
+    assert!(
+        reported
+            .lines()
+            .all(|line| line.starts_with("warning platform.")),
+        "the human form reports no error; Windows adds platform warnings here"
+    );
     let text = stdout_text(&output);
     assert!(text.contains("fetch a submission receipt from the delivery storage"));
     assert!(text.contains("30-day window the operator describes"));
