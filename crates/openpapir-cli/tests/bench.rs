@@ -72,6 +72,21 @@ fn the_linear_scans_stay_under_their_documented_ceilings() {
                 "--json",
             ],
         ),
+        // `case show` reads every submission, association, and receipt the
+        // archive holds to name the receipts a live association ties to this
+        // one case, so it is timed on the same archive as the listings.
+        measure(
+            "case show",
+            LIST_CEILING,
+            &[
+                "case",
+                "show",
+                "--archive",
+                &root,
+                &archive.case_ids[0],
+                "--json",
+            ],
+        ),
         measure(
             "archive check",
             CHECK_CEILING,
@@ -128,6 +143,12 @@ fn the_linear_scans_stay_under_their_documented_ceilings() {
         reported_count(&measurements[1]),
         cases.div_ceil(bench_support::QUERY_ONE_IN) as u64,
         "the query matched a different share of the archive than it filed"
+    );
+    assert_eq!(
+        reported_receipts(&measurements[2]),
+        1,
+        "the shown case named no receipt, so the section that reads the \
+         associations was not measured"
     );
     for measurement in &measurements {
         assert!(
@@ -202,6 +223,16 @@ fn reported_count(measurement: &Measurement) -> u64 {
     envelope["data"]["count"]
         .as_u64()
         .expect("a listing reports its count")
+}
+
+/// How many receipts one shown case reported.
+fn reported_receipts(measurement: &Measurement) -> usize {
+    let envelope: serde_json::Value =
+        serde_json::from_slice(&measurement.stdout).expect("a shown case prints one envelope");
+    envelope["data"]["receipts"]
+        .as_array()
+        .expect("a shown case reports the receipts section")
+        .len()
 }
 
 /// Print what was measured, on the machine it was measured on.

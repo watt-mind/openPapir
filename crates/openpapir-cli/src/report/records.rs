@@ -173,20 +173,29 @@ pub fn receipt_shown(view: &ReceiptView) -> Vec<String> {
 
 /// The lines `association show` prints when it succeeds.
 ///
-/// The record comes first, then whether it is the live head of its chain, and
-/// then the chain itself, newest first and superseded records included.
+/// The shown record is named first, with whether it is the live head of its
+/// chain, and then the chain follows, newest first and superseded records
+/// included. The chain always holds the shown record itself, so printing its
+/// block before the chain as well would print the same record twice; it is
+/// marked where it stands in the chain instead. `data` is unchanged: the JSON
+/// form still carries `association` beside `chain`.
 #[must_use]
 pub fn association_shown(view: &AssociationView) -> Vec<String> {
-    let mut lines = association_lines(&view.association);
-    lines.push(format!(
-        "Live head of its chain: {}.",
-        if view.live { "yes" } else { "no" }
-    ));
-    lines.push(format!(
-        "Records in the chain: {}, newest first.",
-        view.chain_length
-    ));
+    let mut lines = vec![
+        format!("Association {}, with its chain.", view.association.id),
+        format!(
+            "Live head of its chain: {}.",
+            if view.live { "yes" } else { "no" }
+        ),
+        format!(
+            "Records in the chain: {}, newest first. The record shown is marked.",
+            view.chain_length
+        ),
+    ];
     for association in &view.chain {
+        if association.id == view.association.id {
+            lines.push("The record shown:".to_owned());
+        }
         lines.extend(association_lines(association));
     }
     lines.push(ASSERTION_DISCLAIMER.to_owned());
@@ -306,6 +315,33 @@ mod tests {
         )));
         assert!(text.contains(&format!("Supersedes: {ASSOCIATION_ID}")));
         assert!(text.contains("Supersedes: nothing"), "history is complete");
+        assert_no_claim(&text);
+    }
+
+    #[test]
+    fn a_shown_association_is_printed_once_and_marked_in_its_chain() {
+        let mut newer = association("candidate", None);
+        newer.id = "99998888777766665555444433332222".to_owned();
+        newer.supersedes = Some(ASSOCIATION_ID.to_owned());
+        let shown = association("unassociated", None);
+        let lines = association_shown(&AssociationView {
+            association: shown.clone(),
+            chain: vec![newer, shown],
+            chain_length: 2,
+            live: false,
+        });
+        let text = lines.join("\n");
+        assert!(text.contains(&format!("Association {ASSOCIATION_ID}, with its chain.")));
+        assert!(text.contains("Live head of its chain: no."));
+        assert!(text.contains("The record shown:"));
+        assert_eq!(
+            lines
+                .iter()
+                .filter(|line| line.starts_with(&format!("Association {ASSOCIATION_ID}, recorded")))
+                .count(),
+            1,
+            "the shown record's own block is printed once"
+        );
         assert_no_claim(&text);
     }
 

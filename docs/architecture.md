@@ -2147,12 +2147,12 @@ them are `input` refusals and all exit `3`.
 
 ## Performance
 
-There is no index. Every listing, the integrity check, the export, and the
-deletion plan read the records they could report, in one linear scan, so their
-cost grows with what the archive holds. The numbers below say what that costs
-at a size a user could reach. They are indicative: they are one run on one
-machine on one date, not a guarantee and not a benchmark result to compare
-builds by.
+There is no index. Every listing, the integrity check, the export, the
+deletion plan, and the receipts section of one shown case read the records
+they could report, in one linear scan, so their cost grows with what the
+archive holds. The numbers below say what that costs at a size a user could
+reach. They are indicative: they are one run on one machine on one date, not
+a guarantee and not a benchmark result to compare builds by.
 
 Measured on 2026-09-10 on a 13th Gen Intel Core i9-13900 with an NVMe
 solid-state disk and an ext4 filesystem, with the release binary, on a
@@ -2163,6 +2163,7 @@ associations, and 20000 imported objects of 256 bytes each.
 | --- | --- | --- |
 | `case list` | 0.06 s | 5 s |
 | `case list --query` | 0.06 s | 5 s |
+| `case show` of one case | 0.23 s | 5 s |
 | `archive check` | 1.41 s | 10 s |
 | `archive status` | 0.24 s | 5 s |
 | `case export` of one case | 0.22 s | 5 s |
