@@ -33,10 +33,10 @@ of each kind of content, and the style are in the Documentation section of
 
 ## Boundaries
 
-- Help, version, `capabilities`, and nineteen operations exist today: archive
-  creation, the read-only integrity check, the read-only summary and its
-  receipt-retrieval reminders, permission repair, artefact import
-  with the original bytes preserved, the case, submission, receipt, and
+- Help, version, `capabilities`, and the operations `capabilities` reports
+  exist today: archive creation, the read-only integrity check, the read-only
+  summary and its receipt-retrieval reminders, permission repair, artefact
+  import with the original bytes preserved, the case, submission, receipt, and
   association records, the withdrawal of one assertion, the update of one
   case record, the export of one case and the import of such an export back
   into an archive, the deletion of one case with an explicit purge, and

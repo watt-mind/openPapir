@@ -15,16 +15,11 @@
 //!
 //! # Status
 //!
-//! Nineteen operations are implemented, `archive.init`, `import`,
-//! `case.create`, `case.list`, `case.show`, `submission.add`, `receipt.add`,
-//! `receipt.list`, `association.create`, `association.list`,
-//! `association.retire`, `archive.check`, `archive.status`, `case.export`,
-//! `case.import`, `archive.repair_permissions`, `case.delete`, `skill`, and
-//! `case.update`, and they are the nineteen
-//! [`capabilities`] reports. `skill` is the one that touches no archive: it
-//! belongs to the CLI, which writes the agent skill document it carries, and
-//! is reported here so that a machine caller learns of it from the same list
-//! as every other operation.
+//! The implemented operations are the ones [`capabilities`] reports, and
+//! `docs/architecture.md` enumerates them beside their invocations. `skill`
+//! is the one that touches no archive: it belongs to the CLI, which writes
+//! the agent skill document it carries, and is reported here so that a
+//! machine caller learns of it from the same list as every other operation.
 //! Everything else in the design stays a plan: no editing of a stored record
 //! other than the case record `case.update` rewrites, no deletion of a single
 //! submission or receipt, no deletion of an

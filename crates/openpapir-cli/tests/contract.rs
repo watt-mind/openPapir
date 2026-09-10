@@ -236,3 +236,67 @@ fn the_skill_command_takes_no_file_and_no_json_flag() {
     assert!(extra.stdout.is_empty(), "the document is not written");
     assert!(!extra.stderr.is_empty(), "the parser explains itself");
 }
+
+/// The architecture document's operation table is the one enumeration of the
+/// operations, and it has to agree with the binary.
+///
+/// Prose everywhere else defers to the list `capabilities` reports, so this
+/// test is what keeps that one table honest: an operation added later changes
+/// the table and this test and nothing else that enumerates operations. The
+/// comparison is order-independent, because the table is in the order the
+/// per-command sections below it use, which is not the order `capabilities`
+/// reports.
+#[test]
+fn the_architecture_table_lists_exactly_the_reported_operations() {
+    let document = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/architecture.md"),
+    )
+    .expect("read the architecture document");
+    let section = document
+        .split_once("\n## Current implementation\n")
+        .expect("the document has a current implementation section")
+        .1;
+    let table = section
+        .split_once("| Operation | Invocation |\n")
+        .expect("that section holds the operation table")
+        .1;
+    let mut documented: Vec<String> = table
+        .lines()
+        .skip(1)
+        .take_while(|line| line.starts_with('|'))
+        .map(|line| {
+            line.split('|')
+                .nth(1)
+                .expect("every row has a first cell")
+                .trim()
+                .trim_matches('`')
+                .to_owned()
+        })
+        .collect();
+    assert!(
+        documented.len() > 1,
+        "the table was found but read as empty"
+    );
+
+    let output = run(&["capabilities", "--json"]);
+    assert!(output.status.success());
+    let reported: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("capabilities is one JSON object");
+    let mut reported: Vec<String> = reported["data"]["operations"]
+        .as_array()
+        .expect("operations is an array")
+        .iter()
+        .map(|name| {
+            name.as_str()
+                .expect("every operation name is a string")
+                .to_owned()
+        })
+        .collect();
+
+    documented.sort();
+    reported.sort();
+    assert_eq!(
+        documented, reported,
+        "docs/architecture.md and capabilities disagree about the operations"
+    );
+}
