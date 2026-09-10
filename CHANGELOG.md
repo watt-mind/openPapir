@@ -24,6 +24,17 @@ envelope.
 
 ### Added
 
+- An ignored benchmark, `crates/openpapir-cli/tests/bench.rs`, times the
+  linear scans on a synthetic archive of 10000 cases, 10000 submissions,
+  10000 receipts, 10000 associations, and 20000 imported objects, and asserts
+  that `case list`, `case list --query`, `archive check`, `archive status`,
+  `case export`, and `case delete --purge` each stay under a documented
+  ceiling. An operation the build does not implement yet is reported as absent
+  rather than measured, so the benchmark covers one from the commit that adds
+  it. No CI job runs it. The new Performance section of `docs/architecture.md`
+  records the measured numbers, the machine class, and the date, and states
+  that they are indicative; `docs/testing.md` says how to run it and how to
+  change its size.
 - `openpapir case import --archive <root> --from <dir> [--json]`, operation
   `case.import`, reads a directory `case export` wrote back into an archive.
   The manifest is authoritative: every object it lists is re-digested from the
