@@ -9,10 +9,12 @@ into a content-addressed store that preserves the original bytes, organises
 what it holds into cases and submissions, records receipts together with the
 user's own assertions about whether a receipt relates to a submission, checks
 a whole archive against what its records claim without changing anything,
-copies one case, or a whole archive, out as plain files and reads such a copy
+reads one stored record back with what relates to it, copies one case, or a
+whole archive, out as plain files and reads such a copy
 back in, keeps a case record current, narrows a restored archive's permissions back
 to owner-only, deletes a case when asked, removing stored bytes only on an
-explicit `--purge`, searches the user's own record text, writes the agent
+explicit `--purge`, searches the user's own record text, computes the media
+type and the byte length of every stored object when asked, writes the agent
 skill document it carries, and generates its own shell completions and man
 page. Automatic matching, receipt parsing,
 KRX and `.es3` handling, editing of a stored record other than the case record
@@ -215,7 +217,7 @@ exit codes, is in [architecture and CLI contract](docs/architecture.md).
 | --- | --- |
 | Preserve original submission and receipt bytes in a local case archive. | Implemented by `import` and the write-once artefact store. |
 | Associate submissions, attachments, and receipts with explicit provenance. | Implemented for the user's own assertions; automatic matching and receipt parsing are not implemented, and the only derived metadata is the media type and the byte length `archive derive` computes on request. |
-| Expose case information through a CLI and structured JSON. | Implemented by the list, show, export, and `search` commands; `search` reads the user's own record text only. |
+| Expose case information through a CLI and structured JSON. | Implemented by the list, show, export, and `search` commands; `search` and `case list --query` read the user's own record text only, and searching the content of stored artefacts is not implemented. |
 | Delegate KRX container processing to [openKRX](https://github.com/watt-mind/openKRX) and `.es3` processing to [openSzigno](https://github.com/watt-mind/openSzigno). | Not implemented. Neither sibling project is a build dependency of this project, and neither parser is copied into it. |
 | Delegated authenticity verification, reported with its exact scope and trust context. | Not implemented. No cryptographic check of any kind exists here. |
 | Government submission and delivery. | Not implemented and out of scope for now. |
@@ -344,8 +346,12 @@ See [contributing](CONTRIBUTING.md), whose Documentation section states how
 the documents are kept correct, and [security](SECURITY.md). The
 [roadmap](docs/roadmap.md) records the bounded discovery work each format
 decision waits on, and its fifth milestone, the local organiser, records the
-order of the remaining local work: restoring from an export, case lifecycle
+order of that work: restoring from an export, case lifecycle
 and search, the receipt-retrieval reminder, the entangled-deletion remedy,
-generative testing, a whole-archive export, a release pipeline, completions
-and man pages, a user guide, derived metadata on explicit request, and
-encrypted backup at rest.
+generative testing, a release pipeline and a Windows-target lint, shell
+completions and man pages, an end-to-end user guide, a whole-archive export,
+derived metadata on explicit request, and encrypted backup at rest. Every item
+but the last is implemented; encrypted backup at rest is blocked on widening
+the licence allow list, per the dependency review recorded in
+[local archive layout and storage design](docs/archive-layout.md), which ran
+and admitted no candidate.

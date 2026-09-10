@@ -614,6 +614,26 @@ envelope.
 
 ### Changed
 
+- The documentation states the fifth milestone as it stands rather than as it
+  was planned. `docs/roadmap.md` marks the release pipeline and the
+  Windows-target lint, the shell completions and the man page, and the
+  end-to-end guide implemented, and marks encrypted backup at rest blocked on
+  the licence allow-list decision rather than on the dependency review, which
+  has run and is recorded in `docs/archive-layout.md`. It no longer says
+  derived metadata is unimplemented. `docs/specification.md` matches those
+  markers, lists the milestone in the roadmap's order, and says in the
+  decided-designs table what the encrypted backup now waits on; `README.md`
+  lists the milestone in the same order and says which items stand where;
+  `docs/releasing.md` replaces the stale scope answer with the operations
+  `capabilities` reports and what a release statement still has to say is
+  absent; `docs/archive-layout.md` marks derived-metadata
+  recompute-on-request implemented as `archive derive`; and `docs/index.md`
+  describes `archive-layout.md` with its encrypted-backup design and names the
+  record reads, the whole-archive export and import, and the generated
+  completions and man page among the implemented operations. `README.md` also
+  states that `case list` narrows by the fields a case record carries and that
+  searching artefact content is what is absent. No behaviour, contract, or
+  output changes.
 - `case import` and `archive import` are bounded by their own ceiling,
   `input.cap.restore_bytes`, over the sum of the object bytes the export's
   manifest names, checked before any copy is opened and before the writer lock
@@ -698,7 +718,7 @@ envelope.
   deleted, and the archive stays clean afterwards.
 - `docs/roadmap.md` gains a fifth milestone, the local organiser, which
   sequences the remaining local work and names the gate and the state of each
-  item; none of the eleven items is implemented yet. The
+  item, each of which was still to do when the milestone was written. The
   receipt-retrieval reminder is attributed to the operator's own descriptive
   30-day statement in `docs/receipt-discovery.md` source E1, retrieved
   2026-09-09. "Later, subject to evidence" now names receipt parsing, KRX
