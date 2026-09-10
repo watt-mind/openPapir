@@ -9,10 +9,12 @@ The implementation is early: help, version, and the operations
 case, submission, receipt, and user-asserted association records, the update
 of one case record, the withdrawal of one assertion, the read-only
 whole-archive integrity check, the read-only summary and its
-receipt-retrieval reminders, the export of one case and the import of such an
-export back into an archive, the permission repair, deleting a case with an
-explicit purge, computing derived metadata on request, and writing the
-embedded agent skill document. The one
+receipt-retrieval reminders, the read-only reads of one stored record with
+what relates to it, the export of one case or of a whole archive and the
+import of such an export back into an archive, the permission repair,
+deleting a case with an explicit purge, computing derived metadata on request,
+writing the embedded agent skill document, and generating the shell completion
+scripts and the man page. The one
 enumeration of them is the table in
 [architecture and CLI contract](architecture.md).
 Every document below separates implemented behaviour from plans, and the
@@ -34,7 +36,7 @@ are in the Documentation section of [contributing](../CONTRIBUTING.md).
 | [guide.md](guide.md) | End-to-end walkthrough of one matter on a synthetic example, with the real command output at every step, the receipt-retrieval window and the attributed sources behind it, and a short section for agents. |
 | [roadmap.md](roadmap.md) | Milestone sequencing and the discovery gates that must close before implementation, plus how work is split into bounded issues. |
 | [receipt-discovery.md](receipt-discovery.md) | Discovery note recording what public sources state about one candidate receipt type, a proposed local case model, and the questions that stay open. |
-| [archive-layout.md](archive-layout.md) | Design for review of the local archive: storage technology, on-disk layout, record shapes, association states, export, backup, and deletion semantics, and the dated dependency review for the encrypted backup container, which admitted no candidate. Partly implemented; architecture.md is authoritative for the implemented part. |
+| [archive-layout.md](archive-layout.md) | Design for review of the local archive: storage technology, on-disk layout, record shapes, association states, derived metadata, export and deletion semantics, and the encrypted-backup-at-rest design, which covers a copy kept outside the archive and is decided but not built, together with the dated dependency review for its container, which admitted no candidate. Partly implemented; architecture.md is authoritative for the implemented part. |
 | [error-contract.md](error-contract.md) | Specification for review of the import and association error model: the extended JSON envelope, the stable error-code catalogue, and the exit-code mapping. Partly implemented; architecture.md is authoritative for the implemented part. |
 | [testing.md](testing.md) | Test layout, the coverage expectation, the scan benchmark and how to run it, the synthetic public fixture policy, and the rules for any future private input. |
 | [references.md](references.md) | Related independent projects, discovery entry points, and the evidence policy every future format decision must satisfy. |

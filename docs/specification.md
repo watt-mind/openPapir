@@ -133,7 +133,7 @@ it. Nothing that is still only decided changes the capabilities output.
 | Document | What it decides | What of it is still only decided |
 | --- | --- | --- |
 | [receipt evidence and local case model decisions](receipt-discovery.md) | What authoritative public sources actually state about one candidate receipt type, the smallest useful local case model, and which questions stay open. | All of it. No receipt is parsed and no finding of that note has code behind it. |
-| [local archive layout and storage design](archive-layout.md) | The storage technology, the on-disk layout, the record shapes, the deletion, permission, and atomic-write semantics of the local archive, and the encrypted backup: the backup artefact only, a standard AEAD container over a tarball of the export shape, a passphrase-derived key with a memory-hard KDF, and no key stored by openPapir. | Verification records, everything a derived record could hold beyond a media type and a byte length, the rebuildable `cache/` index, schema migration, and the encrypted backup, whose remaining open point is the dependency review that admits a container crate. |
+| [local archive layout and storage design](archive-layout.md) | The storage technology, the on-disk layout, the record shapes, the deletion, permission, and atomic-write semantics of the local archive, and the encrypted backup: the backup artefact only, a standard AEAD container over a tarball of the export shape, a passphrase-derived key with a memory-hard KDF, and no key stored by openPapir. | Verification records, everything a derived record could hold beyond a media type and a byte length, the rebuildable `cache/` index, schema migration, and the encrypted backup, whose dependency review has run and admitted no candidate, so what it now waits on is a decision to widen the licence allow list. |
 | [import and association error, JSON, and exit-code contract](error-contract.md) | How a command extends the JSON envelope with an error object and warnings, the stable error-code catalogue, and the exit-code mapping. | The reserved codes `lock.stale`, `path.traversal`, and `write.incomplete`, and every automatic or derived evidence shape. |
 
 The archive, record, error, integrity, export, import, permission-repair, and
@@ -180,10 +180,13 @@ archive into a usable local organiser: restoring from an export, case
 lifecycle and search, the receipt-retrieval reminder, the entangled-deletion
 remedy, generative testing, a release pipeline and a Windows-target lint,
 shell completions and man pages, an end-to-end user guide, a whole-archive
-export, derived metadata on explicit request, which is implemented as
-`archive derive`, and encrypted backup at rest.
-Each item there is marked implemented or planned, and those markers are the
-current state of that milestone; "Implemented today" above is what the
+export, derived metadata on explicit request, and encrypted backup at rest.
+Each item there is marked implemented, planned, or blocked with its reason,
+and those markers are the current state of that milestone: every item but the
+last is implemented, and encrypted backup at rest is blocked on widening the
+licence allow list, per the dependency review recorded in
+[local archive layout and storage design](archive-layout.md), which ran and
+admitted no candidate. "Implemented today" above is what the
 executable does now. Receipt parsing, KRX package import, delegated
 `.es3` verification, and any integration with the e-Papír service stay behind
 their blockers. The roadmap records design sequencing, not queue status.

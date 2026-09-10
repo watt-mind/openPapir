@@ -1089,8 +1089,12 @@ tracker owns; the sequencing only is recorded here.
   `archive import`, and `archive repair-permissions`.
 - **Case deletion with an explicit purge** (new): **implemented** as
   `case delete`.
-- **Derived-metadata staleness and recompute-on-request** (new): **not
-  implemented**. Depends on nothing further in this document.
+- **Derived-metadata staleness and recompute-on-request** (new):
+  **implemented** as `archive derive`, which runs only when asked and
+  recomputes every record in place on request, so no staleness marker is
+  stored. A record left naming an object the archive no longer holds is
+  counted by `archive check` as `derived_orphans` and discarded by the next
+  derivation.
 - **Encrypted backup at rest** (new): **not implemented**, decided above.
   It depended on a dependency review admitting one container crate. That
   review ran on 2026-09-10 and is recorded in Dependency review above; its

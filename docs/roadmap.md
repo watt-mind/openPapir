@@ -40,8 +40,10 @@ note is answered by the
 which specifies the JSON envelope, the error-code catalogue, and the
 exit-code mapping for review. The storage, record, error, and deletion parts
 of both documents are now implemented and their contract is in
-[architecture and CLI contract](architecture.md); derived metadata,
-verification results, migration, and encrypted backup at rest are not.
+[architecture and CLI contract](architecture.md), and derived metadata is
+implemented as far as the media type and the byte length `archive derive`
+computes on request; verification results, migration, and encrypted backup at
+rest are not.
 
 ## 3. Implement one offline workflow
 
@@ -112,13 +114,18 @@ page's last update.
 - A release pipeline and a Windows-target lint publish a checked build and
   keep the cross-platform path and permission rules honest on the target that
   differs most, gated on [releasing](releasing.md) recording the release
-  position that this work changes: planned.
+  position that this work changes: implemented as
+  `.github/workflows/release.yml` and the Windows-target clippy job in
+  `.github/workflows/ci.yml`. No tag has been cut, so nothing is published;
+  [releasing](releasing.md) records that position.
 - Shell completions and man pages ship the command surface in the forms a
   shell and a terminal already read, gated on the command set being settled
-  enough that the generated files do not contradict the binary: planned.
+  enough that the generated files do not contradict the binary: implemented as
+  `completions` and `manpage`, both generated from the same command definition
+  the argument parser uses.
 - An end-to-end user guide walks one archive from the first import through
   association and export, gated on every operation it walks through being
-  implemented: planned.
+  implemented: implemented as [end-to-end guide](guide.md).
 - A whole-archive export (`archive export`) writes every case, submission,
   receipt, association, and import event in one pass, with the same preserved
   originals as `case export` and the archive marker beside the manifest, and
@@ -141,7 +148,8 @@ page's last update.
   the same document; it admitted no candidate, because the only crate that
   implements the decided container reaches three BSD-3-Clause crates the
   `deny.toml` allow list does not carry. The gate therefore stays shut until
-  that allow list is decided on its own terms: planned, blocked.
+  that allow list is decided on its own terms: blocked on that decision. Every
+  other item above is implemented.
 
 ## Later, subject to evidence
 

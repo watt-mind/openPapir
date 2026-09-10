@@ -34,13 +34,22 @@ because a check went green; it moves when a maintainer decides the claim on
 
 ## What a first release would need
 
-None of the following is set up. This is the checklist, not a procedure to
-follow today.
+This is the checklist, not a procedure to follow today. Each item says where
+it stands; a release happens when a maintainer decides every one of them is
+satisfied, not when the last of them turns green.
 
 1. **An honest scope statement.** A release describes what the binary does.
-   The current answer is help, version, and capabilities reporting, which is
-   not worth releasing. A first release waits for one complete offline
-   workflow; see [roadmap and discovery gates](roadmap.md).
+   The current answer is the set of operations `capabilities` reports, which
+   covers the offline workflow end to end: create an archive, import files
+   with their original bytes preserved, organise them into cases and
+   submissions, record receipts and the user's own assertions about them,
+   check an archive, copy a case or a whole archive out and read such a copy
+   back, and delete a case. The scope statement also has to say what is
+   absent, because receipt parsing, KRX and `.es3` handling, verification
+   results, and any integration with the service stay blocked, and no output
+   claims delivery, receipt by an authority, authenticity, or legal effect;
+   see [roadmap and discovery gates](roadmap.md). Writing that statement is
+   still to do.
 2. **A version bump.** Decide the version in `Cargo.toml`, and decide whether
    the JSON envelope's `schema_version` moves with it. The envelope is
    versioned separately from the crate; see
