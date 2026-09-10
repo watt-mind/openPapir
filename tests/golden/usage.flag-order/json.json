@@ -1,0 +1,16 @@
+{
+  "command": "openpapir",
+  "data": {},
+  "error": {
+    "code": "usage.arguments",
+    "details": {
+      "argument": "archive",
+      "bucket": "usage",
+      "placement": "after_subcommand"
+    },
+    "message": "The argument belongs after the subcommand, not before it. Write the subcommand first and the flag after it."
+  },
+  "ok": false,
+  "schema_version": 1,
+  "verified": false
+}
