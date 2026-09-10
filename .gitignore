@@ -17,3 +17,4 @@
 # Local Factory harness links never travel through Git.
 .claude/commands/factory-*.md
 .cursor/commands/factory-*.md
+__pycache__/
