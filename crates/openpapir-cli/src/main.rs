@@ -47,6 +47,12 @@
 //! - `openpapir skill`, the embedded agent skill document, written to stdout
 //!   byte for byte. It takes no file and no `--json`. A reader that closed the
 //!   pipe still exits `0`; any other failing write exits `4`.
+//! - `openpapir completions <shell>`, the completion script for one of
+//!   `bash`, `zsh`, `fish`, `powershell`, or `elvish`, written to stdout.
+//! - `openpapir manpage`, the man page for the whole command tree, written to
+//!   stdout as one roff stream. Both are generated from the same command
+//!   definition the parser uses, take no file and no `--json`, and follow
+//!   `skill`'s rule for a stdout that cannot take the bytes.
 //!
 //! There is no automatic matching, no derived metadata, no receipt parsing,
 //! no export of a whole archive, no editing of a stored record other than the
@@ -85,12 +91,15 @@
 
 mod associations;
 mod cases;
+mod completions;
 mod delete;
 mod envelope;
+mod manpage;
 mod report;
 mod restore;
 mod skill;
 mod status;
+mod stdout;
 mod usage;
 
 use std::path::PathBuf;
@@ -147,6 +156,14 @@ enum Command {
     },
     /// Write the embedded agent skill document to stdout and nothing else.
     Skill,
+    /// Write one shell's completion script to stdout and nothing else.
+    Completions {
+        /// The shell to generate the completion script for.
+        #[arg(value_name = "SHELL")]
+        shell: clap_complete::Shell,
+    },
+    /// Write the man page for the whole command tree to stdout.
+    Manpage,
     /// Import local files into the archive's artefact store.
     Import {
         /// The archive root, which is always supplied explicitly.
@@ -341,6 +358,8 @@ fn run(command: Command) -> i32 {
             report::imported,
         ),
         Command::Skill => skill::emit(),
+        Command::Completions { shell } => completions::emit::<Args>(shell),
+        Command::Manpage => manpage::emit::<Args>(),
         Command::Case { command } => cases::run(command),
         Command::Submission { command } => run_submission(command),
         Command::Receipt { command } => run_receipt(command),

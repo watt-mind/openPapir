@@ -12,12 +12,12 @@ a whole archive against what its records claim without changing anything,
 copies one case out of the archive as plain files and reads such a copy back
 in, keeps a case record current, narrows a restored archive's permissions back
 to owner-only, deletes a case when asked, removing stored bytes only on an
-explicit `--purge`, and writes the agent skill document it carries. Automatic
-matching, derived metadata, receipt parsing, KRX and `.es3` handling, editing
-of a stored record other than the case record `case update` rewrites, deleting
-a single submission or receipt, deleting an archive, signature verification,
-and government delivery are not implemented. There is no
-published release.
+explicit `--purge`, writes the agent skill document it carries, and generates
+its own shell completions and man page. Automatic matching, derived metadata,
+receipt parsing, KRX and `.es3` handling, editing of a stored record other
+than the case record `case update` rewrites, deleting a single submission or
+receipt, deleting an archive, signature verification, and government delivery
+are not implemented. There is no published release.
 
 openPapir is an independent open-source project. It is not the government's
 e-Papír service, is not affiliated with its operators, and does not submit
@@ -52,6 +52,8 @@ cargo run --locked -p openpapir-cli -- case import --archive ./my-archive --from
 cargo run --locked -p openpapir-cli -- archive repair-permissions --archive ./my-archive --json
 cargo run --locked -p openpapir-cli -- case delete --archive ./my-archive --case <case-id> --purge --json
 cargo run --locked -p openpapir-cli -- skill
+cargo run --locked -p openpapir-cli -- completions bash
+cargo run --locked -p openpapir-cli -- manpage
 ```
 
 The capabilities command reports the current implementation honestly:
@@ -86,7 +88,9 @@ The capabilities command reports the current implementation honestly:
       "case.update",
       "submission.show",
       "receipt.show",
-      "association.show"
+      "association.show",
+      "completions",
+      "manpage"
     ]
   },
   "verified": false
@@ -94,7 +98,7 @@ The capabilities command reports the current implementation honestly:
 ```
 
 The operation list names exactly what is implemented today, one sentence
-each. All but the last can process input:
+each. All but the last three can process input:
 
 - `archive init` creates an archive in an existing, empty directory, writing
   the marker first and refusing to adopt anything else.
@@ -158,8 +162,15 @@ each. All but the last can process input:
   digest or a filename, records no deletion anywhere, and does not erase data
   from the storage medium.
 - `skill` writes the embedded agent skill document to stdout byte for byte and
-  adds nothing. It takes no file and no `--json`, touches no archive, and is
-  the one operation that processes no input.
+  adds nothing. It takes no file and no `--json`, touches no archive, and
+  processes no input.
+- `completions` writes one shell's completion script to stdout, for `bash`,
+  `zsh`, `fish`, `powershell`, or `elvish`. A shell it cannot generate for is
+  a usage refusal naming the `shell` argument.
+- `manpage` writes the man page for the whole command tree to stdout as one
+  roff stream: the page for `openpapir` first, then one page for each
+  subcommand. Both are generated from the same command definition the parser
+  uses, take no file and no `--json`, and touch no archive.
 
 Every record is the user's own local record: openPapir sends nothing and reads
 no artefact bytes, so a submission is what the user states they sent, a
@@ -219,6 +230,26 @@ install it for every project instead of one. The same bytes are committed as
 Both modes are pinned byte for byte by the captured output under
 [tests/golden](tests/golden/README.md), so a change to what a caller parses is
 a reviewed change rather than an accident.
+
+## Shell completions and the man page
+
+The binary generates both from the same command definition its parser uses, so
+neither can fall behind the commands it has. Both write to stdout, so the
+destination is your own redirection:
+
+```sh
+openpapir completions bash > ~/.local/share/bash-completion/completions/openpapir
+openpapir completions zsh > ~/.local/share/zsh/site-functions/_openpapir
+openpapir completions fish > ~/.config/fish/completions/openpapir.fish
+openpapir manpage > ~/.local/share/man/man1/openpapir.1
+```
+
+`powershell` and `elvish` are offered as well; a shell outside the five is a
+usage refusal. Start a new shell after installing the script. The man stream
+holds the page for `openpapir` and one page for each subcommand, so
+`man openpapir` shows the whole tool, and `openpapir manpage | man -l -` reads
+it without installing anything. No release archive carries either file today;
+see [releasing](docs/releasing.md).
 
 ## People
 

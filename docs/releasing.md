@@ -91,10 +91,21 @@ and every other artefact runs `openpapir capabilities --json` on the runner
 that built it.
 
 Each archive holds the binary, `LICENSE`, `README.md`, and `CHANGELOG.md`
-under a single directory named `openpapir-<version>-<target>`. Beside each
-archive is a `<archive>.sha256` file in the format `sha256sum --check` reads.
-The checksum is written and verified on the runner that built the archive and
-verified again from the collected artefacts before a draft release is created.
+under a single directory named `openpapir-<version>-<target>`. It carries no
+generated shell completion script and no generated man page: the binary writes
+both itself, `openpapir completions <shell>` and `openpapir manpage`, from the
+command definition it was built with, so a copy in the archive could only be
+the same bytes or stale ones, and generating them per target would add a step
+to five build jobs for a file the user already has. A packager who wants them
+as files runs the two commands during packaging, which
+[README.md](../README.md) documents. Should a first release want them shipped
+anyway, adding them is a change to `.github/workflows/release.yml` and to this
+section, taken in its own pull request.
+
+Beside each archive is a `<archive>.sha256` file in the format
+`sha256sum --check` reads. The checksum is written and verified on the runner
+that built the archive and verified again from the collected artefacts before
+a draft release is created.
 
 ### Provenance
 

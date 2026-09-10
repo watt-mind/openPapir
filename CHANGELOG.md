@@ -50,6 +50,24 @@ envelope.
   effect. Goldens added for `submission.show`, `receipt.show`, and
   `association.show`, and `capabilities` and `case.show` regenerated.
 
+- `openpapir completions <bash|zsh|fish|powershell|elvish>`, operation
+  `completions`, writes one shell's completion script to stdout, and
+  `openpapir manpage`, operation `manpage`, writes the man page for the whole
+  command tree to stdout as one roff stream: the page for `openpapir` first
+  and then one page per subcommand, filed under the dashed name a manual page
+  for that command carries. Both are generated from the same command
+  definition the argument parser uses, so neither can describe a command this
+  build does not have. Like `skill`, both take no file, no archive, and no
+  `--json`, and follow its stdout rule: a reader that closed the pipe exits
+  `0`, and any other failing write exits `4` with one line on stderr that
+  names no path. A shell outside the five is `usage.arguments` naming the
+  `shell` argument, and the value typed is never echoed. `capabilities` now
+  reports both operations. Neither output is pinned byte for byte, because
+  both move with the generator's version; the tests pin that every shell's
+  script names every subcommand and that the man stream holds a page for
+  every command. `clap_complete` and `clap_mangen` are added as workspace
+  dependencies, and `clap`'s `string` feature with them. Release archives
+  carry neither file; see `docs/releasing.md`.
 - An ignored benchmark, `crates/openpapir-cli/tests/bench.rs`, times the
   linear scans on a synthetic archive of 10000 cases, 10000 submissions,
   10000 receipts, 10000 associations, and 20000 imported objects, and asserts
