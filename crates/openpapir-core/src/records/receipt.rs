@@ -157,6 +157,12 @@ fn add_record(
 /// A named event must exist and must record this artefact. An unnamed one is
 /// the earliest event for the digest, by `imported_at` and then by identifier
 /// so that the choice is the same on every run.
+///
+/// Records are named by a minted identifier and nothing indexes them by
+/// digest, so an unnamed event costs one scan of the import events, once per
+/// invocation rather than once per input. A named one costs one record read.
+/// The Performance section of `docs/architecture.md` says what that scan
+/// measured over twenty thousand events.
 fn resolve_import_event(
     root: &Path,
     digest: &str,

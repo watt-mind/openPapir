@@ -379,6 +379,52 @@ fn a_duplicate_import_is_not_an_error_and_records_a_second_event() {
     assert!(!rendered.contains("second.txt"), "no filename is reported");
 }
 
+/// Duplicate detection reads the stored import events at most once for a
+/// whole operation, so a repeated input inside one command line has to count
+/// the events that same command line wrote a moment earlier.
+#[test]
+fn repeated_inputs_in_one_operation_count_the_events_it_just_recorded() {
+    let (root, inputs) = archive();
+    let first = write_input(inputs.path(), "first.txt", PAYLOAD);
+    let other = write_input(inputs.path(), "other.txt", b"another payload");
+    let third = write_input(inputs.path(), "third.txt", PAYLOAD);
+    let fourth = write_input(inputs.path(), "fourth.txt", PAYLOAD);
+    let output = run(&[
+        "import",
+        "--archive",
+        path(root.path()),
+        "--json",
+        path(&first),
+        path(&other),
+        path(&third),
+        path(&fourth),
+    ]);
+    let envelope = stdout_json(&output);
+    assert_envelope(&envelope, "import", true);
+    assert_eq!(output.status.code(), Some(0), "a duplicate exits zero");
+    assert_eq!(envelope["data"]["imported"], 2);
+    assert_eq!(envelope["data"]["duplicates"], 2);
+    let artefacts = envelope["data"]["artefacts"].as_array().unwrap();
+    assert!(artefacts[0].get("previous_import_count").is_none());
+    assert!(artefacts[1].get("previous_import_count").is_none());
+    assert_eq!(artefacts[2]["previous_import_count"], 1);
+    assert_eq!(artefacts[3]["previous_import_count"], 2);
+    assert_eq!(artefacts[3]["digest"], artefacts[0]["digest"]);
+    assert!(
+        artefacts[3]["first_imported_at"]
+            .as_str()
+            .unwrap()
+            .ends_with('Z')
+    );
+    assert_eq!(
+        fs::read_dir(root.path().join("records/imports"))
+            .unwrap()
+            .count(),
+        4,
+        "each input records its own event"
+    );
+}
+
 #[test]
 fn several_inputs_import_in_one_operation_under_one_lock() {
     let (root, inputs) = archive();
