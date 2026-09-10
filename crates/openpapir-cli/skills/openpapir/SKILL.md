@@ -105,6 +105,13 @@ Use `.codex/skills/openpapir/` for Codex, or `~/.claude/skills/openpapir/` to
 install it for every project instead of one. `openpapir skill` takes no file
 and no `--json` and writes the document and nothing else.
 
+The binary also generates its own shell completions and its own man page,
+both to stdout and neither touching an archive:
+`openpapir completions bash|zsh|fish|powershell|elvish` writes one shell's
+completion script, and `openpapir manpage` writes the man page for the whole
+command tree as one roff stream. A shell outside that set is a usage refusal.
+Offer them when the user is setting the tool up; nothing else needs them.
+
 Check the exit code of that redirection. It is `0` when the document was
 written, and `0` too when a reader such as `head` closed the pipe, which is
 not a failure. It is `4`, the `write` bucket's code, when the destination
@@ -597,6 +604,8 @@ openpapir association show --archive ROOT ASSOCIATION_ID --json
 openpapir association retire --archive ROOT ASSOCIATION_ID [--reason TEXT] \
   --json
 openpapir skill
+openpapir completions bash|zsh|fish|powershell|elvish
+openpapir manpage
 ```
 
 The full contract, including every error code and the privacy rule, is

@@ -108,6 +108,8 @@ const OPERATIONS: &[&str] = &[
     "submission.show",
     "receipt.show",
     "association.show",
+    "completions",
+    "manpage",
 ];
 
 /// The closed set of implementation stages `capabilities` may report, in
@@ -199,7 +201,9 @@ mod tests {
                 "case.update",
                 "submission.show",
                 "receipt.show",
-                "association.show"
+                "association.show",
+                "completions",
+                "manpage"
             ]
         );
         assert_eq!(reported.project, "openPapir");

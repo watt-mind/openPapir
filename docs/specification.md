@@ -46,9 +46,9 @@ it holds into cases and submissions, records receipts and the user's own
 assertions about them, checks the whole archive against what its records
 claim, summarises what it holds and what is still worth looking for, copies
 one case out of the archive and reads such a copy back in, narrows a restored
-archive's permissions back to owner-only, deletes a case on request, and
-writes the agent skill document it carries. These invocations exist and
-nothing else:
+archive's permissions back to owner-only, deletes a case on request, writes
+the agent skill document it carries, and generates its own shell completions
+and man page. These invocations exist and nothing else:
 
 | Invocation | Result |
 | --- | --- |
@@ -77,6 +77,8 @@ nothing else:
 | `openpapir archive repair-permissions --archive <root> [--json]` | Narrows every path in the archive back to owner-only and reports the counts it changed. It only ever narrows. |
 | `openpapir case delete --archive <root> --case <case-id> [--purge] [--json]` | Deletes one case and its submissions, with the receipts and association histories tied only to them. Objects go only with `--purge`, and only when nothing that remains references them. |
 | `openpapir skill` | Writes the embedded agent skill document to stdout, byte for byte and with nothing added. It takes no file and no `--json`, touches no archive, and exits `0`. |
+| `openpapir completions <bash\|zsh\|fish\|powershell\|elvish>` | Writes one shell's completion script to stdout, generated from the command definition the parser uses. It takes no file and no `--json`, touches no archive, and exits `0`. |
+| `openpapir manpage` | Writes the man page for the whole command tree to stdout as one roff stream, the page for `openpapir` first and then one page for each subcommand. It takes no file, no directory, and no `--json`, touches no archive, and exits `0`. |
 
 The exact envelope, the storage guarantees, the input caps, the implemented
 error codes, the exit-code mapping, and the privacy rule that binds all output

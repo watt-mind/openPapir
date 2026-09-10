@@ -39,8 +39,8 @@ of each kind of content, and the style are in the Documentation section of
   import with the original bytes preserved, the case, submission, receipt, and
   association records, the withdrawal of one assertion, the update of one
   case record, the export of one case and the import of such an export back
-  into an archive, the deletion of one case with an explicit purge, and
-  `skill`.
+  into an archive, the deletion of one case with an explicit purge, `skill`,
+  and the generated shell completions and man page.
   [Architecture and CLI contract](docs/architecture.md) is the contract of
   what is implemented, and the
   [specification index](docs/specification.md) indexes everything else. Not

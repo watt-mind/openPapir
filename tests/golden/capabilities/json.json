@@ -23,7 +23,9 @@
       "case.update",
       "submission.show",
       "receipt.show",
-      "association.show"
+      "association.show",
+      "completions",
+      "manpage"
     ],
     "project": "openPapir",
     "stage": "alpha"

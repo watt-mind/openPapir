@@ -878,7 +878,9 @@ fn capabilities_report_exactly_the_implemented_operations() {
             "case.update",
             "submission.show",
             "receipt.show",
-            "association.show"
+            "association.show",
+            "completions",
+            "manpage"
         ])
     );
 }
