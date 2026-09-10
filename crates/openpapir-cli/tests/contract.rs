@@ -332,6 +332,20 @@ fn operation_named_by(invocation: &str) -> Option<String> {
     (!path.is_empty()).then(|| path.join(".").replace('-', "_"))
 }
 
+/// One invocation cell as the comparison reads it.
+///
+/// Backticks and the padding a Markdown table uses to align its columns are
+/// presentation, and so is a run of spaces inside a cell, so an invocation
+/// that reads the same reads equal however either document spaces it. Nothing
+/// else is dropped: a flag one document names and the other does not stays a
+/// difference.
+fn normalised_invocation(cell: &str) -> String {
+    cell.trim_matches('`')
+        .split_whitespace()
+        .collect::<Vec<&str>>()
+        .join(" ")
+}
+
 /// Both documented enumerations of the operations agree with the binary.
 ///
 /// Prose everywhere else defers to the list `capabilities` reports, and the
@@ -401,5 +415,63 @@ fn the_documented_tables_list_exactly_the_reported_operations() {
     assert_eq!(
         specified, reported,
         "docs/specification.md and capabilities disagree about the operations"
+    );
+}
+
+/// The two tables spell every operation's invocation the same way.
+///
+/// The operation names alone are guarded above, which leaves the invocation
+/// columns free to drift: a flag added to one table and not the other
+/// documents the same command two ways, and a reader who follows the wrong
+/// row is told to run something the binary refuses. The rule is equality
+/// after whitespace normalisation, not a prefix, because a terse row would
+/// let the specification keep an invocation that is merely no longer wrong
+/// while the flag it omits stays undocumented there. The Documentation
+/// section of `CONTRIBUTING.md` records that rule for contributors.
+#[test]
+fn the_two_tables_document_the_same_invocation_for_every_operation() {
+    let repository = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+
+    let architecture = std::fs::read_to_string(repository.join("docs/architecture.md"))
+        .expect("read the architecture document");
+    let authoritative: std::collections::BTreeMap<String, String> = table_under(
+        &architecture,
+        "Current implementation",
+        &["Operation", "Invocation"],
+    )
+    .iter()
+    .map(|row| {
+        (
+            row[0].trim_matches('`').to_owned(),
+            normalised_invocation(&row[1]),
+        )
+    })
+    .collect();
+
+    let specification = std::fs::read_to_string(repository.join("docs/specification.md"))
+        .expect("read the specification index");
+    let mut compared = 0;
+    for row in table_under(
+        &specification,
+        "Implemented today",
+        &["Invocation", "Result"],
+    ) {
+        let Some(operation) = operation_named_by(&row[0]) else {
+            continue;
+        };
+        let Some(expected) = authoritative.get(&operation) else {
+            continue;
+        };
+        assert_eq!(
+            &normalised_invocation(&row[0]),
+            expected,
+            "docs/specification.md and docs/architecture.md document {operation} differently"
+        );
+        compared += 1;
+    }
+    assert_eq!(
+        compared,
+        authoritative.len(),
+        "every operation the architecture table names has a specification row"
     );
 }

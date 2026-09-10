@@ -77,6 +77,16 @@ such a pull request updates all of:
 3. [documentation index](docs/index.md), when a file is added or removed.
 4. [CHANGELOG.md](CHANGELOG.md), with an entry under Unreleased.
 
+Two tables enumerate the operations: the one under Current implementation in
+[architecture](docs/architecture.md), which is authoritative, and the
+Implemented today table in [specification](docs/specification.md). A change to
+a command's flags updates both rows, and both rows spell the invocation the
+same way: the specification is not kept terse, so the two cells are equal once
+backticks and repeated spaces are ignored. `crates/openpapir-cli/tests/contract.rs`
+compares the operation names against the list `capabilities` reports and the
+invocation cells against each other, so either table drifting on its own fails
+the test suite.
+
 ### Where things live
 
 | Content | Home |

@@ -559,7 +559,13 @@ envelope.
   before the field existed holds one case, so a reader that meets no
   `export_scope` reads it as `case`, and `case export` writes the same
   `case_id` it always did. A whole-archive manifest names no `case_id` at all.
-
+- The two operation tables are guarded against each other, not only against
+  the binary. `crates/openpapir-cli/tests/contract.rs` now also compares the
+  invocation cell of every operation in the Implemented today table of
+  `docs/specification.md` with the one in the Current implementation table of
+  `docs/architecture.md`, which are equal once backticks and repeated spaces
+  are ignored, so a flag added to one table and not the other fails the test
+  suite. The Documentation section of `CONTRIBUTING.md` records the rule.
 - The documentation names no operation count. `docs/architecture.md` gains
   one authoritative table under "Current implementation", listing each
   operation `capabilities` reports beside its invocation, and
