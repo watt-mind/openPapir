@@ -350,11 +350,14 @@ Run this at the start of a session to orient yourself, and whenever the user
 asks what is outstanding. It is read-only in the same sense as
 `archive check`: no lock, nothing written, and no artefact byte read.
 
-`data` holds `as_of`, `cases`, `submissions`, `receipts`, `associations`,
-`stored_objects`, `undated_submissions`, `retention_window_days`, and
-`receipts_to_retrieve[]`, each entry with `case_id`, `submission_id`,
-`submission_date`, `retrieve_by`, and `days_left`, ordered by `retrieve_by`.
-`cases` is a total: a case record carries no status field in this build.
+`data` holds `as_of`, `cases`, `cases_by_status[]`, `submissions`,
+`receipts`, `associations`, `stored_objects`, `undated_submissions`,
+`retention_window_days`, and `receipts_to_retrieve[]`, each entry with
+`case_id`, `submission_id`, `submission_date`, `retrieve_by`, and `days_left`,
+ordered by `retrieve_by`. `cases_by_status[]` holds one `{count, status}` per
+status in the closed set, including a status no case holds, and sums to
+`cases`. A case's status changes no reminder: a submission in a closed case is
+listed exactly as one in an open case.
 
 A submission is listed when it carries a user-supplied date, no live
 association with outcome `associated` or `candidate` names it, and its date

@@ -28,7 +28,9 @@ envelope.
   (operation `archive.status`) summarises one archive without changing it and
   reminds the user where to look in their delivery storage for a submission
   receipt while the operator says one would still be there. `data` carries
-  `as_of`, the counts `cases`,
+  `as_of`, the counts `cases`, `cases_by_status[]` (one `{count, status}` per
+  status in the closed set, including a status no case holds, summing to
+  `cases`),
   `submissions`, `receipts`, `associations`, and `stored_objects`,
   `undated_submissions`, `retention_window_days`, and
   `receipts_to_retrieve[]`, each entry with `case_id`, `submission_id`,
@@ -51,7 +53,9 @@ envelope.
   incoming documents for 30 days unless they are moved to permanent storage,
   retrieved 2026-09-09, descriptive rather than normative. openPapir enforces
   nothing, reads no mailbox, and checks no service, and no output states
-  delivery, receipt by an authority, authenticity, or legal effect.
+  delivery, receipt by an authority, authenticity, or legal effect. A case's
+  status changes no reminder: closing a case is the user's own filing, so a
+  submission in a closed case is listed exactly as one in an open case.
 - `capabilities` now lists `archive.status`, so eighteen operations are
   reported, and every document that states the number or the list of
   operations states eighteen.

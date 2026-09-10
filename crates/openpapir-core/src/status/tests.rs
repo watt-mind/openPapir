@@ -331,6 +331,71 @@ fn an_empty_archive_is_summarised_with_zeroes_and_no_reminder() {
     assert_eq!(summary.undated_submissions, 0);
     assert_eq!(summary.retention_window_days, 30);
     assert!(summary.receipts_to_retrieve.is_empty());
+    let statuses: Vec<(&str, u64)> = summary
+        .cases_by_status
+        .iter()
+        .map(|entry| (entry.status, entry.count))
+        .collect();
+    assert_eq!(
+        statuses,
+        [("open", 0), ("closed", 0)],
+        "every status is reported, including one no case holds"
+    );
+}
+
+/// The breakdown counts every status and sums to the total, and a closed case
+/// is still reminded of: closing a case is the user's own filing and openPapir
+/// never decides that it means no receipt is wanted.
+#[test]
+fn the_status_breakdown_counts_every_case_and_changes_no_reminder() {
+    let root = tempfile::tempdir().unwrap();
+    archive::init(root.path()).unwrap();
+    let open = case::create(root.path(), "Tax matter", None)
+        .unwrap()
+        .data
+        .case;
+    let closed = case::create(root.path(), "Parking notice", None)
+        .unwrap()
+        .data
+        .case;
+    crate::records::submission::add(
+        root.path(),
+        &closed.id,
+        "Posted the completed form.",
+        Some("2026-01-20"),
+        &[],
+    )
+    .unwrap();
+    case::update(
+        root.path(),
+        &closed.id,
+        &case::Change {
+            status: Some(case::Status::Closed),
+            ..case::Change::default()
+        },
+    )
+    .unwrap();
+
+    let summary = status(root.path(), Some("2026-02-10")).unwrap().data;
+    assert_eq!(summary.cases, 2);
+    let statuses: Vec<(&str, u64)> = summary
+        .cases_by_status
+        .iter()
+        .map(|entry| (entry.status, entry.count))
+        .collect();
+    assert_eq!(statuses, [("open", 1), ("closed", 1)]);
+    assert_eq!(
+        statuses.iter().map(|(_, count)| count).sum::<u64>(),
+        summary.cases,
+        "the breakdown sums to the total"
+    );
+    assert_eq!(
+        summary.receipts_to_retrieve.len(),
+        1,
+        "a closed case's submission is still reminded of"
+    );
+    assert_eq!(summary.receipts_to_retrieve[0].case_id, closed.id);
+    let _ = open;
 }
 
 #[test]

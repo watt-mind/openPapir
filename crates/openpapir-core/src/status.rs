@@ -38,7 +38,7 @@ use crate::archive::objects::{ALGORITHM, OBJECTS_DIR};
 use crate::clock;
 use crate::error::{Details, Diagnostic, Failure, Outcome, Result, Warning, codes};
 use crate::records::association::Association;
-use crate::records::case::Case;
+use crate::records::case::{Case, Status as CaseStatus};
 use crate::records::document;
 use crate::records::is_digest;
 use crate::records::receipt::Receipt;
@@ -58,6 +58,23 @@ pub const RETENTION_WINDOW_DAYS: i64 = 30;
 /// found nothing, and the second that what they found conflicts, so in
 /// neither case has a receipt been tied to the submission.
 const NAMING_OUTCOMES: [&str; 2] = ["associated", "candidate"];
+
+/// The closed set of case statuses, in the order the summary reports them.
+///
+/// Every status is reported, including one no case holds, so a caller reads a
+/// count rather than testing for a key's presence, exactly as it does with
+/// the integrity check's `problems`.
+const CASE_STATUSES: [CaseStatus; 2] = [CaseStatus::Open, CaseStatus::Closed];
+
+/// How many cases hold one status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[non_exhaustive]
+pub struct StatusCount {
+    /// How many cases hold it.
+    pub count: u64,
+    /// The status's own stable lowercase name.
+    pub status: &'static str,
+}
 
 /// One reminder to retrieve a submission receipt while the window is open.
 ///
@@ -90,9 +107,11 @@ pub struct Status {
     pub as_of: String,
     /// How many association records the archive holds, superseded included.
     pub associations: u64,
-    /// How many cases the archive holds. A case record carries no status
-    /// field in this build, so this is a total and not a breakdown.
+    /// How many cases the archive holds, whatever their status.
     pub cases: u64,
+    /// One entry per case status, in the closed set's order, including a
+    /// status no case holds. The counts sum to `cases`.
+    pub cases_by_status: Vec<StatusCount>,
     /// How many receipt records the archive holds.
     pub receipts: u64,
     /// The submissions whose window is still open and which no association
@@ -164,6 +183,7 @@ fn summarise(
     Ok(Status {
         as_of,
         associations: associations.len() as u64,
+        cases_by_status: cases_by_status(&cases),
         cases: cases.len() as u64,
         receipts: receipts.len() as u64,
         receipts_to_retrieve,
@@ -172,6 +192,20 @@ fn summarise(
         submissions: submissions.len() as u64,
         undated_submissions,
     })
+}
+
+/// How many cases hold each status, in the closed set's order.
+///
+/// A status no case holds is reported as `0` rather than left out, so the
+/// shape of the array does not depend on what the archive happens to hold.
+fn cases_by_status(cases: &[Case]) -> Vec<StatusCount> {
+    CASE_STATUSES
+        .into_iter()
+        .map(|status| StatusCount {
+            count: cases.iter().filter(|case| case.status == status).count() as u64,
+            status: status.as_str(),
+        })
+        .collect()
 }
 
 /// Check the as-of date, defaulting to the clock's own date.

@@ -60,6 +60,15 @@ pub fn lines(summary: &Summary) -> Vec<String> {
             summary.stored_objects
         ),
         format!(
+            "Case(s) by status: {}.",
+            summary
+                .cases_by_status
+                .iter()
+                .map(|entry| format!("{} {}", entry.status, entry.count))
+                .collect::<Vec<String>>()
+                .join(", ")
+        ),
+        format!(
             "Submission(s) with no usable date: {}.",
             summary.undated_submissions
         ),

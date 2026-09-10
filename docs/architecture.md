@@ -933,9 +933,17 @@ flag. Without it the date is the process clock's own UTC date. A value that is
 not a calendar date is `usage.arguments` with `argument` `as_of`, refused
 before the archive is opened and never echoing the value.
 
-`cases` is a total. A case record carries no status field in this build, so
-there is nothing to break the count down by; when one is added, the breakdown
-is an additive field beside this count.
+`cases` is the total, and `cases_by_status` breaks it down, one entry per
+status in the closed set `open`, `closed`, including a status no case holds,
+so a caller reads a count rather than testing for a key's presence. The counts
+sum to `cases`.
+
+A case's status changes no reminder. Closing a case is the user's own filing,
+which says the user stopped working on the matter and nothing else, so
+openPapir does not read it as saying that no receipt is wanted: a submission
+in a closed case is listed exactly as one in an open case. Filtering the list
+would be openPapir deciding something about the user's correspondence, which
+it does not do anywhere else either.
 
 ```json
 {
@@ -945,7 +953,11 @@ is an additive field beside this count.
   "data": {
     "as_of": "2026-02-10",
     "associations": 2,
-    "cases": 1,
+    "cases": 2,
+    "cases_by_status": [
+      { "count": 1, "status": "open" },
+      { "count": 1, "status": "closed" }
+    ],
     "receipts": 1,
     "receipts_to_retrieve": [
       {
@@ -970,7 +982,8 @@ nothing else: no title, no description, no notes, no statement, no digest, and
 no path. Human output prints the same figures in the same order and no path.
 
 ```text
-As of 2026-02-10. Case(s): 1. Submission(s): 4. Receipt(s): 1. Association(s): 2. Stored object(s): 3.
+As of 2026-02-10. Case(s): 2. Submission(s): 4. Receipt(s): 1. Association(s): 2. Stored object(s): 3.
+Case(s) by status: open 1, closed 1.
 Submission(s) with no usable date: 1.
 Reminder(s) to look for a submission receipt in the delivery storage while the 30-day window the operator describes is open: 1.
 case <id>, submission <id>, stated 2026-01-20, look by 2026-02-19, 9 day(s) left.

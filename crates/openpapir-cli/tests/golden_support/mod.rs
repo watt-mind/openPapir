@@ -288,6 +288,18 @@ impl World {
         self.json(&arguments);
     }
 
+    /// Record a second case and close it, so the summary's status breakdown
+    /// pins a count on both sides rather than a zero on one.
+    pub fn add_closed_case(&self) {
+        let mut create = self.command(&["case", "create"]);
+        create.extend(["--title".to_owned(), "Parking notice".to_owned()]);
+        let created = self.json(&create);
+        let id = text(&created["data"]["case"]["id"]);
+        let mut update = self.command(&["case", "update"]);
+        update.extend([id, "--status".to_owned(), "closed".to_owned()]);
+        self.json(&update);
+    }
+
     /// Retire the receipt's live association, withdrawing what it asserted.
     ///
     /// The retired record stays exactly where it is; only the head of the
@@ -411,6 +423,7 @@ fn write_inputs(root: &Path) -> Vec<PathBuf> {
 pub fn record_window_submissions(world: &World) {
     world.add_dated_submission("Sent the first reminder.", ELAPSED_DATE);
     world.add_dated_submission("Sent the second reminder.", OPEN_DATE);
+    world.add_closed_case();
 }
 
 /// The same world, with the receipt's live association retired.

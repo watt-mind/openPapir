@@ -3,7 +3,17 @@
   "data": {
     "as_of": "2026-02-10",
     "associations": 3,
-    "cases": 1,
+    "cases": 2,
+    "cases_by_status": [
+      {
+        "count": 1,
+        "status": "open"
+      },
+      {
+        "count": 1,
+        "status": "closed"
+      }
+    ],
     "receipts": 1,
     "receipts_to_retrieve": [
       {
