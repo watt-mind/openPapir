@@ -54,7 +54,7 @@ nothing else:
 | --- | --- |
 | `openpapir --help` | Usage text from the argument parser. |
 | `openpapir --version` | The crate version. |
-| `openpapir capabilities [--json]` | The project, its stage, and the nineteen implemented operations. |
+| `openpapir capabilities [--json]` | The project, its stage, and the operations it reports as implemented. |
 | `openpapir archive init <root> [--json]` | Creates an archive in an existing, empty directory: the marker first, then the owner-only layout. |
 | `openpapir import --archive <root> <file>... [--json]` | Stores each file's original bytes in the content-addressed artefact store and records one import event per input. |
 | `openpapir case create --archive <root> --title <t> [--notes <n>] [--tag <t>]... [--status open\|closed] [--json]` | Records one case, the user's own folder of related correspondence, with its status and its tags. |
@@ -68,7 +68,7 @@ nothing else:
 | `openpapir association list --archive <root> --receipt <receipt-id> [--json]` | Lists one receipt's whole association history, newest first. |
 | `openpapir association retire --archive <root> <association-id> [--reason <text>] [--json]` | Withdraws one assertion by writing a record that supersedes it and claims nothing. Nothing is edited or removed. |
 | `openpapir archive check --archive <root> [--json]` | Re-digests every stored object and reports, in counts only, what disagrees with the records. It takes no lock and changes nothing. |
-| `openpapir archive status --archive <root> [--as-of <yyyy-mm-dd>] [--json]` | Summarises what the archive holds and lists the submissions to look for a submission receipt in the delivery storage for, inside the 30-day window the operator describes. It takes no lock and changes nothing. |
+| `openpapir archive status --archive <root> [--as-of <yyyy-mm-dd>] [--json]` | Summarises what the archive holds and lists the submissions whose receipt is still worth looking for in the delivery storage, inside the 30-day window the operator describes. It takes no lock and changes nothing. |
 | `openpapir case export --archive <root> --case <case-id> --to <dir> [--json]` | Copies one case's objects byte for byte, writes its records as JSON, and writes a manifest, into a destination outside the archive. It changes nothing in the archive. |
 | `openpapir case import --archive <root> --from <dir> [--json]` | Reads a directory `case export` wrote back into an archive: the objects through the artefact store and the records under their original identifiers, checked against the manifest before anything is written. |
 | `openpapir archive repair-permissions --archive <root> [--json]` | Narrows every path in the archive back to owner-only and reports the counts it changed. It only ever narrows. |
@@ -164,12 +164,14 @@ context.
 discover supported inputs, design local cases, implement one offline import
 workflow, associate one supported receipt type, then build the local
 organiser. That fifth milestone sequences the work that turns the implemented
-archive into a usable local organiser, none of it implemented yet: restoring
-from an export, case lifecycle and search, the receipt-retrieval reminder, the
-entangled-deletion remedy, generative testing, a release pipeline and a
-Windows-target lint, shell completions and man pages, an end-to-end user
-guide, a whole-archive export, derived metadata on explicit request, and
-encrypted backup at rest. Receipt parsing, KRX package import, delegated
+archive into a usable local organiser: restoring from an export, case
+lifecycle and search, the receipt-retrieval reminder, the entangled-deletion
+remedy, generative testing, a release pipeline and a Windows-target lint,
+shell completions and man pages, an end-to-end user guide, a whole-archive
+export, derived metadata on explicit request, and encrypted backup at rest.
+Each item there is marked implemented or planned, and those markers are the
+current state of that milestone; "Implemented today" above is what the
+executable does now. Receipt parsing, KRX package import, delegated
 `.es3` verification, and any integration with the e-Papír service stay behind
 their blockers. The roadmap records design sequencing, not queue status.
 
