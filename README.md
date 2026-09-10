@@ -9,13 +9,14 @@ into a content-addressed store that preserves the original bytes, organises
 what it holds into cases and submissions, records receipts together with the
 user's own assertions about whether a receipt relates to a submission, checks
 a whole archive against what its records claim without changing anything,
-copies one case out of the archive as plain files, narrows a restored
-archive's permissions back to owner-only, deletes a case when asked, removing
-stored bytes only on an explicit `--purge`, and writes the agent skill
-document it carries. Automatic matching, derived metadata, receipt parsing,
-KRX and `.es3` handling, import from an export, editing of a stored record,
-deleting a single submission or receipt, deleting an archive, signature
-verification, and government delivery are not implemented. There is no
+copies one case out of the archive as plain files and reads such a copy back
+in, keeps a case record current, narrows a restored archive's permissions back
+to owner-only, deletes a case when asked, removing stored bytes only on an
+explicit `--purge`, and writes the agent skill document it carries. Automatic
+matching, derived metadata, receipt parsing, KRX and `.es3` handling, editing
+of a stored record other than the case record `case update` rewrites, deleting
+a single submission or receipt, deleting an archive, signature verification,
+and government delivery are not implemented. There is no
 published release.
 
 openPapir is an independent open-source project. It is not the government's

@@ -236,3 +236,166 @@ fn the_skill_command_takes_no_file_and_no_json_flag() {
     assert!(extra.stdout.is_empty(), "the document is not written");
     assert!(!extra.stderr.is_empty(), "the parser explains itself");
 }
+
+/// Split one Markdown table row into its cells.
+///
+/// A cell whose own text carries a pipe writes it as `\|`, so the split
+/// honours that escape. Padding around a cell is presentation, so every cell
+/// comes back trimmed and a row reads the same however its columns are
+/// aligned.
+fn table_cells(line: &str) -> Vec<String> {
+    let inner = line.trim().trim_start_matches('|').trim_end_matches('|');
+    let mut cells = vec![String::new()];
+    let mut escaped = false;
+    for character in inner.chars() {
+        if escaped {
+            cells
+                .last_mut()
+                .expect("a cell is always open")
+                .push(character);
+            escaped = false;
+        } else if character == '\\' {
+            escaped = true;
+        } else if character == '|' {
+            cells.push(String::new());
+        } else {
+            cells
+                .last_mut()
+                .expect("a cell is always open")
+                .push(character);
+        }
+    }
+    cells.iter().map(|cell| cell.trim().to_owned()).collect()
+}
+
+/// The rows of the table with this header, inside the section with this
+/// heading.
+///
+/// Everything here is fail-closed: a missing section, a header that no longer
+/// matches, a header without its delimiter, or a table without rows is a
+/// failure rather than an empty answer that would silently agree with
+/// anything.
+fn table_under(document: &str, heading: &str, header: &[&str]) -> Vec<Vec<String>> {
+    let section = document
+        .split_once(&format!("\n## {heading}\n"))
+        .unwrap_or_else(|| panic!("no section titled {heading}"))
+        .1;
+    let section = section.split("\n## ").next().expect("a section has a body");
+    let mut lines = section.lines();
+    let found = lines.any(|line| {
+        line.starts_with('|')
+            && table_cells(line)
+                .iter()
+                .map(String::as_str)
+                .eq(header.iter().copied())
+    });
+    assert!(found, "no table headed {header:?} under {heading}");
+    let delimiter = lines
+        .next()
+        .expect("a header row is followed by a delimiter");
+    assert!(
+        delimiter.starts_with('|'),
+        "the header row needs a delimiter"
+    );
+    let rows: Vec<Vec<String>> = lines
+        .take_while(|line| line.starts_with('|'))
+        .map(table_cells)
+        .collect();
+    assert!(!rows.is_empty(), "the table under {heading} has no rows");
+    rows
+}
+
+/// The operation an invocation names, or `None` when it names none.
+///
+/// The leading words of an invocation are its command path, and the first
+/// token that is not a bare lowercase word starts the arguments. `--help` and
+/// `--version` therefore name nothing, and a command path becomes an
+/// operation name the way the binary spells it: dots between the words and an
+/// underscore where the command has a dash.
+fn operation_named_by(invocation: &str) -> Option<String> {
+    let mut words = invocation.trim_matches('`').split_whitespace();
+    assert_eq!(
+        words.next(),
+        Some("openpapir"),
+        "every row invokes openpapir"
+    );
+    let path: Vec<&str> = words
+        .take_while(|word| {
+            word.starts_with(|first: char| first.is_ascii_lowercase())
+                && word.chars().all(|c| c.is_ascii_lowercase() || c == '-')
+        })
+        .collect();
+    (!path.is_empty()).then(|| path.join(".").replace('-', "_"))
+}
+
+/// Both documented enumerations of the operations agree with the binary.
+///
+/// Prose everywhere else defers to the list `capabilities` reports, and the
+/// two tables that still enumerate the operations are the table under Current
+/// implementation in `docs/architecture.md`, which is the authoritative one,
+/// and the Implemented today table in `docs/specification.md`. This test is
+/// what keeps both honest, so an operation added later changes those tables
+/// and nothing else that enumerates operations. The comparison is
+/// order-independent, because each table is in the order its own document
+/// reads in, which is not the order `capabilities` reports.
+#[test]
+fn the_documented_tables_list_exactly_the_reported_operations() {
+    let repository = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+
+    let architecture = std::fs::read_to_string(repository.join("docs/architecture.md"))
+        .expect("read the architecture document");
+    let mut documented: Vec<String> = table_under(
+        &architecture,
+        "Current implementation",
+        &["Operation", "Invocation"],
+    )
+    .iter()
+    .map(|row| row[0].trim_matches('`').to_owned())
+    .collect();
+
+    let specification = std::fs::read_to_string(repository.join("docs/specification.md"))
+        .expect("read the specification index");
+    let mut specified = Vec::new();
+    let mut outside = 0;
+    for row in table_under(
+        &specification,
+        "Implemented today",
+        &["Invocation", "Result"],
+    ) {
+        match operation_named_by(&row[0]) {
+            Some(name) if name != "capabilities" => specified.push(name),
+            _ => outside += 1,
+        }
+    }
+    assert_eq!(
+        outside, 3,
+        "only --help, --version and capabilities are not operations"
+    );
+
+    let output = run(&["capabilities", "--json"]);
+    assert!(output.status.success());
+    let envelope: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("capabilities is one JSON object");
+    let mut reported: Vec<String> = envelope["data"]["operations"]
+        .as_array()
+        .expect("operations is an array")
+        .iter()
+        .map(|name| {
+            name.as_str()
+                .expect("every operation name is a string")
+                .to_owned()
+        })
+        .collect();
+
+    documented.sort();
+    specified.sort();
+    reported.sort();
+    assert_eq!(
+        documented, reported,
+        "docs/architecture.md and capabilities disagree about the operations"
+    );
+    assert_eq!(
+        specified, reported,
+        "docs/specification.md and capabilities disagree about the operations"
+    );
+}

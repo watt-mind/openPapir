@@ -39,8 +39,9 @@ envelope.
   own import survives the round trip. Five codes are added in the `export`
   bucket, all exiting `4`: `export.manifest_missing`,
   `export.manifest_malformed`, `export.object_mismatch`,
-  `export.record_missing`, and `export.record_conflict`. `capabilities` now
-  reports nineteen operations, and human output echoes the `--from` argument
+  `export.record_missing`, and `export.record_conflict`. `case.import` joins
+  the operations `capabilities` reports, and human output echoes the `--from`
+  argument
   the user typed exactly as `case export` echoes `--to`; no JSON field carries
   either. A symbolic link anywhere in the source is `path.symlink` with
   `scope` `export_source`, every path there is opened without following a link
@@ -238,8 +239,8 @@ envelope.
   report counts, a digest, or a destination-relative path, never the
   destination the user supplied. Every refusal raised inside a destination
   carries `scope` `export_destination` and no `archive_path`.
-- `capabilities` now lists `case.export` and `archive.repair_permissions` as
-  the twelfth and thirteenth operations.
+- `capabilities` now lists `case.export` and `archive.repair_permissions`
+  among the operations it reports.
 - `openpapir case delete --archive <root> --case <id> [--purge]` deletes one
   case, every submission recorded against it, and the receipts and
   associations tied only to those submissions. A receipt or an association
@@ -257,7 +258,7 @@ envelope.
   and `objects/sha256/` is touched. The report is counts, record kinds, and
   the reason an object stayed, and never a digest, a path, or a filename;
   nothing about the deletion is persisted. `capabilities` now lists
-  `case.delete` as the fourteenth operation (#19).
+  `case.delete` among the operations it reports (#19).
 - `delete.objects_retained` is now emitted, with the additive `reason` detail
   key, when a purge could not unlink an object. The deletion completes what it
   can, its counts stay in `data`, and the error carries the count alone.
@@ -294,8 +295,8 @@ envelope.
   `0`; otherwise the report stays in `data`, `ok` is `false`, and `error`
   names the first problem in a fixed precedence, exiting `4` for a `record`
   or `integrity` condition and `3` where the only complaint is a link inside
-  the store. `capabilities` now lists `archive.check` as the eleventh
-  operation. A passing check is storage integrity only: it asserts nothing
+  the store. `capabilities` now lists `archive.check` among the operations it
+  reports. A passing check is storage integrity only: it asserts nothing
   about authenticity, origin, delivery, or legal effect, and `verified` stays
   `false` (#15).
 - `integrity.dangling_reference` is a new error code for a record that names
@@ -336,9 +337,8 @@ envelope.
   `supersedes_other_receipt`, and `import_event_digest_mismatch`.
 - Field caps refused before any write: a receipt `label` of 200 bytes and an
   evidence `statement` of 512 bytes, both single lines, both reported through
-  `input.cap.field_length`. `capabilities` now reports ten operations, adding
-  `receipt.add`, `receipt.list`, `association.create`, and
-  `association.list`.
+  `input.cap.field_length`. `capabilities` now reports `receipt.add`,
+  `receipt.list`, `association.create`, and `association.list` too.
 - Opening an archive created by an earlier build adds `records/receipts/` and
   `records/associations/` if they are absent; nothing else changes.
 - `openpapir case create --archive <root> --title <t> [--notes <n>]`,
@@ -433,6 +433,20 @@ envelope.
 
 ### Changed
 
+- The documentation names no operation count. `docs/architecture.md` gains
+  one authoritative table under "Current implementation", listing each
+  operation `capabilities` reports beside its invocation, and
+  `crates/openpapir-cli/tests/contract.rs` parses that table and fails when it
+  and the binary's list disagree, so an operation added later changes one
+  table and one test. `README.md`, `AGENTS.md`, `docs/index.md`,
+  `docs/receipt-discovery.md`, `docs/specification.md`, and the entries above
+  now defer to the list `capabilities` reports instead of naming a number
+  that goes stale. `docs/specification.md` no longer says the fifth milestone
+  is unimplemented, since each item on the roadmap carries its own implemented
+  or planned marker, and its `archive status` row now reads as `README.md`
+  does. `README.md` also stops listing the import of an export and the update
+  of a case record as unimplemented. No behaviour, contract, or output
+  changes.
 - `docs/archive-layout.md` decides the encrypted backup at rest, which no code
   implements and which adds no dependency: it covers the backup artefact and
   not the live archive, puts a standard AEAD container over a tarball of the
@@ -501,7 +515,7 @@ envelope.
   its changelog cut step. No behaviour, contract, or output changes.
 - The documentation states the stage the binary reports. `README.md` says
   `alpha` in its status line and in its sample `capabilities --json` output,
-  which is regenerated from the binary and lists the same fifteen operations,
+  which is regenerated from the binary and lists the same operations,
   and the remaining prose in `CONTRIBUTING.md`, `docs/roadmap.md`,
   `docs/index.md`, `docs/releasing.md`, `docs/references.md`,
   `docs/receipt-discovery.md`, `docs/testing.md`, and `docs/factory.md` names
@@ -512,7 +526,7 @@ envelope.
   note no longer claims the tool exposes help, version, and `capabilities`
   alone. No behaviour, contract, or output changes.
 - `AGENTS.md` and `SECURITY.md` describe the scope the binary actually has.
-  The agent boundaries name the fifteen implemented operations, point at
+  The agent boundaries name the implemented operations, point at
   architecture as the implemented contract and the specification index as the
   index of everything else, and list what remains unimplemented, including
   receipt parsing, automatic matching, derived metadata, delegated
@@ -532,7 +546,7 @@ envelope.
   as an unimplemented design. The stale pointers to closed issues for the
   stale-lock recovery flow and the degradation wire shapes go with it.
 - `capabilities` reports `alpha` where it reported `scaffold`, in both the
-  JSON and the human form, because the fifteen operations it lists are
+  JSON and the human form, because the operations it lists are
   implemented, and the documents that still called the repository a scaffold
   when this landed were corrected afterwards.
   [architecture](docs/architecture.md) now documents `stage` beside the
