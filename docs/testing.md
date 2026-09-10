@@ -139,6 +139,7 @@ from a counter and a mixing function, so it is wholly synthetic in the sense
 the fixture policy below requires and is reproducible from this repository
 alone. It stays inside the input caps: the objects are imported in batches of
 the per-import file cap.
+
 ## Concurrency tests
 
 `crates/openpapir-cli/tests/concurrency.rs` covers what happens when two

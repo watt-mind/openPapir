@@ -195,8 +195,6 @@ proptest! {
 
 /// The codes the manifest reader is allowed to answer a bad document with.
 ///
-/// The codes the manifest reader is allowed to answer a bad document with.
-///
 /// Every one of them is reached by a generated case rather than merely
 /// admitted. The three path codes come from the placement the
 /// first property generates, and the two schema codes from the schema damages
