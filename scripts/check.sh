@@ -7,6 +7,7 @@ cargo test --workspace --locked
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked
 cargo machete
 cargo deny --all-features check
+python3 scripts/third-party-notices.py --check
 python3 scripts/check-doc-links.py
 python3 scripts/check-file-length.py
 python3 scripts/check-prose.py

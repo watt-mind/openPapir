@@ -43,6 +43,13 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
       - run: cargo machete
+      # The committed third-party notice is regenerated from `cargo metadata`
+      # and diffed against the file in the tree, so a dependency added,
+      # removed, or moved to another version fails the pull request that did
+      # it until the attribution every release archive carries is brought up
+      # to date. It runs in this job because the job already has the toolchain
+      # and the lockfile the generator reads.
+      - run: python3 scripts/third-party-notices.py --check
   docs:
     name: Documentation
     runs-on: ubuntu-latest
