@@ -26,7 +26,9 @@
 //!   same copy read back in, all of it or none of it.
 //! - `openpapir archive repair-permissions --archive <root> [--json]`, the
 //!   only action besides `archive init` that narrows permissions.
-//! - `openpapir import --archive <root> <file>... [--json]`, artefact import.
+//! - `openpapir import --archive <root> <file>... [--case <id> --description
+//!   <d> [--date <yyyy-mm-dd>]] [--json]`, artefact import, and with `--case`
+//!   the same import with one submission recorded over it.
 //! - `openpapir case create|list|show|update ... [--json]`, the user's own
 //!   cases. `case update` is the one invocation that rewrites a stored
 //!   record, and it rewrites only the case record.
@@ -38,8 +40,9 @@
 //! - `openpapir case delete --archive <root> --case <id> [--purge] [--json]`,
 //!   deleting a case and, only with `--purge`, the objects nothing else
 //!   references.
-//! - `openpapir submission add|show ... [--json]`, what the user states they
-//!   sent, and one such record with the associations naming it.
+//! - `openpapir submission add|show ... [--file <path>[:<role>]]... [--json]`,
+//!   what the user states they sent, importing any `--file` in the same step,
+//!   and one such record with the associations naming it.
 //! - `openpapir receipt add|list|show ... [--json]`, an artefact the user
 //!   believes to be a receipt, and one such record with its association
 //!   history.
@@ -99,12 +102,14 @@ mod completions;
 mod delete;
 mod envelope;
 mod export;
+mod imports;
 mod manpage;
 mod report;
 mod restore;
 mod skill;
 mod status;
 mod stdout;
+mod submissions;
 mod usage;
 
 use std::path::PathBuf;
@@ -147,7 +152,7 @@ enum Command {
     /// Record what the user states they sent, against a case.
     Submission {
         #[command(subcommand)]
-        command: SubmissionCommand,
+        command: submissions::SubmissionCommand,
     },
     /// Record and list artefacts the user believes to be receipts.
     Receipt {
@@ -170,17 +175,7 @@ enum Command {
     /// Write the man page for the whole command tree to stdout.
     Manpage,
     /// Import local files into the archive's artefact store.
-    Import {
-        /// The archive root, which is always supplied explicitly.
-        #[arg(long, value_name = "ROOT")]
-        archive: PathBuf,
-        /// Emit one JSON object instead of human-readable text.
-        #[arg(long)]
-        json: bool,
-        /// The files to import.
-        #[arg(value_name = "FILE", required = true)]
-        files: Vec<PathBuf>,
-    },
+    Import(imports::Import),
 }
 
 #[derive(Subcommand)]
@@ -214,43 +209,6 @@ enum ArchiveCommand {
         /// The archive root, which must exist and be empty.
         #[arg(value_name = "ROOT")]
         root: PathBuf,
-        /// Emit one JSON object instead of human-readable text.
-        #[arg(long)]
-        json: bool,
-    },
-}
-
-#[derive(Subcommand)]
-enum SubmissionCommand {
-    /// Record a submission the user states they sent.
-    Add {
-        /// The archive root, which is always supplied explicitly.
-        #[arg(long, value_name = "ROOT")]
-        archive: PathBuf,
-        /// The identifier of the case the submission belongs to.
-        #[arg(long = "case", value_name = "CASE_ID")]
-        case_id: String,
-        /// The user's own description, at most 1024 bytes.
-        #[arg(long, value_name = "DESCRIPTION")]
-        description: String,
-        /// The user's own date, `YYYY-MM-DD`, stored verbatim.
-        #[arg(long, value_name = "DATE")]
-        date: Option<String>,
-        /// A stored artefact, as `sha256:<digest>` or `sha256:<digest>:<role>`.
-        #[arg(long = "artefact", value_name = "DIGEST[:ROLE]")]
-        artefacts: Vec<String>,
-        /// Emit one JSON object instead of human-readable text.
-        #[arg(long)]
-        json: bool,
-    },
-    /// Show one submission and the associations naming it.
-    Show {
-        /// The archive root, which is always supplied explicitly.
-        #[arg(long, value_name = "ROOT")]
-        archive: PathBuf,
-        /// The submission's own identifier, as `submission add` reported it.
-        #[arg(value_name = "SUBMISSION_ID")]
-        submission_id: String,
         /// Emit one JSON object instead of human-readable text.
         #[arg(long)]
         json: bool,
@@ -372,58 +330,14 @@ fn run(command: Command) -> i32 {
             json,
             report::repaired,
         ),
-        Command::Import {
-            archive,
-            json,
-            files,
-        } => emit(
-            "import",
-            openpapir_core::import(&archive, &files),
-            json,
-            report::imported,
-        ),
+        Command::Import(arguments) => imports::run(arguments),
         Command::Skill => skill::emit(),
         Command::Completions { shell } => completions::emit::<Args>(shell),
         Command::Manpage => manpage::emit::<Args>(),
         Command::Case { command } => cases::run(command),
-        Command::Submission { command } => run_submission(command),
+        Command::Submission { command } => submissions::run(command),
         Command::Receipt { command } => run_receipt(command),
         Command::Association { command } => associations::run(command),
-    }
-}
-
-/// Dispatch one `submission` subcommand and return the process exit code.
-fn run_submission(command: SubmissionCommand) -> i32 {
-    match command {
-        SubmissionCommand::Add {
-            archive,
-            case_id,
-            description,
-            date,
-            artefacts,
-            json,
-        } => emit(
-            "submission.add",
-            records::submission::add(
-                &archive,
-                &case_id,
-                &description,
-                date.as_deref(),
-                &artefacts,
-            ),
-            json,
-            report::submission_added,
-        ),
-        SubmissionCommand::Show {
-            archive,
-            submission_id,
-            json,
-        } => emit(
-            "submission.show",
-            records::submission::show(&archive, &submission_id),
-            json,
-            report::submission_shown,
-        ),
     }
 }
 

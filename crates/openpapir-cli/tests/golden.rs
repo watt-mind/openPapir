@@ -108,6 +108,25 @@ fn archive_cases() -> Vec<Case> {
             },
         },
         Case {
+            name: "import.case",
+            stage: Stage::Cased,
+            second_submission: false,
+            prepare: golden_support::write_extra_input,
+            arguments: |world| {
+                let mut arguments = world.import_arguments();
+                arguments.push(golden_support::extra_input(world));
+                arguments.extend([
+                    "--case".to_owned(),
+                    world.case_id.clone(),
+                    "--description".to_owned(),
+                    "Posted the completed form.".to_owned(),
+                    "--date".to_owned(),
+                    "2026-01-13".to_owned(),
+                ]);
+                arguments
+            },
+        },
+        Case {
             name: "import.cap-refusal",
             stage: Stage::Initialised,
             second_submission: false,
@@ -284,6 +303,20 @@ fn record_cases() -> Vec<Case> {
             second_submission: false,
             prepare: ready,
             arguments: |world| world.submission_arguments(0),
+        },
+        Case {
+            name: "submission.add.file",
+            stage: Stage::Cased,
+            second_submission: false,
+            prepare: golden_support::write_extra_input,
+            arguments: |world| {
+                let mut arguments = world.submission_arguments(0);
+                arguments.extend([
+                    "--file".to_owned(),
+                    format!("{}:annex", golden_support::extra_input(world)),
+                ]);
+                arguments
+            },
         },
         Case {
             name: "receipt.add",

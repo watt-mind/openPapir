@@ -1,0 +1,33 @@
+{
+  "command": "import",
+  "data": {
+    "artefacts": [
+      {
+        "byte_length": 22,
+        "created_object": true,
+        "digest": "sha256:<digest>",
+        "import_event": "<id>"
+      }
+    ],
+    "duplicates": 0,
+    "imported": 1,
+    "submission": {
+      "archive_schema_version": 1,
+      "artefacts": [
+        {
+          "digest": "sha256:<digest>",
+          "role": "attachment"
+        }
+      ],
+      "case_id": "<id>",
+      "created_at": "<time>",
+      "description": "Posted the completed form.",
+      "id": "<id>",
+      "record_kind": "submission",
+      "stated_date": "2026-01-13"
+    }
+  },
+  "ok": true,
+  "schema_version": 1,
+  "verified": false
+}

@@ -133,6 +133,17 @@ envelope.
   It closes with where to read the JSON envelope for scripting and a short
   section for agents pointing at `openpapir skill`. Linked from README and
   `docs/index.md`. No behaviour changed.
+- One-step recording of what was sent. `openpapir submission add` accepts
+  `--file <path>[:<role>]`, repeatable and combinable with `--artefact`: each
+  file is imported under the writer lock the record already takes and its
+  digest becomes an artefact reference, with the role `attachment` when none
+  is named. `openpapir import` accepts `--case <case-id> --description <d>
+  [--date <yyyy-mm-dd>]`, which is the same operation from the other side and
+  records one submission naming every file it imported. `--case` without
+  `--description` is `usage.arguments`, and an import that is refused writes
+  no submission record. Both forms are additive: `data` gains `imported` on
+  `submission.add` and `submission` on `import`, no new operation exists, and
+  `capabilities` is unchanged. Neither form reports a filename.
 - `openpapir case import --archive <root> --from <dir> [--json]`, operation
   `case.import`, reads a directory `case export` wrote back into an archive.
   The manifest is authoritative: every object it lists is re-digested from the
