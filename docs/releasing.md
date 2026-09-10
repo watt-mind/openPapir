@@ -107,9 +107,13 @@ the bytes. A dry run attests nothing, because a dry run distributes nothing.
 
 `.github/workflows/release.yml` is the only thing that builds an artefact. It
 pins every action to a commit SHA with its version comment, as
-`.github/workflows/ci.yml` does, keeps `contents: read` at the top level, and
-grants `contents: write`, `id-token: write`, and `attestations: write` to the
-release job alone. Every build runs `cargo build --release --locked`.
+`.github/workflows/ci.yml` does, and keeps `contents: read` at the top level.
+Building the artefacts, verifying the collected checksums, and summarising a
+dry run all happen under that read-only scope. `contents: write`,
+`id-token: write`, and `attestations: write` are granted to the one job that
+creates the release, and that job is skipped on every dry run, so no run that
+creates nothing ever holds a write scope. Every build runs
+`cargo build --release --locked`.
 
 It has three triggers.
 

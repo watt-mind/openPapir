@@ -79,7 +79,10 @@ jobs:
             esac
             version="${REF_NAME#v}"
             if [ "$dry_run" = "false" ]; then
-              status=$(gh api "repos/${REPOSITORY}/compare/master...${SHA}" \
+              # `heads/master` and not `master`: an unqualified ref would let
+              # a tag named master satisfy the check.
+              status=$(gh api \
+                "repos/${REPOSITORY}/compare/heads/master...${SHA}" \
                 --jq '.status')
               case "$status" in
                 identical | behind) ;;
@@ -109,6 +112,11 @@ jobs:
     needs: prepare
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
+    outputs:
+      # Every matrix job writes the same value, so this is the number of
+      # artefacts the matrix below produces, whatever its length. The verify
+      # job checks the collected artefacts against it rather than a constant.
+      artefact-count: ${{ steps.count.outputs.total }}
     strategy:
       fail-fast: false
       # Every Linux and macOS artefact is built on a runner of its own
@@ -234,10 +242,67 @@ jobs:
           path: dist/
           if-no-files-found: error
           retention-days: 7
+      - name: Record how many artefacts the matrix produces
+        id: count
+        shell: bash
+        env:
+          TOTAL: ${{ strategy.job-total }}
+        run: echo "total=${TOTAL}" >> "$GITHUB_OUTPUT"
+
+  verify:
+    name: Verify artefacts
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Nothing here writes anything, on a dry run or on a tagged run, so this
+    # job never holds a write scope. The privileged job below runs only when
+    # there is a release to create.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: dist
+          pattern: openpapir-*
+          merge-multiple: true
+      - name: Verify every checksum file
+        env:
+          EXPECTED: ${{ needs.build.outputs.artefact-count }}
+        run: |
+          set -euo pipefail
+          cd dist
+          ls -l
+          found=0
+          for checksum in *.sha256; do
+            sha256sum --check "$checksum"
+            found=$((found + 1))
+          done
+          if [ "$found" -ne "$EXPECTED" ]; then
+            echo "expected ${EXPECTED} checksum files, found ${found}" >&2
+            exit 1
+          fi
+      - name: Report the dry run
+        if: needs.prepare.outputs.dry-run == 'true'
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          {
+            echo "### Dry run for version ${VERSION}"
+            echo
+            echo "No release was created. The artefacts are attached to this run."
+            echo
+            echo '```'
+            cat dist/*.sha256
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   release:
     name: Draft release
-    needs: [prepare, build]
+    # Skipped on a dry run, so the write scopes below exist only on the run
+    # that actually creates a release.
+    if: needs.prepare.outputs.dry-run != 'true'
+    needs: [prepare, build, verify]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -253,26 +318,11 @@ jobs:
           path: dist
           pattern: openpapir-*
           merge-multiple: true
-      - name: Verify every checksum file
-        run: |
-          set -euo pipefail
-          cd dist
-          ls -l
-          found=0
-          for checksum in *.sha256; do
-            sha256sum --check "$checksum"
-            found=$((found + 1))
-          done
-          if [ "$found" -ne 5 ]; then
-            echo "expected 5 checksum files, found ${found}" >&2
-            exit 1
-          fi
       # The release notes are the CHANGELOG section for this version, copied
       # verbatim. A version with no section is a release nobody described, so
-      # a tagged run fails here rather than publishing an empty note.
+      # the run fails here rather than publishing an empty note.
       - name: Extract the changelog section
         env:
-          DRY_RUN: ${{ needs.prepare.outputs.dry-run }}
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           set -euo pipefail
@@ -290,24 +340,16 @@ jobs:
             found { print }
           ' CHANGELOG.md > notes.md
           if [ ! -s notes.md ]; then
-            if [ "$DRY_RUN" = "true" ]; then
-              echo "no CHANGELOG section for ${VERSION}; a tagged run would fail"
-              printf 'No changelog section for %s.\n' "$VERSION" > notes.md
-            else
-              echo "no CHANGELOG section for ${VERSION}" >&2
-              exit 1
-            fi
+            echo "no CHANGELOG section for ${VERSION}" >&2
+            exit 1
           fi
           cat notes.md
       # Public repositories on GitHub-hosted runners can attest a build, so
-      # every archive and checksum file carries provenance. A dry run makes
-      # no attestation, because nothing it builds is distributed.
+      # every archive and checksum file carries provenance.
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        if: needs.prepare.outputs.dry-run != 'true'
         with:
           subject-path: dist/*
       - name: Create the draft release
-        if: needs.prepare.outputs.dry-run != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
@@ -320,18 +362,3 @@ jobs:
             --notes-file notes.md \
             --verify-tag \
             dist/*
-      - name: Report the dry run
-        if: needs.prepare.outputs.dry-run == 'true'
-        env:
-          VERSION: ${{ needs.prepare.outputs.version }}
-        run: |
-          set -euo pipefail
-          {
-            echo "### Dry run for version ${VERSION}"
-            echo
-            echo "No release was created. The artefacts are attached to this run."
-            echo
-            echo '```'
-            cat dist/*.sha256
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
