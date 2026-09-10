@@ -268,8 +268,17 @@ openpapir manpage > ~/.local/share/man/man1/openpapir.1
 usage refusal. Start a new shell after installing the script. The man stream
 holds the page for `openpapir` and one page for each subcommand, so
 `man openpapir` shows the whole tool, and `openpapir manpage | man -l -` reads
-it without installing anything. No release archive carries either file today;
-see [releasing](docs/releasing.md).
+it without installing anything.
+
+A release archive carries the same files, so installing from one is a copy
+instead of a command: `completions/` holds a script per shell under the name
+that shell looks for (`openpapir.bash`, `_openpapir`, `openpapir.fish`,
+`_openpapir.ps1`, `openpapir.elv`) and `man/man1/openpapir.1` holds the page,
+each written during packaging by the archived binary itself, so both match
+that binary. Copy the script for your shell to the directory the commands
+above redirect to, and the page to a directory on your `MANPATH`. Nothing has
+been released yet, so there is no archive to install from; see
+[releasing](docs/releasing.md).
 
 ## People
 

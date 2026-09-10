@@ -84,6 +84,16 @@ jobs:
           target/release/openpapir --help
           target/release/openpapir --version
           target/release/openpapir capabilities --json
+      # The same script the release workflow stages an archive with, run on
+      # the binary just built. It generates the completion scripts and the man
+      # page and checks the staged layout, so a pull request exercises the
+      # packaging on each of the three platforms the release matrix builds on,
+      # without a tag and without creating an archive.
+      - name: Check the release archive layout
+        shell: bash
+        run: |
+          scripts/package-release.sh \
+            target/release/openpapir staging/openpapir-ci
   msrv:
     name: Minimum supported Rust (1.88)
     runs-on: ubuntu-latest
