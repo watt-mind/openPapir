@@ -1,0 +1,16 @@
+{
+  "command": "case.import",
+  "data": {},
+  "error": {
+    "code": "export.manifest_missing",
+    "details": {
+      "bucket": "export",
+      "export_path": "manifest.json",
+      "scope": "export_source"
+    },
+    "message": "The export directory holds no manifest, so it describes no case."
+  },
+  "ok": false,
+  "schema_version": 1,
+  "verified": false
+}

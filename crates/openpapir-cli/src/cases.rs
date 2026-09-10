@@ -19,12 +19,14 @@ use openpapir_core::error::Failure;
 use openpapir_core::records;
 use openpapir_core::records::case::{Change, Filter, NotesChange, Status};
 
-use crate::{delete, emit, emit_with_problems, report};
+use crate::{delete, emit, emit_with_problems, report, restore};
 
 #[derive(Subcommand)]
 pub enum CaseCommand {
     /// Delete a case and its submissions; objects go only with `--purge`.
     Delete(delete::Delete),
+    /// Restore a `case export` directory into this archive.
+    Import(restore::Import),
     /// Record a new case, which is local organisation and nothing else.
     Create {
         /// The archive root, which is always supplied explicitly.
@@ -200,6 +202,12 @@ pub fn run(command: CaseCommand) -> i32 {
             openpapir_core::export_case(&archive, &case_id, &destination),
             json,
             report::exported,
+        ),
+        CaseCommand::Import(arguments) => emit(
+            "case.import",
+            arguments.run(),
+            arguments.json,
+            restore::lines,
         ),
         CaseCommand::Delete(arguments) => emit_with_problems(
             "case.delete",

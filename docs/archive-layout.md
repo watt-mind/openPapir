@@ -23,8 +23,8 @@ decision below is about one. Where architecture and this document disagree,
 architecture is authoritative and this page is a defect.
 
 Derived-metadata records, verification results, the rebuildable `cache/`
-index, import from an export, export of a whole archive, schema migration, and
-encrypted backup at rest are **not implemented** and stay a design. `verified`
+index, export of a whole archive, schema migration, and encrypted backup at
+rest are **not implemented** and stay a design. `verified`
 is `false` in every envelope ([architecture](architecture.md)).
 
 It is follow-up 3 of
@@ -415,8 +415,8 @@ statement, and the deletion below then treats what it withdrew as history.
 
 ## Export and backup
 
-Export is implemented as `case export`, and
-[architecture](architecture.md) is authoritative for its contract. What
+Export is implemented as `case export` and its import back as `case import`,
+and [architecture](architecture.md) is authoritative for both contracts. What
 follows is the design, reconciled with what was built.
 
 Export writes a directory holding the original bytes of each exported
@@ -445,8 +445,20 @@ restorable without openPapir: the files are the files, the records are
 readable JSON. Re-digesting is a storage-layer identity check and never a
 cryptographic verification.
 
-Exporting a whole archive, and importing an export back into an archive, are
-not implemented.
+Importing an export back into an archive is implemented as `case import`. It
+is the same plain copy inward: the manifest is authoritative, every object it
+lists is re-digested from the export's own bytes and every record it lists is
+read and parsed before the archive is written to at all, and the record set is
+then published under the writer lock all at once or not at all. Every record
+keeps the identifier it had, so a restored case is the case that was exported;
+an identifier a different record already holds is a refusal, because openPapir
+edits no stored record. An object or a record the archive already holds is not
+an error and is not written again, so importing one export twice leaves the
+same archive. Each object the import stores gets one new import event with
+`source` `export`, and the exported import event is restored beside it, so the
+history of the user's own import survives the round trip.
+
+Exporting a whole archive is not implemented.
 
 A backup is a copy of the whole archive root taken while no openPapir process
 holds the lock; `cache/` may be omitted. Ordinary copy tooling routinely widens
@@ -660,6 +672,35 @@ is refused in the scan before anything is unlinked, and the refusal is
 symmetric: until the assertion is withdrawn, neither case can be deleted. The
 remedy is the user's own `association retire` above, after which either case
 can go and takes the withdrawn history with it.
+
+A **superseded** record naming another case's submission is the second case,
+and it goes rather than refusing. Suppose the user asserted that a receipt
+answered a submission of case B, then superseded that record with one naming a
+submission of case A, and then deleted case A. The chain's live record names
+only case A's submission, so nothing the user asserts today survives the
+deletion, the chain is doomed, and the earlier record about case B goes with
+it. Case B keeps its own submission and its own case record; what goes is
+association history the user had already replaced. The alternative is worse in
+both directions: keeping the older record alone would leave the newer one
+naming a record the archive no longer holds, and refusing would let history
+the user superseded long ago block a deletion nothing live objects to.
+Superseded history is therefore held by the case its live record names, and
+`association list` shows the whole chain, so the user can read what a deletion
+would take before running it.
+
+A chain with **no live record at all** is a `supersedes` cycle, and a deletion
+that would otherwise remove it is refused with `record.inconsistent` and rule
+`supersedes_cycle`. No openPapir command writes a cycle: a retirement of a
+record something already supersedes is refused, and a superseded record outside
+the receipt is refused, so a cycle reaches an archive only by hand. Both rules
+above read the chain's live record, and a cycle has none, so a cycle naming a
+departing submission and a remaining one would otherwise be read as history
+nobody asserts and removed whole. A deletion that cannot tell which record is
+the live one must not guess, so the anomaly is reported as what it is and
+nothing is touched. Only a cycle this deletion would otherwise have removed is
+refused, because the scan reads the whole archive and refusing on a cycle
+anywhere would describe the archive rather than the command the user ran;
+finding one wherever it sits is `archive check`'s work.
 
 Deletion is real: the record files are removed. The deletion summary (counts
 and record kinds only, no filenames, digests, or titles) is reported to the

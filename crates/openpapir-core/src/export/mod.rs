@@ -21,6 +21,11 @@
 //! matching copy holds the same bytes, and that says nothing about
 //! authenticity, origin, delivery, or legal effect.
 //!
+//! [`restore`] holds the other direction: reading an export directory back
+//! into an archive. It is the same plain copy inward, checked against the
+//! manifest before anything is written, and it is the only thing in this
+//! module that writes inside the archive root.
+//!
 //! [`repair`] holds the permission repair, because restoring an export or a
 //! backup with ordinary copy tooling is what widens an archive's permissions
 //! in the first place.
@@ -30,6 +35,7 @@ pub mod copy;
 pub mod destination;
 pub mod manifest;
 pub mod repair;
+pub mod restore;
 
 use std::path::Path;
 

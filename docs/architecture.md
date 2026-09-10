@@ -18,7 +18,7 @@ The Rust edition 2024 workspace has an MSRV of 1.88 and two unpublished crates:
 
 | Crate | Current responsibility |
 | --- | --- |
-| `openpapir-core` | The local archive: marker, artefact store, atomic writes, single-writer lock, input caps, path safety, import-event records, the case, submission, receipt, and association records, the read-only whole-archive integrity check, the read-only summary and its receipt-retrieval reminders, the export of one case, the permission repair, and the deletion of one case with its explicit purge. |
+| `openpapir-core` | The local archive: marker, artefact store, atomic writes, single-writer lock, input caps, path safety, import-event records, the case, submission, receipt, and association records, the read-only whole-archive integrity check, the read-only summary and its receipt-retrieval reminders, the export of one case, the import of one export back into an archive, the permission repair, and the deletion of one case with its explicit purge. |
 | `openpapir-cli` | Argument parsing, the response envelope, and the exit-code mapping. |
 
 Only these invocations are supported:
@@ -41,6 +41,7 @@ openpapir association retire --archive <root> <association-id> [--reason <text>]
 openpapir archive check --archive <root> [--json]
 openpapir archive status --archive <root> [--as-of <yyyy-mm-dd>] [--json]
 openpapir case export --archive <root> --case <case-id> --to <dir> [--json]
+openpapir case import --archive <root> --from <dir> [--json]
 openpapir archive repair-permissions --archive <root> [--json]
 openpapir case delete --archive <root> --case <case-id> [--purge] [--json]
 openpapir skill
@@ -69,23 +70,23 @@ is in [Implemented codes and exit codes](#implemented-codes-and-exit-codes).
 `skill` is the exception: it opens no archive, reads no input, and can refuse
 only with `usage.arguments` or `internal.unexpected`.
 
-Eighteen operations are implemented, `archive.init`, `import`, `case.create`,
+Nineteen operations are implemented, `archive.init`, `import`, `case.create`,
 `case.list`, `case.show`, `submission.add`, `receipt.add`, `receipt.list`,
 `association.create`, `association.list`, `association.retire`,
-`archive.check`, `archive.status`, `case.export`,
+`archive.check`, `archive.status`, `case.export`, `case.import`,
 `archive.repair_permissions`, `case.delete`,
-`skill`, and `case.update`, and those are the eighteen names `capabilities`
+`skill`, and `case.update`, and those are the nineteen names `capabilities`
 reports. Everything else in
 [local archive layout and storage design](archive-layout.md) and
 [import error, JSON, and exit-code contract](error-contract.md) remains a
 design: no derived-metadata or verification records; no automatic matching, no
-receipt parsing, no import from an export, and no editing of a stored record
-other than the case record `case.update` rewrites, no
+receipt parsing, no export of a whole archive, and no editing of a stored
+record other than the case record `case.update` rewrites, no
 deletion of a single submission or receipt, deletion of an archive, or
 migration. openPapir reads artefact bytes only to re-digest a stored object
-during the integrity check and to copy one out during an export, and never to
-form an opinion about what an artefact says, so an association is only ever
-the user's own assertion.
+during the integrity check, to copy one out during an export, and to store one
+back during an import, and never to form an opinion about what an artefact
+says, so an association is only ever the user's own assertion.
 
 ## The response envelope
 
@@ -98,7 +99,7 @@ never shares stdout with the JSON object.
 | --- | --- |
 | `schema_version` | The envelope's version, currently `1`, independent of `archive_schema_version`. |
 | `ok` | `true` only when the command completed its stated work. |
-| `command` | The invoked command's stable name: `capabilities`, or one of the eighteen operation names `capabilities` reports. An invocation the argument parser rejected before it recognised a subcommand carries `openpapir` instead. |
+| `command` | The invoked command's stable name: `capabilities`, or one of the nineteen operation names `capabilities` reports. An invocation the argument parser rejected before it recognised a subcommand carries `openpapir` instead. |
 | `data` | The command's result. `{}` when `ok` is `false`, except `archive check`, whose report is the result the user asked for and stays in `data` beside the error. |
 | `verified` | Always `false`. No cryptographic check is implemented. |
 | `error` | Present exactly when `ok` is `false`: `code`, `message`, `details`. |
@@ -112,7 +113,7 @@ carries `bucket`. Changes within `schema_version` are additive only.
 `stage` is a plain string that names how far the implementation has come, and
 it is one of a small closed set: `scaffold`, `alpha`, `beta`, `stable`. It is
 not a version, not a support promise, and never a verification verdict. The
-value is `alpha` today, because the eighteen operations below are implemented
+value is `alpha` today, because the nineteen operations below are implemented
 against a local archive whose on-disk layout may still change. A move to
 another value is a release decision, recorded in `CHANGELOG.md` in the pull
 request that makes it; the set itself grows or shrinks the same way. A caller
@@ -121,7 +122,7 @@ the last value it knows", and a caller that needs to know what the binary can
 do reads `operations`, not `stage`. Changing the value is not a
 `schema_version` change: the field's name, type, and meaning are unchanged.
 
-The capabilities response is unchanged in shape and lists the eighteen
+The capabilities response is unchanged in shape and lists the nineteen
 implemented operations:
 
 ```json
@@ -147,6 +148,7 @@ implemented operations:
       "archive.check",
       "archive.status",
       "case.export",
+      "case.import",
       "archive.repair_permissions",
       "case.delete",
       "skill",
@@ -653,6 +655,12 @@ refusal is the additive `record.inconsistent`, whose `details` carry
 | `supersedes_other_receipt` | The superseded record belongs to another receipt. |
 | `already_superseded` | The record `association retire` names is superseded already. |
 | `import_event_digest_mismatch` | A named import event records another artefact (`receipt.add`). |
+
+One further rule of the same code, `supersedes_cycle`, is enforced by
+[`case delete`](#case-delete) rather than by a write. It names stored
+association records that supersede each other in a cycle, which no command
+here can produce, so it belongs to the records an archive already holds rather
+than to the fields a user supplies.
 
 `submission_id` is the confirmed submission and equals the single candidate
 when the outcome is `associated`. It is `null` for `unassociated`,
@@ -1162,10 +1170,155 @@ import_event 3
 The archive was not changed. Every copy was re-digested: a digest identifies bytes only, never authenticity, delivery, or legal effect.
 ```
 
-Importing an export back into an archive is not implemented, and neither is
-exporting a whole archive: a backup is a plain copy of the archive root taken
-while no openPapir process holds the lock, and `archive repair-permissions` is
-what makes a restored copy usable again.
+Reading an export back into an archive is `case import`, below. Exporting a
+whole archive is not implemented: a backup is a plain copy of the archive root
+taken while no openPapir process holds the lock, and
+`archive repair-permissions` is what makes a restored copy usable again.
+
+## `case import`
+
+`openpapir case import --archive <root> --from <dir>` reads a directory
+`case export` wrote and puts the case back into an archive. It is the same
+plain copy in the other direction: the objects are the exported bytes, the
+records are the exported documents, and every record keeps the identifier it
+had, so a restored case is the case that was exported rather than a copy of
+it.
+
+The manifest is authoritative for what the export contains
+([archive-layout](archive-layout.md)). Nothing outside it is read, so a file
+dropped into the directory afterwards is neither stored nor reported, and a
+manifest that names something the directory does not hold is a refusal rather
+than a smaller import.
+
+Everything is checked before anything is written. The manifest is read and
+every claim it makes about itself is checked, every record it names is read
+and parsed as a record of its own kind, and every object it names is
+re-digested from the export's own bytes. Only then is the writer lock taken,
+the record set probed against the archive, the objects stored, and the records
+published. A refusal in any of those passes leaves the archive exactly as
+`archive check` found it.
+
+The source must be an existing directory that is not a symbolic link and does
+not lie inside the archive root. Both paths are resolved before they are
+compared, and a path that cannot be resolved at all is refused rather than let
+through.
+
+Inside the source the rules the archive applies inward are applied outward,
+and one rule covers every path there. A symbolic link is refused as
+`path.symlink` carrying `scope` `export_source`, wherever it is: the manifest,
+a record, and an object are all refused the same way rather than each
+reporting the condition of its own reader. Every path is opened with the
+platform's non-blocking no-follow open, so a named pipe planted in a
+user-supplied directory cannot hold the open call open, and the file kind is
+then taken from the opened handle rather than from a second look at the path.
+A record document that is not a bounded regular file is `record.malformed`,
+the condition of the document, and an object path that is not a regular file
+is `export.object_mismatch` with `reason` `unusable`, because it holds no
+copy at all.
+
+An export written under another archive schema version is refused by the
+schema rules that refuse such an archive, `archive.schema_newer` or
+`archive.schema_older`. The manifest's own format version is separate and a
+manifest of another one is `export.manifest_malformed`.
+
+### What an import writes
+
+| What | Rule |
+| --- | --- |
+| An object the archive does not hold | Stored through the content-addressed store, exactly as `import` stores one. |
+| An object the archive already holds | Left untouched. A duplicate is not an error, and no second copy is made. |
+| A record the archive does not hold | Written under its original identifier. |
+| A record the archive already holds, byte for byte | Not written again, and not an error. |
+| A record identifier a different record holds | `export.record_conflict`, before anything is written. openPapir edits no stored record, so neither is changed. |
+| An import event for each stored object | Written as a new record with `source` `export`. |
+
+The record pass is all or nothing. Every document is staged in the directory
+it will be published into, and only then is the set published, so an import
+that cannot be finished removes the records it had already published and the
+objects it had just created. The object pass is undone the same way: an
+object placed before a later one is refused is removed again, so a refusal
+part way through storing never leaves an object no record names. An
+interrupted import therefore leaves the whole case or nothing of it, and the
+archive stays clean.
+
+A restored import event is a record like any other, so the history of the
+user's own import survives the round trip. The event openPapir writes for a
+stored object is new and additive: it carries `source` `export`, an absent
+field being the user's own import of a local file, and it carries no original
+filename, because an export names its objects by digest alone and holds none.
+The filename the user's own import recorded stays where it has always been, an
+attribute inside the restored import-event record.
+
+An object the archive already held gains no event, so importing one export
+twice writes nothing at all the second time. That is what makes an import
+idempotent: the same export applied twice leaves the same archive.
+
+The input caps are the caps of `import`, enforced while the copies are read
+and again while they are stored.
+
+| Condition | Code |
+| --- | --- |
+| The source is not a usable directory, or lies inside the archive root. | `usage.arguments` |
+| The source, or a path in it, is a symbolic link. | `path.symlink` |
+| The source holds no manifest. | `export.manifest_missing` |
+| The manifest cannot be read as a manifest of this format. | `export.manifest_malformed` |
+| The export was written under another archive schema version. | `archive.schema_newer`, `archive.schema_older` |
+| A copy is absent, is not a regular file, or its bytes disagree with the manifest. | `export.object_mismatch` |
+| The manifest names a record document the export does not hold. | `export.record_missing` |
+| A document the export holds cannot be read as a record of its kind. | `record.malformed` |
+| A record identifier is held in the archive by a different record. | `export.record_conflict` |
+| A copy exceeds the single-file cap, or the import exceeds the total cap. | `input.cap.file_size`, `input.cap.import_bytes` |
+| A copy could not be read, or a record could not be published. | `write.interrupted` |
+
+`data` reports counts and the case, and never the source.
+
+```json
+{
+  "schema_version": 1,
+  "ok": true,
+  "command": "case.import",
+  "data": {
+    "bytes_stored": 27,
+    "case_id": "e19fb6367693c26aadf609565ec6b8d8",
+    "events_recorded": 1,
+    "object_count": 2,
+    "objects_present": 1,
+    "objects_stored": 1,
+    "records": [
+      { "count": 1, "kind": "case" },
+      { "count": 1, "kind": "submission" },
+      { "count": 1, "kind": "receipt" },
+      { "count": 1, "kind": "association" },
+      { "count": 2, "kind": "import_event" }
+    ],
+    "records_present": 2,
+    "records_written": 4
+  },
+  "verified": false
+}
+```
+
+`records` describes the case the manifest holds, one count per kind including
+the empty ones. `records_written` and `records_present` split those between
+what this import wrote and what the archive already held, and
+`events_recorded` counts the import events openPapir wrote of its own, which
+are not part of the export.
+
+Human output adds one thing the JSON does not carry, the source the user
+supplied, because the line repeats the argument they just typed.
+
+```text
+Imported case e19fb6367693c26aadf609565ec6b8d8 from /tmp/example-export.
+Stored 1 object(s), 27 byte(s); 1 already present.
+Wrote 4 record(s); 2 already present.
+case 1
+submission 1
+receipt 1
+association 1
+import_event 2
+Recorded 1 import event(s) with source export.
+Every restored copy was re-digested: a digest identifies bytes only, never authenticity, delivery, or legal effect.
+```
 
 ## `archive repair-permissions`
 
@@ -1341,6 +1494,31 @@ with it, the record naming the other case's submission included, because the
 user has said the assertion no longer stands. `retained_count` counts the live
 records standing in the way, which are the ones a retirement can name, and
 names none of them.
+
+A **superseded** record naming another case's submission is the other side of
+the same rule, and it goes rather than refusing. The chain's live record is
+what the user asserts today; when it names no submission that remains, nothing
+live objects to the deletion, so the whole chain goes with the case, the
+superseded record about the other case included. That case keeps its own
+submission and its own record. Refusing instead would let history the user
+already replaced block a deletion, and removing the superseded record alone
+would leave the newer one naming a record the archive no longer holds. The
+chain is therefore the unit in both directions
+([archive-layout](archive-layout.md)).
+
+A chain with no live record at all is a `supersedes` cycle, which no openPapir
+command writes: `association retire` refuses a record something already
+supersedes, and `association create` refuses a `--supersedes` outside the
+receipt. A cycle therefore reaches an archive only by hand. Both rules above
+read the chain's live record, and a cycle has none, so a cycle naming a
+departing submission and a remaining one would otherwise be read as history
+nobody asserts and removed whole. A deletion that would otherwise have removed
+one is refused with `record.inconsistent` and rule `supersedes_cycle`, before
+anything is touched, carrying the kind and the rule and never an identifier or
+a count. A cycle this deletion would not have touched is left alone: the scan
+reads the whole archive, so refusing on a cycle anywhere would describe the
+archive rather than the command the user ran, and finding one wherever it sits
+is `archive check`'s work.
 
 The record pass is **all or nothing per case**. Before a single document is
 unlinked, every record directory the deletion would remove an entry from is
@@ -1523,6 +1701,7 @@ description: >-
 | One filesystem | The root and its layout directories must share one device. A cross-device publish is refused as `path.cross_device`. |
 | Owner-only | Directories are created `0o700`, files `0o600`, and stored objects become `0o400`. The root, the marker, the lock file, every layout directory, and each stored object and fan-out directory the operation touches are checked before anything is published; a wider one is refused as `archive.permissions_wide`, naming the archive-relative path. There is no override flag, and nothing is ever narrowed implicitly: an existing path is refused, not repaired. `archive repair-permissions` is the one explicit action that narrows an existing archive, and it never widens. |
 | Copies outward | An export writes only into a destination outside the archive root, creates every file there with create-new semantics, follows no symbolic link, replaces nothing, and re-digests every copy before it is published. A destination the export itself created is removed again when the export fails. |
+| Copies inward | An import reads only what the export's manifest lists, re-digests every copy before the archive is written to at all, and publishes the whole record set or none of it. An import that cannot finish removes the records it had published and the objects it had created, so `archive check` is clean either way. |
 | Path safety | Input files are opened with the platform's no-follow flag, `O_NOFOLLOW` on Unix and `FILE_FLAG_OPEN_REPARSE_POINT` on Windows, and no path is stat-ed before it is opened. Symbolic links inside the archive are refused, on Windows together with NTFS junctions and every other reparse point, and a user-supplied filename is never joined into a path. |
 | Single writer | A `lock` file recording the holder's process identifier, host, and start time admits one writer. A second writer refuses with `lock.held` rather than waiting. |
 
@@ -1566,6 +1745,16 @@ environment variable, or configuration relaxes a cap.
 | Case tag | 64 bytes | `input.cap.tag_length` |
 | Case tags per record | 32 distinct | `input.cap.tag_count` |
 
+The caps bind `case import` as they bind `import`, and the per-operation cap
+is the one that binds a restore: an import reads every object the manifest
+lists in one operation, so a case whose objects come to more than 512 MiB in
+total is refused with `input.cap.import_bytes` and cannot be restored by this
+build, even though several smaller imports were able to build it. The cap is
+deliberately not scoped per object to make that case succeed: a cap is never
+relaxed for one particular input ([AGENTS.md](../AGENTS.md)), and raising the
+ceiling is a decision about the cap itself rather than about the command that
+met it.
+
 `input.cap.record_size` bounds a whole document and reports one cap, the
 record cap. A per-field cap has to say which field it refused and which of the
 six bounds applied, which that code cannot carry, so the field caps use the
@@ -1585,7 +1774,7 @@ emitted.
 | `0` | Success, including a duplicate import and a warning | |
 | `2` | `usage` | `usage.arguments`, `usage.archive_root_missing` |
 | `3` | `input`, `path` | the eight cap codes above, `path.symlink`, `path.overwrite`, `path.cross_device` |
-| `4` | `archive`, `lock`, `write`, `record`, `integrity`, `export`, `delete` | `record.not_found`, `record.malformed`, `record.inconsistent`, `archive.marker_missing`, `archive.marker_malformed`, `archive.adopt_refused`, `archive.schema_newer`, `archive.schema_older`, `archive.permissions_wide`, `archive.multiple_filesystems`, `lock.held`, `write.interrupted`, `integrity.digest_mismatch`, `integrity.length_mismatch`, `integrity.dangling_reference`, `integrity.orphan_object`, `export.destination_conflict`, `export.copy_mismatch`, `delete.objects_retained`, `delete.records_retained`, `delete.record_entangled` |
+| `4` | `archive`, `lock`, `write`, `record`, `integrity`, `export`, `delete` | `record.not_found`, `record.malformed`, `record.inconsistent`, `archive.marker_missing`, `archive.marker_malformed`, `archive.adopt_refused`, `archive.schema_newer`, `archive.schema_older`, `archive.permissions_wide`, `archive.multiple_filesystems`, `lock.held`, `write.interrupted`, `integrity.digest_mismatch`, `integrity.length_mismatch`, `integrity.dangling_reference`, `integrity.orphan_object`, `export.destination_conflict`, `export.copy_mismatch`, `export.manifest_missing`, `export.manifest_malformed`, `export.object_mismatch`, `export.record_missing`, `export.record_conflict`, `delete.objects_retained`, `delete.records_retained`, `delete.record_entangled` |
 | `5` | `platform` | `platform.filesystem_unsupported`, for a filesystem that reports it cannot create the hard link the publish step needs. A link refused without saying so is `write.interrupted` at `4` instead. The named degradations are warnings, and the owner-only condition of the same code is not detected yet. |
 | `6` | `internal` | `internal.unexpected` |
 
@@ -1611,8 +1800,8 @@ including `lock.stale`, `path.traversal`, and `write.incomplete`.
 ### Decisions this implementation had to make
 
 The error contract deferred four of its reserved conditions to an implementing
-change, and the commands below decided them and added nine further codes and
-rules additively under the contract's compatibility rule. All thirteen are
+change, and the commands below decided them and added fourteen further codes
+and rules additively under the contract's compatibility rule. All eighteen are
 decided as follows; `lock.stale`, `path.traversal`, and `write.incomplete`
 stay reserved and unreachable:
 
@@ -1750,6 +1939,43 @@ The export decided three more conditions the contract left open:
    The archive's own directory names, `records/cases` and the rest, are not
    reused, because a manifest entry names a kind rather than a directory.
 
+The import back decided five more, all in the `export` bucket, because they
+are conditions of a directory outside the archive rather than of the archive:
+
+1. A source that holds no `manifest.json` is `export.manifest_missing`, and
+   one whose manifest this build cannot read as a manifest of its format is
+   `export.manifest_malformed`. Both carry `scope` `export_source` and the
+   additive `export_path`, which is the manifest's fixed name. A manifest
+   written under another archive schema version is neither: it is refused by
+   the schema rules, because it is a document this build has no business
+   reading rather than a broken one.
+2. `export.object_mismatch` covers an exported copy the source does not hold
+   as well as one whose bytes disagree with the manifest, because the manifest
+   is authoritative and both say the export is not what it claims to be. Its
+   `details` carry `scope`, the expected `digest`, a `conflict_count`, and the
+   additive `reason`, whose closed set is `absent`, `digest`, `length`, and
+   `unusable`, the last for a path that is there and is not a regular file.
+   The digest is the manifest's own name for the object, which the privacy
+   rule already permits; nothing about the bytes actually found is reported.
+3. `export.record_missing` names a record document the manifest lists and the
+   source does not hold, with `scope`, `record_kind`, and `path_count`. A
+   document that is there and cannot be read as a record of its kind is
+   `record.malformed` instead, exactly as it would be inside an archive.
+4. `export.record_conflict` is a record identifier the target archive holds
+   for a different record. Its `details` carry `record_kind` and
+   `conflict_count` and never the identifier, which would name a record of the
+   archive rather than of the export. A byte-identical record already there is
+   not a conflict: it is the same record, so the import writes nothing for it.
+   That rule, and the content-addressed store's own treatment of a duplicate,
+   are what make a second import of one export change nothing.
+5. An import event openPapir writes for a restored object carries the additive
+   `source` `export`. The field is absent on every event `import` writes, so
+   an archive written by an earlier build reads unchanged and an event without
+   it is the user's own import of a local file. The event carries an empty
+   original filename, because an export names its objects by digest alone and
+   holds none; the filename the user's own import recorded is restored with
+   the exported import-event record that carries it.
+
 An input that is a symbolic link is refused with `path.symlink` carrying
 `scope` `input`. The path is outside the archive, so it has no
 archive-relative form and no `archive_path` is reported; the path itself is
@@ -1814,14 +2040,18 @@ minted, and timestamps openPapir recorded.
 
 They never carry an original filename or any form of one, a user-supplied path
 including the archive root, payload bytes or excerpts, a hostname, a username,
-or a process owner. The single exception is the export destination in human
-output: `case export` prints the `--to` argument the user typed in the same
-invocation, back to them, so that they can see where their copy went. It never
-reaches `data`, `message`, `details`, or stderr, and no other user-supplied
-path is echoed anywhere. A receipt label and an evidence statement are the user's
+or a process owner. The single exception is the export directory in human
+output: `case export` prints the `--to` argument and `case import` the
+`--from` argument the user typed in the same invocation, back to them, so that
+they can see where their copy went or came from. Neither reaches `data`,
+`message`, `details`, or stderr, and no other user-supplied path is echoed
+anywhere. A receipt label and an evidence statement are the user's
 own text: they appear in `data` and in human output, which report the user's
 own record back to them, and never in a `message`, in `details`, or in any
-refusal. Which input failed is answered by `input_index`, never by
+refusal. The `statement` an `association retire` stores from `--reason` is the
+user's own text too, and it appears in `data` alone: the human form of a
+retirement does not print it back, and no message, warning, or count repeats
+it. Which input failed is answered by `input_index`, never by
 a name. The original filename is stored as an attribute of the import event
 record only.
 

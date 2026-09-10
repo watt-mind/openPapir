@@ -1,4 +1,5 @@
 //! Human-readable output, bound by the same privacy rule as the JSON.
+//! `case import`'s renderer obeys it from `restore`, for want of room here.
 //!
 //! No line here may carry a user-supplied path, an original filename, or any
 //! payload byte. What a line may carry is what `docs/error-contract.md`

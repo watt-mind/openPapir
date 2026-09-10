@@ -24,6 +24,31 @@ envelope.
 
 ### Added
 
+- `openpapir case import --archive <root> --from <dir> [--json]`, operation
+  `case.import`, reads a directory `case export` wrote back into an archive.
+  The manifest is authoritative: every object it lists is re-digested from the
+  export's own bytes and every record it lists is read and parsed before the
+  archive is written to at all, and the record set is then staged and
+  published under the writer lock all at once or not at all, so an interrupted
+  import leaves the whole case or nothing of it and `archive check` stays
+  clean. Every record keeps its original identifier; a record or an object the
+  archive already holds is not an error and is not written again, so importing
+  one export twice leaves the same archive. Each object the import stores gets
+  one new import event carrying the additive `source` `export`, and the
+  exported import event is restored beside it, so the provenance of the user's
+  own import survives the round trip. Five codes are added in the `export`
+  bucket, all exiting `4`: `export.manifest_missing`,
+  `export.manifest_malformed`, `export.object_mismatch`,
+  `export.record_missing`, and `export.record_conflict`. `capabilities` now
+  reports nineteen operations, and human output echoes the `--from` argument
+  the user typed exactly as `case export` echoes `--to`; no JSON field carries
+  either. A symbolic link anywhere in the source is `path.symlink` with
+  `scope` `export_source`, every path there is opened without following a link
+  and without waiting, and the per-operation byte cap binds a restore as it
+  binds an import, so a case over 512 MiB in total is refused with
+  `input.cap.import_bytes`. Goldens added for `case.import` and
+  `case.import.manifest-missing`, and `capabilities` regenerated.
+
 - `openpapir archive status --archive <root> [--as-of <yyyy-mm-dd>] [--json]`
   (operation `archive.status`) summarises one archive without changing it and
   reminds the user where to look in their delivery storage for a submission
@@ -56,9 +81,8 @@ envelope.
   delivery, receipt by an authority, authenticity, or legal effect. A case's
   status changes no reminder: closing a case is the user's own filing, so a
   submission in a closed case is listed exactly as one in an open case.
-- `capabilities` now lists `archive.status`, so eighteen operations are
-  reported, and every document that states the number or the list of
-  operations states eighteen.
+- `capabilities` now lists `archive.status`, and every document that states
+  the number or the list of operations states the number reported here.
 - `tests/golden/archive.status/` pins the JSON and human output of the summary
   against a fixture holding one submission whose window has elapsed, one whose
   window is open, one a live candidate association already names, and one with
@@ -114,7 +138,7 @@ envelope.
   `statement`, which only a retirement carries, and no message, warning, or
   count repeats it. Retiring a record something already supersedes is
   `record.inconsistent` with the new rule `already_superseded`. `capabilities`
-  lists `association.retire`, so eighteen operations are reported.
+  lists `association.retire`.
 - `case update` rewrites one case record in place, keeping its `id` and its
   `created_at` and adding an `updated_at`. It is the one operation that
   rewrites a stored record, and it rewrites only the case record: a
@@ -128,8 +152,8 @@ envelope.
   reports the changed fields by name only. A tag both added and removed in one
   invocation stays on the case, and a `--untag` value is checked against the
   record rather than against the tag caps, because a value no case could carry
-  is simply not on this one. `capabilities` lists it, so eighteen operations
-  are reported. The rewrite is reachable only for a record kind that implements
+  is simply not on this one. `capabilities` lists it. The rewrite is
+  reachable only for a record kind that implements
   the `Rewritable` marker in `openpapir-core`, which the case record alone
   does, so the append-only rule holds at compile time rather than by
   convention.
@@ -161,10 +185,10 @@ envelope.
   implemented command with its exact invocation and the `data` fields to read,
   the envelope, the exit codes by bucket, the privacy rule, the input caps,
   and the separation of imported, matched, and authenticity-verified (#22).
-- `capabilities` now lists `skill` as the fifteenth operation. It is the one
+- `capabilities` now lists `skill`. It is the one
   operation that touches no archive, and it is reported there so that a
   machine caller learns of it from the same list as every other operation.
-- `tests/golden/` pins the output of twenty-six invocations, in both the JSON
+- `tests/golden/` pins the output of twenty-eight invocations, in both the JSON
   and the human form, with both streams and the exit code of each. The harness
   is `crates/openpapir-cli/tests/golden.rs`; it builds every archive from
   constants, normalises the four values that legitimately move between runs
@@ -620,6 +644,17 @@ envelope.
 
 ### Fixed
 
+- `case delete` refuses a `supersedes` cycle among the stored association
+  records with `record.inconsistent` and the new rule `supersedes_cycle`
+  instead of removing it. A cycle has no live record, so the entanglement rule
+  that reads one can never fire for it, and a cycle naming both a submission
+  of the departing case and one of a remaining case was taken as history
+  nobody asserts and removed whole. No openPapir command writes a cycle, so
+  one reaches an archive only by hand, and a deletion that cannot tell which
+  record is the live one must not guess. Nothing is touched, the refusal
+  carries the kind and the rule and never an identifier, and a cycle the
+  deletion would not have removed is left to `archive check`. Live-record
+  behaviour is unchanged.
 - `case delete`'s `record.malformed` warning now reports both counts it is
   built from. The warning is raised only where an unresolvable reference held
   a candidate object of this deletion back, and its message says "for this

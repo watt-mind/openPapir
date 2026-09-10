@@ -27,6 +27,9 @@
 //!   record, and it rewrites only the case record.
 //! - `openpapir case export --archive <root> --case <id> --to <dir> [--json]`,
 //!   a plain copy of one case out of the archive.
+//! - `openpapir case import --archive <root> --from <dir> [--json]`, the same
+//!   copy read back in, checked against the export's manifest before anything
+//!   is written.
 //! - `openpapir case delete --archive <root> --case <id> [--purge] [--json]`,
 //!   deleting a case and, only with `--purge`, the objects nothing else
 //!   references.
@@ -43,7 +46,7 @@
 //!   pipe still exits `0`; any other failing write exits `4`.
 //!
 //! There is no automatic matching, no derived metadata, no receipt parsing,
-//! no import from an export, no editing of a stored record other than the
+//! no export of a whole archive, no editing of a stored record other than the
 //! case record `case update` rewrites, no deletion of a
 //! single submission or receipt, no deletion of an archive, no
 //! signature verification, and no government delivery. The integrity check
@@ -68,8 +71,9 @@
 //!
 //! No network access and no background work. Output never carries a
 //! user-supplied path, an original filename, or a payload byte. The one
-//! exception is the export destination, which human output echoes back
-//! because the user just typed it; no JSON field ever carries it. It does carry
+//! exception is the export destination and the import source, which human
+//! output echoes back because the user just typed one of them; no JSON field
+//! ever carries either. It does carry
 //! the titles, descriptions, roles, and dates the user typed into their own
 //! records, and the identifiers and digests openPapir minted. KRX and
 //! `.es3` handling belong to openKRX and openSzigno respectively; neither is
@@ -81,6 +85,7 @@ mod cases;
 mod delete;
 mod envelope;
 mod report;
+mod restore;
 mod skill;
 mod status;
 mod usage;

@@ -39,8 +39,8 @@ withdrawing such a link when the user says it no longer stands,
 keeping a case's own title, notes, status, and tags current, finding a case
 again by status, tag, or a substring of its title or notes, checking storage
 integrity, summarising what the archive holds and what is still worth looking
-for, exporting one case, and deleting one case when the user asks for
-that by name.
+for, exporting one case, importing such an export back into an archive, and
+deleting one case when the user asks for that by name.
 
 Do not use it to send anything, to decide whether a document is genuine, to
 read what a receipt says, or to match a receipt to a submission
@@ -63,8 +63,9 @@ reported as if it were.
    delivery, or legal effect.
 5. **Private material stays private.** Output carries no original filename,
    no user-supplied path, and no payload byte, and neither may your report.
-   The one path any output carries is the export destination in human mode,
-   because the user typed it in the same command.
+   The one path any output carries is the export directory in human mode, the
+   `--to` of an export or the `--from` of an import, because the user typed it
+   in the same command.
 6. **The archive root is always explicit.** openpapir never searches for an
    archive, never adopts a directory that has no marker, and never creates
    one as a side effect of another command.
@@ -398,7 +399,33 @@ exactly what it created.
 
 `export.destination_conflict` means the destination already held something,
 and `export.copy_mismatch` means a copy re-digested to something else and was
-removed. Importing an export back into an archive is not implemented.
+removed.
+
+### 9a. Import one export
+
+```sh
+openpapir case import --archive ./archive --from ./out --json
+```
+
+The same plain copy inward. The manifest is authoritative: every object it
+lists is re-digested and every record it lists is read before the archive is
+written to at all, and the record set is then published all at once or not at
+all. A record keeps the identifier it had, an object or a record the archive
+already holds is not an error and is not written again, and each object the
+import stores gets one new import event with `source` `export`. Importing one
+export twice therefore leaves the same archive. `data` holds `case_id`,
+`object_count`, `objects_stored`, `objects_present`, `bytes_stored`,
+`records_written`, `records_present`, `records[]` per kind, and
+`events_recorded`; it never holds the source. A case whose objects come to
+more than 512 MiB in total meets `input.cap.import_bytes`: the per-operation
+cap binds a restore as it binds an import.
+
+`export.manifest_missing` and `export.manifest_malformed` mean the directory
+is not an export this build can read, `export.object_mismatch` that a copy is
+absent or is not the object the manifest describes, `export.record_missing`
+that a record the manifest names is not there, and `export.record_conflict`
+that the archive holds a different record under one of the identifiers. Every
+one of them leaves the archive exactly as it was.
 
 ### 10. Delete one case
 
@@ -435,6 +462,7 @@ is why no deletion record is written and no audit log is kept.
 | Code | Meaning |
 | --- | --- |
 | `delete.record_entangled` | A live association names submissions in this case and in another. Nothing was touched, and `retained_count` counts the live records in the way, naming none of them. Ask the user whether to withdraw the assertion with `association retire`; until one of them does, neither case can be deleted. |
+| `record.inconsistent` with rule `supersedes_cycle` | The stored association records supersede each other in a cycle, so the history has no live record and the deletion cannot tell what the user asserts. Nothing was touched. Only a hand-edited archive holds one; report it and do not guess. |
 | `delete.records_retained` | A record unlink was refused, so the object pass never ran. `data` keeps the counts, `ok` is `false`, and the exit code is `4`. |
 | `delete.objects_retained` | Only the purge fell short. The same shape. |
 
@@ -488,10 +516,9 @@ create a hard link cannot host one (`platform.filesystem_unsupported`).
 - It verifies no signature and asserts no authenticity or legal effect.
 - It parses no receipt, derives no metadata, and matches nothing on its own.
 - It edits no stored record but the case record, which `case update` rewrites
-  in place; it migrates nothing, never deletes a single
-  submission, receipt, or archive, and never imports an export back into an
-  archive. `case delete` is the one removal it performs, and only when asked
-  for by name.
+  in place; it migrates nothing, never deletes a single submission, receipt,
+  or archive, and never exports a whole archive. `case delete` is the one
+  removal it performs, and only when asked for by name.
 
 ## Reporting to the user
 
@@ -520,6 +547,7 @@ openpapir case update --archive ROOT CASE_ID [--title T] \
   [--notes N | --clear-notes] [--status open|closed] [--tag TAG]... \
   [--untag TAG]... --json
 openpapir case export --archive ROOT --case CASE_ID --to DIR --json
+openpapir case import --archive ROOT --from DIR --json
 openpapir case delete --archive ROOT --case CASE_ID [--purge] --json
 openpapir submission add --archive ROOT --case CASE_ID --description D \
   [--date YYYY-MM-DD] [--artefact 'sha256:HEX[:ROLE]']... --json

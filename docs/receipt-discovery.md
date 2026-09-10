@@ -6,7 +6,7 @@ proposes the smallest useful local case model, and lists what remains unknown.
 
 Nothing in this note is implemented, beyond the retention window the
 `archive status` reminders read this note for. The tool exposes help, version,
-`capabilities`, and the eighteen operations `capabilities` reports, none of
+`capabilities`, and the nineteen operations `capabilities` reports, none of
 which parses a receipt; see [architecture](architecture.md). This note does
 not claim a universal e-Papír receipt format, does not describe a submission
 API, and does not assert conformance with any government service.

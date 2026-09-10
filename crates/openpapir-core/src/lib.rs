@@ -8,18 +8,19 @@
 //! records that import writes, the case, submission, receipt, and
 //! user-asserted association records, the read-only whole-archive
 //! integrity check, the read-only summary and its receipt-retrieval
-//! reminders, the export of one case, and the permission repair that
-//! restoring an export or a backup needs. Derived metadata and verification
+//! reminders, the export of one case, the import of one export back into an
+//! archive, and the permission repair that restoring an export or a backup
+//! needs. Derived metadata and verification
 //! results are designed in `docs/archive-layout.md` and are not implemented.
 //!
 //! # Status
 //!
-//! Eighteen operations are implemented, `archive.init`, `import`,
+//! Nineteen operations are implemented, `archive.init`, `import`,
 //! `case.create`, `case.list`, `case.show`, `submission.add`, `receipt.add`,
 //! `receipt.list`, `association.create`, `association.list`,
 //! `association.retire`, `archive.check`, `archive.status`, `case.export`,
-//! `archive.repair_permissions`, `case.delete`, `skill`, and `case.update`,
-//! and they are the eighteen
+//! `case.import`, `archive.repair_permissions`, `case.delete`, `skill`, and
+//! `case.update`, and they are the nineteen
 //! [`capabilities`] reports. `skill` is the one that touches no archive: it
 //! belongs to the CLI, which writes the agent skill document it carries, and
 //! is reported here so that a machine caller learns of it from the same list
@@ -27,7 +28,7 @@
 //! Everything else in the design stays a plan: no editing of a stored record
 //! other than the case record `case.update` rewrites, no deletion of a single
 //! submission or receipt, no deletion of an
-//! archive, no import from an export, no automatic matching, no derived
+//! archive, no export of a whole archive, no automatic matching, no derived
 //! metadata, no receipt parsing, and no verification of any kind. An export
 //! copies the bytes the archive already holds and changes nothing inside it,
 //! the permission repair only narrows, and a deletion removes an object only
@@ -72,6 +73,7 @@ pub use archive::{Created, init, repair_permissions};
 pub use deletion::{Deleted, RemovedRecords, RetainedObjects, delete};
 pub use error::{Diagnostic, Failure, Outcome, Warning};
 pub use export::repair::Repaired;
+pub use export::restore::{Restored, import_case};
 pub use export::{Exported, KindCount, export_case};
 pub use integrity::{Report, check};
 pub use records::association::{
@@ -102,6 +104,7 @@ const OPERATIONS: &[&str] = &[
     "archive.check",
     "archive.status",
     "case.export",
+    "case.import",
     "archive.repair_permissions",
     "case.delete",
     "skill",
@@ -190,6 +193,7 @@ mod tests {
                 "archive.check",
                 "archive.status",
                 "case.export",
+                "case.import",
                 "archive.repair_permissions",
                 "case.delete",
                 "skill",

@@ -50,9 +50,10 @@ assign it to a case, and list or export that case. The local half of this is
 done: `import`, `case create`, `case list`, `case show`, `submission add`,
 `archive check`, `case export`, `archive repair-permissions`, and
 `case delete` exist, with resource limits, interrupted writes, duplicate
-input, and cross-platform paths covered. What remains is importing a supported
-synthetic KRX package through a versioned openKRX contract rather than a
-duplicated parser, and importing an export back into an archive.
+input, and cross-platform paths covered, and `case import` reads an export
+back into an archive. What remains is importing a supported synthetic KRX
+package through a versioned openKRX contract rather than a duplicated
+parser.
 
 ## 4. Associate one supported receipt type
 
@@ -80,7 +81,7 @@ page's last update.
   `case export` back into an archive, preserving the original bytes and
   reporting a duplicate rather than overwriting it, gated on the export layout
   in [local archive layout and storage design](archive-layout.md) staying the
-  written contract: planned.
+  written contract: implemented.
 - Case lifecycle and search (`case update` and `case list` filters) let a case
   change the fields its record already carries and let the list narrow by
   them, gated on those fields and their write stages being the ones
@@ -117,8 +118,8 @@ page's last update.
   implemented: planned.
 - A whole-archive export writes every case, submission, receipt, and
   association in one pass, with the same preserved originals as `case export`,
-  gated on `case import` existing so that the result can be read back:
-  planned.
+  gated on `case import` existing so that the result can be read back, which
+  it now does: planned.
 - Derived metadata on explicit request records the file type and the size of a
   stored object and nothing else, never parsing a receipt, gated on the
   derived-metadata design in

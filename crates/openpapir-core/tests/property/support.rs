@@ -13,7 +13,7 @@ use proptest::prelude::*;
 use proptest::test_runner::Config as ProptestConfig;
 
 use openpapir_core::archive::SUPPORTED_SCHEMA_VERSION;
-use openpapir_core::archive::import::ImportEvent;
+use openpapir_core::archive::import::{ImportEvent, SOURCE_EXPORT};
 use openpapir_core::archive::limits;
 use openpapir_core::error::Diagnostic;
 use openpapir_core::records::MAX_STATEMENT_BYTES;
@@ -415,6 +415,12 @@ fn benign_fragment() -> impl Strategy<Value = String> {
 ///
 /// Import events are records like any other, so the reader properties cover
 /// them alongside the four the archive design names.
+///
+/// `source` is generated absent as well as present, because both are records
+/// this build writes: the field is absent on every event `import` writes and
+/// carries `export` on every event `case import` writes for an object it
+/// restored. A round trip therefore has to preserve the absence as an absence
+/// rather than filling it in with a default.
 pub fn import_event_record() -> impl Strategy<Value = ImportEvent> {
     (
         identifier(),
@@ -423,9 +429,10 @@ pub fn import_event_record() -> impl Strategy<Value = ImportEvent> {
         0_u64..1_000_000,
         any::<bool>(),
         proptest::string::string_regex("[a-z0-9._-]{1,30}").expect("a filename pattern compiles"),
+        event_source(),
     )
         .prop_map(
-            |(id, digest, imported_at, byte_length, created_object, original_filename)| {
+            |(id, digest, imported_at, byte_length, created_object, original_filename, source)| {
                 ImportEvent {
                     archive_schema_version: u64::from(SUPPORTED_SCHEMA_VERSION),
                     byte_length,
@@ -435,9 +442,19 @@ pub fn import_event_record() -> impl Strategy<Value = ImportEvent> {
                     imported_at,
                     original_filename,
                     record_kind: openpapir_core::archive::import::EVENT_KIND.to_owned(),
+                    source,
                 }
             },
         )
+}
+
+/// The two `source` values an import-event record carries in this build.
+///
+/// It is a closed set openPapir writes itself rather than a capped field the
+/// user supplies, so it is generated from that set and is not one of the
+/// fields the damage strategies cap.
+fn event_source() -> impl Strategy<Value = Option<String>> {
+    prop_oneof![Just(None), Just(Some(SOURCE_EXPORT.to_owned()))]
 }
 
 /// One way a stored record document can differ from the one openPapir wrote.
