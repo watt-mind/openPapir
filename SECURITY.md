@@ -31,8 +31,11 @@ Imported documents and receipt metadata are treated as untrusted input. Import
 bounds resource use before allocation and expansion, refuses path traversal
 and symlink escape, and never replaces a stored object. Imported originals are
 preserved byte for byte and anything derived from them is a separate record.
-Stored files and directories are created with restrictive permissions. The
-layout, the caps, and the permissions are in
+Stored files and directories are created with restrictive permissions, and
+openPapir encrypts nothing it stores: the archive is plain files protected by
+owner-only permissions and by whatever disk encryption the operating system
+provides, so a copy taken out of it is plaintext until the encrypted backup
+design below is built. The layout, the caps, and the permissions are in
 [local archive layout and storage design](docs/archive-layout.md); the
 refusals, their codes, and their exit statuses are in the
 [import and association error contract](docs/error-contract.md).
@@ -56,4 +59,12 @@ requests, or an automatic delivery path. Each external integration needs an
 explicit interface, documented service contract, and user-controlled action.
 
 Backup and migration are not implemented. Review their semantics, and any
-change to storage permissions or deletion, before writing the code.
+change to storage permissions or deletion, before writing the code. An
+encrypted backup is now designed in
+[local archive layout and storage design](docs/archive-layout.md): it covers
+the backup artefact and not the live archive, uses a published AEAD container
+over a tarball of the export shape, derives its key from a passphrase the user
+holds with a memory-hard KDF, and stores no key anywhere. openPapir must never
+write a key, a recovery copy, or a passphrase to disk, and a container that
+opens asserts the confidentiality of that copy and nothing about the
+authenticity of the originals.

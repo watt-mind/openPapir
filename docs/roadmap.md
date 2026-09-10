@@ -124,8 +124,14 @@ page's last update.
   derived-metadata design in
   [local archive layout and storage design](archive-layout.md) and on the
   request being explicit rather than implied by an import: planned.
-- Encrypted backup at rest protects a copy of the archive kept outside it,
-  gated on a key-handling decision that no document has made yet: planned.
+- Encrypted backup at rest protects a copy of the archive kept outside it, and
+  never the live archive. Its key handling is now decided in
+  [local archive layout and storage design](archive-layout.md): a standard AEAD
+  container over a tarball of the export shape, a key derived from a passphrase
+  the user holds with a memory-hard KDF, and no key stored by openPapir. It is
+  gated on the one thing that design leaves open, a dependency review that
+  admits a container crate under the licence and audit constraints recorded
+  there: planned.
 
 ## Later, subject to evidence
 

@@ -454,8 +454,153 @@ permissions on restore, which the owner-only rule would then refuse. The
 documented remedy is an explicit repair action that narrows an archive's
 permissions back to owner-only and reports every path it changed. It is a
 repair, not an escape hatch: there is no flag that makes openPapir accept wide
-permissions, and the repair only narrows, never widens. Encryption at rest is
-not designed here; see the deferred question below.
+permissions, and the repair only narrows, never widens. A backup taken this way
+is plaintext on the medium it lands on; the encrypted backup below is the
+decided alternative, and it is not implemented.
+
+## Encrypted backup at rest
+
+This section decides the design of an encrypted backup. Nothing here is
+implemented, no dependency is added by the decision, and `capabilities` reports
+no such operation. It closes the deferred question below by making the threat
+model and the key handling explicit, so that an implementation issue can be
+written without reopening the choices.
+
+### Scope of the encryption
+
+The subject is **the backup artefact, not the live archive**. The archive root
+stays exactly as the rest of this document describes it: plain files, plain
+records, owner-only permissions, readable by ordinary tools while openPapir is
+not running. Encrypting the live tree would break the read-only integrity
+check, the atomic write procedure, and the promise that original bytes sit on
+disk unconverted, and it would move a key into every command that touches the
+archive. The archive continues to rely on operating-system disk encryption and
+owner-only permissions, and users must be told so plainly.
+
+An encrypted backup is therefore one file produced from, and restored to, a
+directory. It is a copy taken outward. Restoring it produces a directory, not
+an archive: importing an export back into an archive is not implemented, and
+this decision does not change that.
+
+### Container format
+
+The plaintext is a **tarball of the export shape**: the `objects/`,
+`records/<kind>/`, and `manifest.json` tree described under Export and backup,
+written whole into an uncompressed tar stream, in sorted order, with the
+manifest last. The export shape is already restorable without openPapir and
+already excludes the rebuildable `cache/` index, so the encrypted backup adds
+no second layout to maintain. Tar entries carry no owner name, no group name,
+and no path outside the export shape.
+
+The ciphertext is a **standard AEAD container over that stream**, not an
+openPapir invention. The decided container is the age format version 1
+([age-encryption.org/v1][agespec], published as `age.md` in the C2SP
+repository), used in its passphrase mode. Reading that specification, the
+properties this design depends on are:
+
+| Property | What the specification states |
+| --- | --- |
+| Payload AEAD | The payload is split into chunks of 64 KiB and each of them is encrypted with ChaCha20-Poly1305, in a STREAM variant that binds chunk order and marks the final chunk. |
+| Passphrase mode | An `scrypt` recipient stanza carries a base64-encoded 16-byte salt from a CSPRNG and the base-two logarithm of the scrypt work factor. |
+| Header integrity | The header is covered by HMAC-SHA-256 under a key derived from the file key with HKDF-SHA-256. |
+
+Rejected: a container framed by this project over a raw AEAD crate. It would
+need its own chunking, nonce discipline, final-chunk marker, and header
+authentication, which is the part of such a format that is easiest to get
+wrong and that this repository cannot review at the cost it pays for the rest.
+Also rejected: compressing before encrypting, because compression ratios leak
+content, and per-object encryption, because it exposes the object count and the
+size of every object by construction.
+
+[agespec]: https://age-encryption.org/v1
+
+### Candidate crates and their audit state
+
+No dependency is added by this decision. The candidates below are named so that
+the dependency review an implementation issue must pass starts from a list.
+Each claim is what the crate's own repository or its crates.io page states,
+read without running anything; anything those sources do not state is recorded
+as not verified.
+
+| Crate | Role | Latest stable | Licence | Audit state as stated by the project | RustSec |
+| --- | --- | --- | --- | --- | --- |
+| `age` | The age v1 container, encrypt and decrypt, passphrase mode | 0.12.1 | MIT OR Apache-2.0 | Not verified. Neither the `rage` repository README nor the crates.io page read for this section states a security audit of the library. | RUSTSEC-2024-0433, 2024-12-18, "Malicious plugin names, recipients, or identities can cause arbitrary binary execution", affecting several 0.6 to 0.11 lines and patched in 0.6.1, 0.7.2, 0.8.2, 0.9.3, 0.10.1, and 0.11.1. The advisory scopes it to the plugin APIs with the `plugin` feature enabled. |
+| `chacha20poly1305` | The AEAD, if the container were built from parts instead | 0.11.0 | Apache-2.0 OR MIT | Its README states: "This crate has received one security audit by NCC Group, with no significant findings." | No advisory directory for this crate in the RustSec database at the time of writing. |
+| `aes-gcm` | The alternative AEAD, if a caller ever requires AES | 0.11.1 | Apache-2.0 OR MIT | Its README states: "This crate has received one security audit by NCC Group, with no significant findings." | RUSTSEC-2023-0096, 2023-11-22, plaintext exposed by `decrypt_in_place_detached` even when tag verification fails, affecting >= 0.10.0, < 0.10.3 and patched in 0.10.3. |
+| `argon2` | The memory-hard KDF, if the container were built from parts | 0.6.0 | MIT OR Apache-2.0 | Not verified. The README read for this section states no audit. | No advisory directory for this crate in the RustSec database at the time of writing. |
+
+Constraints any of them must satisfy before it is admitted: the licence must be
+one `deny.toml` already allows, the crate must build on the minimum supported
+Rust version this repository pins, and the `age` plugin feature must stay off,
+because the plugin path is what that crate's one advisory is about and this
+project runs no external binary. The RustCrypto AEAD crates state a minimum
+supported Rust version of 1.85 in their READMEs; the `age` crate's own minimum
+supported Rust version is not verified from the sources read here. Every row
+above is a reading of a public repository or crates.io page taken while this
+section was written, not a standing guarantee: the review that admits a crate
+re-reads it.
+
+### Key handling
+
+The key is **derived from a passphrase the user holds**, with the memory-hard
+KDF the container format specifies: scrypt in age v1, or Argon2id if the
+rejected build-from-parts route is ever revisited. The work factor is written
+into the container by the format, so a backup taken today stays openable after
+the default is raised.
+
+openPapir **stores no key**. It writes no key file, no keyring entry, no
+recovery copy, no passphrase hint, and no environment variable of its own. The
+passphrase is read from an interactive prompt with echo off, or from a file
+descriptor the user names, never from a command-line argument, which would land
+in the shell history and the process list. It is zeroised once the key is
+derived. There is no recovery path: a lost passphrase is a lost backup, and any
+future prompt says so before it takes a passphrase for a new container.
+
+### What is and is not protected
+
+| Protected | Not protected |
+| --- | --- |
+| The bytes of every artefact in the backup. | The existence of the backup file, and that it is an openPapir backup, if its name or its location says so. |
+| The record contents: case, submission, receipt, association, and import-event documents, and with them the original filenames, titles, notes, and digests they carry. | The total size of the container, which bounds the total size of what it holds. |
+| The manifest, and with it the number of objects and the length of each one. | The file's timestamps, and that it changed between two backups. |
+| The order and the boundaries of the payload chunks, which the STREAM construction binds. | Anything in the live archive, on the medium that held it, or in any plaintext copy taken before. |
+
+The number, the size, and the name of each file inside are protected because
+the tar stream sits inside the encrypted payload, but the container's own size
+leaks the aggregate. No padding is designed, and none is claimed. A host
+compromised while the passphrase is being typed, or while a restore is running,
+is outside this design.
+
+### Recovery semantics
+
+- A **wrong passphrase is a clean refusal**. The passphrase either opens the
+  container's header or it does not, and no payload chunk is decrypted before
+  it does. The refusal says that the passphrase did not open this container,
+  names no path, no digest, and no record, and exits through an ordinary
+  refusal bucket of the [error contract](error-contract.md), never through a
+  crash.
+- A **truncated or altered container is detected before any decryption output
+  is written**. A restore writes into a staging directory beside the target,
+  the way records and deletions already stage their writes, and publishes it
+  only after the last chunk authenticates and the format's final-chunk marker
+  is present. A container that ends early therefore fails with nothing
+  published, and the staging directory is removed.
+- The manifest inside is checked after publication the way an export's is:
+  every object re-digested against the name it is filed under. That is the
+  storage-layer identity check described above, and it is not a cryptographic
+  verification of anything.
+- A partial restore is not offered. The unit is the whole container.
+
+### Wording rule for an encrypted backup
+
+An encrypted backup asserts **confidentiality of the copy, and nothing about
+the authenticity of the originals**. A container that opens shows that whoever
+wrote it held the passphrase and that the bytes were not altered afterwards. It
+shows nothing about where the artefacts inside came from, whether any of them
+is genuine, or whether anything was delivered, received by an authority, or has
+legal effect. No message, field, or document may describe a successful
+decryption as verification, validation, authentication of a document, or proof
+of anything beyond the container having opened. `verified` stays `false`.
 
 ## Deletion
 
@@ -570,12 +715,14 @@ The discovery note left seven open questions
    refused rather than silently accepted; the three weakened guarantees above,
    and the fourth the implementation added, are named, reportable conditions
    whose wire representation belongs to the error contract.
-7. **Encrypted backup at rest: deferred.** It needs a threat model and a
-   key-handling decision under [SECURITY.md](../SECURITY.md), not a layout
-   decision. Nothing above precludes it; whole-tree and per-object encryption
-   both remain open. Until it is decided the archive relies on operating-system
-   disk encryption and owner-only permissions, and users must be told so
-   plainly.
+7. **Encrypted backup at rest: resolved as a design, not implemented.** The
+   threat model and the key-handling decision it needed are in Encrypted
+   backup at rest above: the backup artefact only, a standard AEAD container
+   over a tarball of the export shape, a passphrase-derived key with a
+   memory-hard KDF, and no key stored by openPapir. Whole-tree and per-object
+   encryption of the live archive are both rejected there. Until the design is
+   built the archive relies on operating-system disk encryption and owner-only
+   permissions, and users must be told so plainly.
 
 ## Unblocked follow-ups
 
@@ -598,8 +745,10 @@ tracker owns; the sequencing only is recorded here.
 - **Case deletion with an explicit purge** (new): **implemented** as
   `case delete`.
 - **Derived-metadata staleness and recompute-on-request** (new): **not
-  implemented**, and the only follow-up here with no code behind it. Depends
-  on nothing further in this document.
+  implemented**. Depends on nothing further in this document.
+- **Encrypted backup at rest** (new): **not implemented**, decided above.
+  Depends on a dependency review admitting one container crate, which is the
+  only part of it this document leaves open.
 
 Unchanged blockers: receipt parsing still needs the format gap closed
 (follow-up 1), and the delegated verification boundary still needs published,
