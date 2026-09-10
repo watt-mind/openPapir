@@ -415,6 +415,12 @@ impl History {
 /// the next reader to rebuild it. Nothing is written when the operation never
 /// held an index, because writing one would mean scanning for it, and an
 /// import of new files is not the place to pay for that.
+///
+/// What it holds in memory is keyed rather than accumulated: the index is one
+/// entry per distinct digest an import event names, each holding that digest's
+/// own events, so the entry count is the number of distinct digests the
+/// archive has an import event for and an event folded in during the operation
+/// joins the entry that was already there.
 #[derive(Debug, Default)]
 struct Histories {
     index: Option<cache::ImportEvents>,

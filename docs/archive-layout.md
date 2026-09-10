@@ -1060,7 +1060,11 @@ What goes with the case is fixed:
   go refuses the deletion before the first unlink, and a deletion that removes
   no object removes none of them. A purge that stops between the two passes
   therefore leaves a record about bytes that are gone; `archive check` counts
-  one under `derived_orphans` and the next `archive derive` discards it.
+  one under `derived_orphans` and the next `archive derive` discards it. The
+  other way round holds too: an object whose unlink fails after its derived
+  record was removed is left with no derived record until the next
+  `archive derive` computes one again, which loses nothing, because a derived
+  record is disposable and nothing in the archive references one.
 
 An association naming submissions in **two cases** is refused rather than
 resolved while the user still asserts it. It references a submission that
