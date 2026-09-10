@@ -473,7 +473,10 @@ fn a_query_matches_the_notes_and_is_never_echoed_back() {
     ]);
     let rendered = String::from_utf8(human.stdout).expect("stdout is UTF-8");
     assert!(!rendered.contains(query), "nor does the human form");
-    assert!(human.stderr.is_empty());
+    // Stderr carries only the platform warnings, which differ by platform, so
+    // it is checked for the query rather than for being empty.
+    let diagnostics = String::from_utf8(human.stderr).expect("stderr is UTF-8");
+    assert!(!diagnostics.contains(query), "nor any diagnostic line");
 }
 
 #[test]
