@@ -151,6 +151,11 @@ locally leaves no untracked tree. The draft release and the dry-run summary
 print what `--describe` says, so a release cannot name a layout other than the
 one that was staged.
 
+The build job keeps its uploaded artefact for one day, because the same run's
+verify and draft release jobs are its only consumers, and the layout a pull
+request dry run produces is already evidenced by the CI packaging step and by
+`--describe --paths`.
+
 Beside each archive is a `<archive>.sha256` file in the format
 `sha256sum --check` reads. The checksum is written and verified on the runner
 that built the archive and verified again from the collected artefacts before

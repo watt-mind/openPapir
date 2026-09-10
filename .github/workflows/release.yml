@@ -243,7 +243,7 @@ jobs:
           name: openpapir-${{ matrix.target }}
           path: dist/
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 1
       - name: Record how many artefacts the matrix produces
         id: count
         shell: bash
