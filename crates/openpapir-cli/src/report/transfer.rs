@@ -1,9 +1,10 @@
 //! The lines the commands that move artefacts between an archive and a
-//! directory print: `import`, `case export`, and the permission repair that
-//! follows one out of an archive that was written to elsewhere.
+//! directory print: `import`, `case export`, `case import`, and the
+//! permission repair that follows one out of an archive that was written to
+//! elsewhere.
 
 use openpapir_core::archive::import::Imported;
-use openpapir_core::{Exported, Repaired};
+use openpapir_core::{Exported, Repaired, Restored};
 
 /// The lines `import` prints when it succeeds.
 #[must_use]
@@ -82,10 +83,45 @@ pub fn repaired(repaired: &Repaired) -> Vec<String> {
     lines
 }
 
+/// The lines `case import` prints when it succeeds.
+///
+/// The source is the one thing here the JSON does not carry, exactly as the
+/// destination is for an export: the line repeats the `--from` argument the
+/// user typed in the same invocation and nothing else ever echoes it.
+#[must_use]
+pub fn restored(restored: &Restored) -> Vec<String> {
+    let mut lines = vec![
+        format!(
+            "Imported case {} from {}.",
+            restored.case_id, restored.source
+        ),
+        format!(
+            "Stored {} object(s), {} byte(s); {} already present.",
+            restored.objects_stored, restored.bytes_stored, restored.objects_present
+        ),
+        format!(
+            "Wrote {} record(s); {} already present.",
+            restored.records_written, restored.records_present
+        ),
+    ];
+    for kind in &restored.records {
+        lines.push(format!("{} {}", kind.kind, kind.count));
+    }
+    lines.push(format!(
+        "Recorded {} import event(s) with source export.",
+        restored.events_recorded
+    ));
+    lines.push(
+        "Every restored copy was re-digested: a digest identifies bytes only, never authenticity, delivery, or legal effect."
+            .to_owned(),
+    );
+    lines
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use openpapir_core::Artefact;
+    use openpapir_core::{Artefact, KindCount};
 
     #[test]
     fn human_import_output_names_no_file_and_promises_nothing() {
@@ -116,5 +152,31 @@ mod tests {
         assert!(text.contains("already present since 2026-01-14T09:12:33Z after 2"));
         assert!(text.contains("Nothing here is verified"));
         assert!(!text.contains('/'), "no path ever reaches human output");
+    }
+
+    #[test]
+    fn human_case_import_output_repeats_only_the_source_the_user_typed() {
+        let lines = restored(&Restored {
+            case_id: "0123456789abcdef0123456789abcdef".to_owned(),
+            source: "exports/case".to_owned(),
+            objects_stored: 2,
+            bytes_stored: 8,
+            object_count: 3,
+            objects_present: 1,
+            records_written: 3,
+            records_present: 1,
+            records: vec![KindCount {
+                count: 1,
+                kind: "submission",
+            }],
+            events_recorded: 2,
+        });
+        let text = lines.join("\n");
+        assert!(text.contains("Imported case 0123456789abcdef0123456789abcdef from exports/case."));
+        assert!(text.contains("Stored 2 object(s), 8 byte(s); 1 already present."));
+        assert!(text.contains("Wrote 3 record(s); 1 already present."));
+        assert!(text.contains("submission 1"));
+        assert!(text.contains("Recorded 2 import event(s) with source export."));
+        assert!(text.contains("never authenticity, delivery, or legal effect"));
     }
 }
