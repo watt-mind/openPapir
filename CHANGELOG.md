@@ -295,8 +295,8 @@ envelope.
   `0`; otherwise the report stays in `data`, `ok` is `false`, and `error`
   names the first problem in a fixed precedence, exiting `4` for a `record`
   or `integrity` condition and `3` where the only complaint is a link inside
-  the store. `capabilities` now lists `archive.check` as the eleventh
-  operation. A passing check is storage integrity only: it asserts nothing
+  the store. `capabilities` now lists `archive.check` among the operations it
+  reports. A passing check is storage integrity only: it asserts nothing
   about authenticity, origin, delivery, or legal effect, and `verified` stays
   `false` (#15).
 - `integrity.dangling_reference` is a new error code for a record that names

@@ -491,7 +491,7 @@ owner-only permissions, and users must be told so plainly.
 
 An encrypted backup is therefore one file produced from, and restored to, a
 directory. It is a copy taken outward. Restoring it produces a directory, not
-an archive: importing an export back into an archive is not implemented, and
+an archive. `case import` reads such a directory back into an archive, and
 this decision does not change that.
 
 ### Container format
