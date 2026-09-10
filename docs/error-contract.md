@@ -445,14 +445,15 @@ followed ([archive-layout](archive-layout.md)).
   the other. The record and the value it holds are never named
   ([architecture](architecture.md)).
 - **`record.inconsistent`**: record, not retryable. **Added additively by the
-  receipt and association records.** A record's fields exist and are each
-  readable, but they cannot be true together under a rule
-  [archive-layout](archive-layout.md) already states: an outcome whose
+  receipt and association records, and emitted by `case delete`.** A record's
+  fields exist and are each readable, but they cannot be true together under a
+  rule [archive-layout](archive-layout.md) already states: an outcome whose
   candidate count the design forbids, one submission named as a candidate
   twice, a superseded record belonging to another receipt, a retirement naming
-  a record something already supersedes, or a named import event recording
-  another artefact. The refusal happens before anything is
-  written. Details: `bucket`, `record_kind` (the kind whose creation was
+  a record something already supersedes, a named import event recording
+  another artefact, or a `supersedes` cycle among the stored association
+  records. The refusal happens before anything is written or removed.
+  Details: `bucket`, `record_kind` (the kind whose creation or deletion was
   refused, such as `association` or `receipt`) and `rule`, a short, stable
   snake_case name for the broken invariant. Nothing else: no identifier, no
   statement, no label, and no path. The implemented rules are
@@ -467,6 +468,17 @@ followed ([archive-layout](archive-layout.md)).
   | `supersedes_other_receipt` | The superseded record belongs to another receipt. |
   | `already_superseded` | The record `association retire` names is superseded already. |
   | `import_event_digest_mismatch` | A named import event records another artefact. |
+  | `supersedes_cycle` | Stored association records supersede each other in a cycle, so the history has no live record. |
+
+  `supersedes_cycle` is the one rule of the list a stored archive rather than
+  a supplied field breaks: no openPapir command writes a cycle, so it reaches
+  an archive only by hand. `case delete` refuses it because both of its
+  supersession rules read the chain's live record and a cycle has none, so a
+  cycle naming a departing submission would otherwise be removed whole as
+  history nobody asserts. Only a cycle a deletion would otherwise have removed
+  is refused, and never a cycle elsewhere in the archive: reporting one
+  wherever it sits is `archive check`'s work
+  ([architecture](architecture.md)).
 
   A rule name is stable once published, and a new rule is an additive change
   like a new code. This is a separate code from `record.not_found`, which
@@ -1008,8 +1020,9 @@ the archive as `archive check` found it.
 
 Deleting a case is implemented, so `delete.objects_retained`, its `reason`
 detail, the additive `delete.records_retained` and `delete.record_entangled`,
-and the rule that a deletion reports counts and record kinds and persists
-nothing are contract rather than proposal. A deletion never leaves a record or
+the `supersedes_cycle` rule of `record.inconsistent`, and the rule that a
+deletion reports counts and record kinds and persists nothing are contract
+rather than proposal. A deletion never leaves a record or
 an object naming something the archive no longer holds: it refuses instead,
 and every refusal above leaves the archive as `archive check` found it.
 

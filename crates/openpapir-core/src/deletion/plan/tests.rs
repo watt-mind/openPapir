@@ -239,7 +239,7 @@ fn an_association_stays_when_it_names_a_submission_that_remains() {
         association(0x11, 0x21, &[1, 2]),
         association(0x12, 0x22, &[]),
     ];
-    let doomed = doomed_associations(&associations, &going);
+    let doomed = Supersession::read(&associations, &going).doomed(&associations);
     let doomed: Vec<String> = doomed.iter().map(|id| (*id).to_owned()).collect();
     assert_eq!(doomed, vec![id(0x10)]);
 }
@@ -252,7 +252,9 @@ fn a_superseded_association_is_kept_when_the_newer_one_stays() {
     newer.supersedes = Some(id(0x10));
     let associations = vec![association(0x10, 0x20, &[1]), newer];
     assert!(
-        doomed_associations(&associations, &going).is_empty(),
+        Supersession::read(&associations, &going)
+            .doomed(&associations)
+            .is_empty(),
         "removing it would leave the newer record naming nothing"
     );
 }
@@ -287,14 +289,15 @@ fn a_retired_chain_goes_with_the_case_its_history_named() {
     let mut retirement = association(0x12, 0x20, &[]);
     retirement.supersedes = Some(id(0x11));
     let associations = vec![association(0x11, 0x20, &[1, 2]), retirement];
-    let doomed = doomed_associations(&associations, &going);
+    let supersession = Supersession::read(&associations, &going);
+    let doomed = supersession.doomed(&associations);
     assert_eq!(
         doomed,
         BTreeSet::from([associations[0].id.as_str(), associations[1].id.as_str()]),
         "the whole chain goes, so neither record is left naming the other"
     );
     assert!(
-        refuse_entangled(&associations, &going).is_ok(),
+        supersession.refuse_entangled(&associations).is_ok(),
         "a withdrawn assertion is no longer in the way"
     );
 }
@@ -308,7 +311,9 @@ fn a_live_association_spanning_two_cases_is_refused_by_a_count_of_live_records()
     let mut newer = association(0x11, 0x20, &[1, 2]);
     newer.supersedes = Some(id(0x10));
     let associations = vec![association(0x10, 0x20, &[1]), newer];
-    let refusal = refuse_entangled(&associations, &going).unwrap_err();
+    let refusal = Supersession::read(&associations, &going)
+        .refuse_entangled(&associations)
+        .unwrap_err();
     assert_eq!(refusal.code, codes::DELETE_RECORD_ENTANGLED);
     assert_eq!(refusal.exit_code(), 4);
     let json = serde_json::to_value(&refusal).unwrap();
@@ -334,6 +339,63 @@ fn a_chain_this_deletion_does_not_touch_stays_and_a_cycle_settles() {
     first.supersedes = Some(id(0x11));
     second.supersedes = Some(id(0x10));
     let associations = vec![first, second];
-    assert!(doomed_associations(&associations, &going).is_empty());
-    assert!(refuse_entangled(&associations, &going).is_ok());
+    let supersession = Supersession::read(&associations, &going);
+    assert!(supersession.doomed(&associations).is_empty());
+    assert!(supersession.refuse_cycle().is_ok());
+    assert!(supersession.refuse_entangled(&associations).is_ok());
+}
+
+/// A cycle has no live record, so the entanglement rule cannot read one and
+/// the whole chain would otherwise be taken as history nobody asserts. One
+/// naming a departing submission is refused as the integrity anomaly it is,
+/// under its own rule and naming no record.
+#[test]
+fn a_cycle_naming_a_departing_submission_is_refused_as_an_anomaly() {
+    let going = BTreeSet::from([id(1)]);
+    let going: BTreeSet<&str> = going.iter().map(String::as_str).collect();
+    let mut first = association(0x10, 0x20, &[1]);
+    let mut second = association(0x11, 0x20, &[2]);
+    first.supersedes = Some(id(0x11));
+    second.supersedes = Some(id(0x10));
+    let associations = vec![first, second];
+    let supersession = Supersession::read(&associations, &going);
+    assert_eq!(
+        supersession.doomed(&associations).len(),
+        2,
+        "today the whole cycle would go silently, which is what is refused"
+    );
+    assert!(
+        supersession.refuse_entangled(&associations).is_ok(),
+        "no live record, so the entanglement rule can never fire for a cycle"
+    );
+    let refusal = supersession.refuse_cycle().unwrap_err();
+    assert_eq!(refusal.code, codes::RECORD_INCONSISTENT);
+    assert_eq!(refusal.exit_code(), 4);
+    let json = serde_json::to_value(&refusal).unwrap();
+    assert_eq!(json["details"]["record_kind"], "association");
+    assert_eq!(json["details"]["rule"], "supersedes_cycle");
+    assert_eq!(
+        json["details"].as_object().unwrap().len(),
+        3,
+        "the kind, the rule, and the bucket, and never an identifier"
+    );
+    let text = serde_json::to_string(&refusal).unwrap();
+    assert!(!text.contains(&id(0x10)) && !text.contains(&id(0x11)));
+}
+
+/// A cycle whose records name only submissions that remain is no business of
+/// this deletion. Refusing on it would describe the archive rather than the
+/// command the user ran, which is `archive check`'s work.
+#[test]
+fn a_cycle_this_deletion_does_not_touch_is_left_to_the_integrity_check() {
+    let going = BTreeSet::from([id(1)]);
+    let going: BTreeSet<&str> = going.iter().map(String::as_str).collect();
+    let mut first = association(0x10, 0x20, &[2]);
+    let mut second = association(0x11, 0x20, &[3]);
+    first.supersedes = Some(id(0x11));
+    second.supersedes = Some(id(0x10));
+    let associations = vec![first, second];
+    let supersession = Supersession::read(&associations, &going);
+    assert!(supersession.refuse_cycle().is_ok());
+    assert!(supersession.doomed(&associations).is_empty());
 }

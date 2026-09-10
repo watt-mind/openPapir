@@ -462,6 +462,7 @@ is why no deletion record is written and no audit log is kept.
 | Code | Meaning |
 | --- | --- |
 | `delete.record_entangled` | A live association names submissions in this case and in another. Nothing was touched, and `retained_count` counts the live records in the way, naming none of them. Ask the user whether to withdraw the assertion with `association retire`; until one of them does, neither case can be deleted. |
+| `record.inconsistent` with rule `supersedes_cycle` | The stored association records supersede each other in a cycle, so the history has no live record and the deletion cannot tell what the user asserts. Nothing was touched. Only a hand-edited archive holds one; report it and do not guess. |
 | `delete.records_retained` | A record unlink was refused, so the object pass never ran. `data` keeps the counts, `ok` is `false`, and the exit code is `4`. |
 | `delete.objects_retained` | Only the purge fell short. The same shape. |
 
