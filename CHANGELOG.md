@@ -817,6 +817,21 @@ envelope.
 
 ### Fixed
 
+- `import` no longer reads every stored import event once per file, so
+  importing a directory costs the batch rather than the history behind it.
+  Duplicate detection reads the import events at most once for a whole
+  operation, and not at all when every input is new, folding in the events the
+  same operation writes so a repeated input still counts them. `import
+  --case` and `submission add --file` share that path and gain the same. What
+  is reported is unchanged: the same counts, the same
+  `previous_import_count` and `first_imported_at` on a duplicate, the same
+  warnings. On the benchmark archive a batch of 1000 files against 20000
+  stored events went from 46 s to 0.9 s, and building the archive from 11
+  minutes to 46 seconds. `receipt add` without `--import-event` still reads
+  every import event once per invocation, which the Performance section of
+  `docs/architecture.md` now states. The ignored benchmark times one import of
+  a full batch against the archive it built, so the cost that grew is asserted
+  against a ceiling rather than only described.
 - The human form of `association show` prints the shown record once. The
   chain it reports always holds that record, so printing its block before the
   chain as well printed the same record twice; the first line now names the

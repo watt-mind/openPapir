@@ -5,6 +5,11 @@
 //! that costs at a size a user might reach, and asserts that each scan stays
 //! under a ceiling documented in `docs/architecture.md`.
 //!
+//! One import of a full batch of files is timed as well. It is not a listing,
+//! but it is the one write whose cost could grow with what the archive
+//! already holds, so it is measured against the archive the setup built
+//! rather than against an empty one.
+//!
 //! The test is ignored, so it never runs in CI: it builds a temporary archive
 //! of forty thousand records and twenty thousand objects first, which takes
 //! minutes. `docs/testing.md` says how to run it. Timing is `std::time` only,
@@ -12,6 +17,8 @@
 
 mod bench_support;
 
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::time::{Duration, Instant};
 
@@ -40,6 +47,14 @@ const LIST_CEILING: Duration = Duration::from_secs(5);
 const CHECK_CEILING: Duration = Duration::from_secs(10);
 const EXPORT_CEILING: Duration = Duration::from_secs(5);
 const DELETE_CEILING: Duration = Duration::from_secs(10);
+/// The ceiling for one import batch, which is tighter in proportion than the
+/// scans above: an import of a batch this size costs seconds at most, and the
+/// cost this asserts against grew with the archive rather than with the
+/// batch, so a run that crosses it is well clear of any drift.
+const IMPORT_CEILING: Duration = Duration::from_secs(10);
+
+/// Files in the timed import, which is the per-import file cap itself.
+const IMPORT_BATCH: usize = 1_000;
 
 /// The exit code of the usage bucket, which an unimplemented subcommand is.
 const USAGE_EXIT: i32 = 2;
@@ -131,6 +146,8 @@ fn the_linear_scans_stay_under_their_documented_ceilings() {
         ],
     ));
 
+    measurements.push(measure_import(&archive));
+
     report(cases, setup, &measurements);
     // A scan that matched nothing would be fast for the wrong reason, so what
     // each listing reported is checked before its time is believed.
@@ -163,7 +180,17 @@ fn the_linear_scans_stay_under_their_documented_ceilings() {
 
 /// Time one invocation of the built binary and require it to succeed.
 fn measure(name: &'static str, ceiling: Duration, arguments: &[&str]) -> Measurement {
-    let (elapsed, output) = timed(arguments);
+    measure_in(name, ceiling, None, arguments)
+}
+
+/// Time one invocation, optionally from a working directory of its own.
+fn measure_in(
+    name: &'static str,
+    ceiling: Duration,
+    directory: Option<&Path>,
+    arguments: &[&str],
+) -> Measurement {
+    let (elapsed, output) = timed(directory, arguments);
     assert_eq!(
         output.status.code(),
         Some(0),
@@ -177,6 +204,54 @@ fn measure(name: &'static str, ceiling: Duration, arguments: &[&str]) -> Measure
     }
 }
 
+/// Time one import of a full batch of new files into the built archive.
+///
+/// It runs last, so it imports against every import event the setup recorded.
+/// Duplicate detection that re-read those events once per input would put
+/// this run an order of magnitude over its ceiling, which is what makes the
+/// ceiling worth asserting: the batch itself is a few hundred kilobytes.
+///
+/// The binary is run from the input directory, because a command line of a
+/// thousand absolute temporary paths exceeds what some platforms accept at
+/// process spawn.
+fn measure_import(archive: &bench_support::Synthetic) -> Measurement {
+    let directory = PathBuf::from(archive.destination("import-inputs"));
+    fs::create_dir(&directory).expect("create the import input directory");
+    let names: Vec<String> = (0..IMPORT_BATCH)
+        .map(|index| {
+            let name = format!("late-{index:07}.bin");
+            fs::write(
+                directory.join(&name),
+                format!("benchmark import {index:07}\n"),
+            )
+            .expect("write a synthetic input");
+            name
+        })
+        .collect();
+    let root = archive.archive_string();
+    let mut arguments = vec!["import", "--archive", root.as_str(), "--json"];
+    arguments.extend(names.iter().map(String::as_str));
+    let measurement = measure_in(
+        "import of one batch",
+        IMPORT_CEILING,
+        Some(&directory),
+        &arguments,
+    );
+    let envelope: serde_json::Value =
+        serde_json::from_slice(&measurement.stdout).expect("import prints one envelope");
+    assert_eq!(
+        envelope["data"]["imported"].as_u64(),
+        Some(IMPORT_BATCH as u64),
+        "the timed import did not store every input"
+    );
+    assert_eq!(
+        envelope["data"]["duplicates"].as_u64(),
+        Some(0),
+        "every input of the timed import is distinct"
+    );
+    measurement
+}
+
 /// Time one invocation the build may not implement yet.
 ///
 /// An invocation this build does not recognise is refused in the usage
@@ -188,7 +263,7 @@ fn measure(name: &'static str, ceiling: Duration, arguments: &[&str]) -> Measure
 /// time to measure it would time a warm run and put it in the same table as
 /// the others, which are timed once each.
 fn optional(name: &'static str, ceiling: Duration, arguments: &[&str]) -> Option<Measurement> {
-    let (elapsed, output) = timed(arguments);
+    let (elapsed, output) = timed(None, arguments);
     if output.status.code() == Some(USAGE_EXIT) {
         println!("{name}: not implemented in this build, not measured");
         return None;
@@ -207,9 +282,13 @@ fn optional(name: &'static str, ceiling: Duration, arguments: &[&str]) -> Option
 }
 
 /// Run the built binary once and return how long it took and what it wrote.
-fn timed(arguments: &[&str]) -> (Duration, Output) {
+fn timed(directory: Option<&Path>, arguments: &[&str]) -> (Duration, Output) {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_openpapir"));
+    if let Some(directory) = directory {
+        command.current_dir(directory);
+    }
     let started = Instant::now();
-    let output = Command::new(env!("CARGO_BIN_EXE_openpapir"))
+    let output = command
         .args(arguments)
         .output()
         .expect("run the openpapir binary under test");

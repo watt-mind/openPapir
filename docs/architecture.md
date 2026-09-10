@@ -2355,12 +2355,13 @@ associations, and 20000 imported objects of 256 bytes each.
 | Invocation | Wall time | Ceiling |
 | --- | --- | --- |
 | `case list` | 0.06 s | 5 s |
-| `case list --query` | 0.06 s | 5 s |
-| `case show` of one case | 0.23 s | 5 s |
-| `archive check` | 1.41 s | 10 s |
-| `archive status` | 0.24 s | 5 s |
-| `case export` of one case | 0.22 s | 5 s |
-| `case delete --purge` of one case | 0.31 s | 10 s |
+| `case list --query` | 0.10 s | 5 s |
+| `case show` of one case | 0.37 s | 5 s |
+| `archive check` | 0.80 s | 10 s |
+| `archive status` | 0.32 s | 5 s |
+| `case export` of one case | 0.27 s | 5 s |
+| `case delete --purge` of one case | 0.41 s | 10 s |
+| `import` of a batch of 1000 new files | 0.90 s | 10 s |
 
 The ceiling is what `crates/openpapir-cli/tests/bench.rs` asserts. It is loose
 on purpose: the same assertion has to hold on an unoptimised build, on a
@@ -2368,15 +2369,20 @@ slower disk, and on a busy machine, so crossing one means the cost changed in
 kind rather than drifted. [Testing](testing.md) says how to run the
 measurement and how to change its size.
 
-One cost is not in the table, because it is not a scan a user asks for.
-Building that archive took 11 minutes, and almost all of it was `import`:
-recording an import event reads the import events already stored, so the cost
-of importing a file grows with the number of imports the archive has ever
-seen. In a separate run on the same machine and date, importing 1000 files
-into an empty archive took 1.6 s, while importing the twentieth batch of 1000,
-with 19000 import events already stored, took 46 s. Resolving a receipt's
-artefact to its earliest import event reads the same records, which took
-0.12 s over 20000 of them; naming `--import-event` reads one record instead.
+The import row is the last measurement of the run, so its 1000 files are
+stored into the archive above with 20000 import events already present. The
+same batch imported into an empty archive took 1.4 s in a separate run on the
+same machine and date, so the cost of an import is the cost of the batch and
+not of the history behind it. Recording an import event reads the stored
+events only when the bytes were already present, and then once for the whole
+operation rather than once per file, so a directory of new files costs no read
+of them at all. Building the whole synthetic archive took 46 seconds.
+
+One cost is still a scan, because records are named by a minted identifier and
+nothing indexes them by digest. Resolving a receipt's artefact to its earliest
+import event, which is `receipt add` without `--import-event`, reads every
+import-event record, once per invocation: 0.12 s over 20000 of them. Naming
+`--import-event` reads one record instead.
 
 ## Implemented codes and exit codes
 
