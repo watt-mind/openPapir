@@ -12,6 +12,7 @@ use std::fs;
 use proptest::prelude::*;
 use serde::de::DeserializeOwned;
 
+use openpapir_core::archive::import::{ImportEvent, SOURCE_EXPORT};
 use openpapir_core::records::case;
 use openpapir_core::records::document::{self, Record};
 
@@ -114,6 +115,39 @@ proptest! {
     #[test]
     fn a_receipt_record_round_trips(record in support::receipt_record()) {
         round_trips(&record)?;
+    }
+
+    /// An import event carries `source` only when the bytes it records came
+    /// from an export, and the field is written with `skip_serializing_if`,
+    /// so an absent source is an absent key rather than a null. Both values
+    /// are built here rather than left to the generator, so both arms of the
+    /// distinction are reached by construction: the document without the key
+    /// and the document with it each round-trip to their own bytes, and the
+    /// one without it parses back to an absent source rather than to a
+    /// default the reader filled in.
+    #[test]
+    fn an_import_event_record_round_trips(record in support::import_event_record()) {
+        let absent = ImportEvent { source: None, ..record.clone() };
+        let present = ImportEvent { source: Some(SOURCE_EXPORT.to_owned()), ..record };
+
+        let without = document::document(&absent).expect("a capped record renders");
+        let with = document::document(&present).expect("a capped record renders");
+        prop_assert!(
+            !without.contains("\"source\""),
+            "an absent source is written as no key at all"
+        );
+        prop_assert!(
+            with.contains(&format!("\"source\":\"{SOURCE_EXPORT}\"")),
+            "a present source is written as its own key"
+        );
+        prop_assert_ne!(
+            &without,
+            &with,
+            "the two events render as two different documents"
+        );
+
+        round_trips(&absent)?;
+        round_trips(&present)?;
     }
 
     /// An association carries nested candidates and evidence, two optional

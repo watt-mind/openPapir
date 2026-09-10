@@ -1,5 +1,4 @@
 //! Human-readable output, bound by the same privacy rule as the JSON.
-//! `case import`'s renderer obeys it from `restore`.
 //!
 //! No line here may carry a user-supplied path, an original filename, or any
 //! payload byte. What a line may carry is what `docs/error-contract.md`
@@ -25,7 +24,7 @@ pub use records::{
     receipt_added, receipt_list, receipt_shown, submission_added, submission_shown,
 };
 pub use status::integrity;
-pub use transfer::{exported, imported, repaired};
+pub use transfer::{exported, imported, repaired, restored};
 
 use openpapir_core::Submission;
 
