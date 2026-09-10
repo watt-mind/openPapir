@@ -17,8 +17,13 @@ content-addressed archive, persists cases, submissions, receipts, and
 associations as local records, checks the stored bytes against what is
 recorded, exports a copy of one case, and deletes one case with an explicit
 purge flag. It contacts no service, sends no telemetry, verifies no signature,
-and delivers nothing to anyone. Security fixes currently target the `develop`
-branch.
+and delivers nothing to anyone.
+
+No version receives security fixes, because no version is published. Security
+fixes target the `develop` branch, and the only supported way to run the tool
+is a build from a current checkout. When the first release is published, this
+section states which released versions receive fixes; the release position and
+the artefact policy are in [releasing](docs/releasing.md).
 
 ## Requirements already enforced
 

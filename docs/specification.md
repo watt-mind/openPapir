@@ -166,8 +166,8 @@ encrypted backup at rest. Receipt parsing, KRX package import, delegated
 `.es3` verification, and any integration with the e-Papír service stay behind
 their blockers. The roadmap records design sequencing, not queue status.
 
-[Releasing](releasing.md) records the current release position: there is no
-release pipeline and no published version.
+[Releasing](releasing.md) records the current release position: the artefact
+policy and the release workflow exist, and no version is published.
 
 ## Every document
 

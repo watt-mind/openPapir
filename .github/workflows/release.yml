@@ -1,0 +1,364 @@
+name: Release
+
+# Builds the artefacts described in docs/releasing.md. A tag push produces a
+# draft release that a human publishes; every other trigger is a dry run that
+# builds and uploads the same artefacts to the run and creates nothing.
+# Tagging stays a human act on master, and this workflow never tags anything.
+#
+# The pull_request trigger is narrowed to this file. GitHub registers a
+# workflow_dispatch trigger only from the default branch, so a change to this
+# workflow could otherwise not be exercised before it is merged; with the
+# filter, a pull request that edits it gets one full dry run and every other
+# pull request gets none.
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths: [".github/workflows/release.yml"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build and upload artefacts to the run, create no release"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  prepare:
+    name: Prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      dry-run: ${{ steps.plan.outputs.dry-run }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # A tagged run takes its version from the tag and refuses a tag whose
+      # commit is not on master, because master is the branch a reader treats
+      # as the project's stated position. Every other run is a dry run: it
+      # takes the version from Cargo.toml and skips that check, since it runs
+      # on a working branch.
+      - name: Decide the version and the run mode
+        id: plan
+        env:
+          DISPATCH_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+          EVENT_NAME: ${{ github.event_name }}
+          GH_TOKEN: ${{ github.token }}
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REPOSITORY: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "push" ]; then
+            dry_run=false
+          elif [ "$EVENT_NAME" = "workflow_dispatch" ] \
+            && [ "$DISPATCH_DRY_RUN" = "false" ]; then
+            dry_run=false
+          else
+            dry_run=true
+          fi
+          if [ "$REF_TYPE" = "tag" ]; then
+            case "$REF_NAME" in
+              v[0-9]*) ;;
+              *)
+                echo "a release tag has to look like v<version>: ${REF_NAME}" >&2
+                exit 1
+                ;;
+            esac
+            version="${REF_NAME#v}"
+            if [ "$dry_run" = "false" ]; then
+              # `heads/master` and not `master`: an unqualified ref would let
+              # a tag named master satisfy the check.
+              status=$(gh api \
+                "repos/${REPOSITORY}/compare/heads/master...${SHA}" \
+                --jq '.status')
+              case "$status" in
+                identical | behind) ;;
+                *)
+                  echo "the tagged commit is not on master (status ${status})" >&2
+                  exit 1
+                  ;;
+              esac
+            fi
+          else
+            version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
+            if [ -z "$version" ]; then
+              echo "no workspace version found in Cargo.toml" >&2
+              exit 1
+            fi
+            if [ "$dry_run" = "false" ]; then
+              echo "a release outside a tag is refused; dispatch with dry_run" >&2
+              exit 1
+            fi
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "dry-run=${dry_run}" >> "$GITHUB_OUTPUT"
+          echo "version ${version}, dry run ${dry_run}"
+
+  build:
+    name: Build (${{ matrix.target }})
+    needs: prepare
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    outputs:
+      # Every matrix job writes the same value, so this is the number of
+      # artefacts the matrix below produces, whatever its length. The verify
+      # job checks the collected artefacts against it rather than a constant.
+      artefact-count: ${{ steps.count.outputs.total }}
+    strategy:
+      fail-fast: false
+      # Every Linux and macOS artefact is built on a runner of its own
+      # architecture, so no cross-compilation tooling is involved. The one
+      # artefact built for another architecture is x86_64 macOS, which the
+      # Apple silicon runner produces natively from the same toolchain and
+      # which therefore carries no smoke test.
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-latest
+            archive: tar.gz
+            musl: true
+            smoke: true
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-24.04-arm
+            archive: tar.gz
+            musl: true
+            smoke: true
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+            archive: tar.gz
+            musl: false
+            smoke: true
+          - target: x86_64-apple-darwin
+            runner: macos-latest
+            archive: tar.gz
+            musl: false
+            smoke: false
+          - target: x86_64-pc-windows-msvc
+            runner: windows-latest
+            archive: zip
+            musl: false
+            smoke: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable @ 2026-09-03
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          prefix-key: v0-rust-release-${{ matrix.target }}
+      - name: Install the musl linker
+        if: matrix.musl
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes musl-tools
+      - name: Build the release binary
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: cargo build --release --locked --target "$TARGET" -p openpapir-cli
+      - name: Smoke test the built binary
+        if: matrix.smoke
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          binary="target/${TARGET}/release/openpapir"
+          if [ -f "${binary}.exe" ]; then
+            binary="${binary}.exe"
+          fi
+          "$binary" --version
+          "$binary" capabilities --json
+      - name: Stage the archive contents
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          name="openpapir-${VERSION}-${TARGET}"
+          staging="staging/${name}"
+          mkdir -p "$staging" dist
+          binary="target/${TARGET}/release/openpapir"
+          if [ -f "${binary}.exe" ]; then
+            cp "${binary}.exe" "${staging}/openpapir.exe"
+          else
+            cp "$binary" "${staging}/openpapir"
+          fi
+          cp LICENSE README.md CHANGELOG.md "$staging"
+          echo "ARCHIVE_NAME=${name}" >> "$GITHUB_ENV"
+      # The checksum file is written next to the archive in the format
+      # `sha256sum --check` reads, and is verified here as well as in the
+      # release job, so a corrupted upload cannot reach a draft release.
+      - name: Pack and check the tar.gz archive
+        if: matrix.archive == 'tar.gz'
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="${ARCHIVE_NAME}.tar.gz"
+          tar -czf "dist/${archive}" -C staging "$ARCHIVE_NAME"
+          cd dist
+          if command -v sha256sum > /dev/null 2>&1; then
+            sha256sum "$archive" > "${archive}.sha256"
+            sha256sum --check "${archive}.sha256"
+          else
+            shasum -a 256 "$archive" > "${archive}.sha256"
+            shasum -a 256 --check "${archive}.sha256"
+          fi
+      - name: Pack and check the zip archive
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $archive = "$env:ARCHIVE_NAME.zip"
+          Compress-Archive -Path "staging/$env:ARCHIVE_NAME" -DestinationPath "dist/$archive"
+          $hash = (Get-FileHash -Algorithm SHA256 "dist/$archive").Hash.ToLower()
+          # Written through .NET so the line ends with a single newline and
+          # `sha256sum --check` on Linux reads the file name unchanged.
+          $checksum = Join-Path $env:GITHUB_WORKSPACE "dist/$archive.sha256"
+          [System.IO.File]::WriteAllText($checksum, "$hash  $archive`n")
+          $again = (Get-FileHash -Algorithm SHA256 "dist/$archive").Hash.ToLower()
+          if ($again -ne $hash) { throw "checksum mismatch for $archive" }
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: openpapir-${{ matrix.target }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Record how many artefacts the matrix produces
+        id: count
+        shell: bash
+        env:
+          TOTAL: ${{ strategy.job-total }}
+        run: echo "total=${TOTAL}" >> "$GITHUB_OUTPUT"
+
+  verify:
+    name: Verify artefacts
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Nothing here writes anything, on a dry run or on a tagged run, so this
+    # job never holds a write scope. The privileged job below runs only when
+    # there is a release to create.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: dist
+          pattern: openpapir-*
+          merge-multiple: true
+      - name: Verify every checksum file
+        env:
+          EXPECTED: ${{ needs.build.outputs.artefact-count }}
+        run: |
+          set -euo pipefail
+          cd dist
+          ls -l
+          found=0
+          for checksum in *.sha256; do
+            sha256sum --check "$checksum"
+            found=$((found + 1))
+          done
+          if [ "$found" -ne "$EXPECTED" ]; then
+            echo "expected ${EXPECTED} checksum files, found ${found}" >&2
+            exit 1
+          fi
+      - name: Report the dry run
+        if: needs.prepare.outputs.dry-run == 'true'
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          {
+            echo "### Dry run for version ${VERSION}"
+            echo
+            echo "No release was created. The artefacts are attached to this run."
+            echo
+            echo '```'
+            cat dist/*.sha256
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  release:
+    name: Draft release
+    # Skipped on a dry run, so the write scopes below exist only on the run
+    # that actually creates a release.
+    if: needs.prepare.outputs.dry-run != 'true'
+    needs: [prepare, build, verify]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: dist
+          pattern: openpapir-*
+          merge-multiple: true
+      # The release notes are the CHANGELOG section for this version, copied
+      # verbatim. A version with no section is a release nobody described, so
+      # the run fails here rather than publishing an empty note.
+      - name: Extract the changelog section
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          awk -v version="$VERSION" '
+            /^## / {
+              if (found) { exit }
+              heading = substr($0, 4)
+              gsub(/^\[/, "", heading)
+              rest = substr(heading, length(version) + 1)
+              if (index(heading, version) == 1 && rest ~ /^([ \]]|$)/) {
+                found = 1
+                next
+              }
+            }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "no CHANGELOG section for ${VERSION}" >&2
+            exit 1
+          fi
+          cat notes.md
+      # Public repositories on GitHub-hosted runners can attest a build, so
+      # every archive and checksum file carries provenance.
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/*
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" \
+            --draft \
+            --title "openPapir ${VERSION}" \
+            --notes-file notes.md \
+            --verify-tag \
+            dist/*
