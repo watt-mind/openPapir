@@ -23,11 +23,11 @@
 //!
 //! # How it matches
 //!
-//! The comparison is the one `case list --query` makes: the query and the
-//! field are folded with `str::to_lowercase` and the match is a substring of
-//! the folded field. There is **no index**, so the search reads every record
-//! of every kind it was asked for, in one linear scan per kind, and its cost
-//! grows with what the archive holds.
+//! The comparison is the one `case list --query` makes, through the same
+//! fold: the query and the field are folded to lower case and the match is a
+//! substring of the folded field. There is **no index**, so the search reads
+//! every record of every kind it was asked for, in one linear scan per kind,
+//! and its cost grows with what the archive holds.
 //!
 //! # What a hit carries
 //!
@@ -44,10 +44,10 @@ use crate::archive::Archive;
 use crate::error::{Details, Diagnostic, Failure, Outcome, Result, Warning, codes};
 use crate::records::association::{self, Association};
 use crate::records::case::{self, Case};
-use crate::records::checked_query;
 use crate::records::document::{self, Record};
 use crate::records::receipt::{self, Receipt};
 use crate::records::submission::{self, Submission};
+use crate::records::{checked_query, fold, folded_contains};
 
 /// One record kind a search may read.
 ///
@@ -159,11 +159,6 @@ impl Subject<'_> {
     }
 }
 
-/// Whether one field's text holds the already folded query.
-fn holds(value: &str, folded_query: &str) -> bool {
-    value.to_lowercase().contains(folded_query)
-}
-
 /// Push one hit per named field whose text holds the query.
 fn collect(
     hits: &mut Vec<Hit>,
@@ -172,7 +167,7 @@ fn collect(
     fields: &[(&'static str, Option<&str>)],
 ) {
     for (field, value) in fields {
-        if value.is_some_and(|value| holds(value, folded_query)) {
+        if value.is_some_and(|value| folded_contains(value, folded_query)) {
             hits.push(subject.hit(field));
         }
     }
@@ -183,6 +178,13 @@ fn collect(
 /// `kinds` empty means every kind. A reader sees one whole document or
 /// another and never a partial one, so no lock is taken, exactly as a listing
 /// takes none.
+///
+/// A record directory that cannot be listed reads as empty, exactly as it
+/// does for `case list`: a search reports the records that are there, and a
+/// kind whose directory could not be listed contributes no hit rather than
+/// refusing the whole search. An absent directory and an unlistable one are
+/// therefore indistinguishable here, so no absence of hits may be read as
+/// evidence that the archive holds no matching record of that kind.
 ///
 /// # Errors
 ///
@@ -222,7 +224,7 @@ fn find(
     // The query is checked and folded once, before the archive is opened, so
     // an oversized query is refused before anything is read and the folding
     // is not repeated for every record of every kind.
-    let folded = checked_query(query)?.to_lowercase();
+    let folded = fold(&checked_query(query)?);
     let mut archive = Archive::open(root)?;
     warnings.extend(archive.take_warnings());
     let root = archive.root();
@@ -291,7 +293,11 @@ fn case_hits(case: &Case, folded_query: &str, hits: &mut Vec<Hit>) {
     // The tags are one field of the record, so a case whose query is on two
     // of its tags is one hit rather than two. Each tag is tested on its own
     // rather than as one joined string, so nothing matches across the join.
-    if case.tags.iter().any(|tag| holds(tag, folded_query)) {
+    if case
+        .tags
+        .iter()
+        .any(|tag| folded_contains(tag, folded_query))
+    {
         hits.push(subject.hit("tags"));
     }
 }

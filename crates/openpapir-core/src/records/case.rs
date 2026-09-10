@@ -35,7 +35,7 @@ use crate::records::association::{self, Association};
 use crate::records::document::{self, Record, Rewritable};
 use crate::records::receipt::Receipt;
 use crate::records::submission::Submission;
-use crate::records::{CASES_DIR, checked_notes, checked_title};
+use crate::records::{CASES_DIR, checked_notes, checked_title, fold, folded_contains};
 
 /// The value a case record carries in `record_kind`.
 pub const KIND: &str = "case";
@@ -231,17 +231,18 @@ impl<'a> Filter<'a> {
         Matcher {
             status: self.status,
             tags: self.tags,
-            query: self.query.map(str::to_lowercase),
+            query: self.query.map(fold),
         }
     }
 }
 
 /// One filter prepared for a scan.
 ///
-/// The query is folded to lower case once, when the matcher is built, rather
-/// than once per case: the filter is applied to every record the listing read,
-/// and folding the same short string again for each of them is work the scan
-/// does not need.
+/// The query is folded once, when the matcher is built, rather than once per
+/// case: the filter is applied to every record the listing read, and folding
+/// the same short string again for each of them is work the scan does not
+/// need. The fold is [`fold`], the one `search` uses, so the two commands
+/// compare text the same way.
 struct Matcher<'a> {
     status: Option<Status>,
     tags: &'a [String],
@@ -260,11 +261,11 @@ impl Matcher<'_> {
         match &self.query {
             None => true,
             Some(query) => {
-                case.title.to_lowercase().contains(query)
+                folded_contains(&case.title, query)
                     || case
                         .notes
                         .as_deref()
-                        .is_some_and(|notes| notes.to_lowercase().contains(query))
+                        .is_some_and(|notes| folded_contains(notes, query))
             }
         }
     }
