@@ -110,6 +110,7 @@ never observes what the JSON run wrote.
 | `archive.export` | `archive export --to` a destination the export creates |
 | `archive.import` | `archive import --from` a whole-archive export, taken before a purging deletion |
 | `archive.repair-permissions` | `archive repair-permissions` after one layout directory was widened |
+| `archive.not-writable` | `archive repair-permissions` on an archive whose root withholds write access |
 
 Every archive is built from constants in
 `crates/openpapir-cli/tests/golden_support/mod.rs` and nothing else: three
@@ -146,6 +147,9 @@ The harness is compiled only on Unix. On Windows the same commands correctly
 report the `platform.owner_only_via_acl` and `platform.no_follow_after_open`
 warnings, and the permission counts of `archive repair-permissions` describe
 access-control lists rather than mode bits, so one pinned file could not
-describe both platforms honestly. Windows behaviour is covered by the other
+describe both platforms honestly. The read-only root of `archive.not-writable`
+is the same story: a directory's read-only attribute on Windows does not stop
+a file from being created in it, so the case is set up with a mode bit and
+pinned here alone. Windows behaviour is covered by the other
 integration tests under `crates/openpapir-cli/tests/`, which assert the
 contract rather than pin the bytes.

@@ -966,6 +966,31 @@ envelope.
   or the one `import` last reported, and `--import-event` is the way to name
   one explicitly. Behaviour is unchanged; only
   [architecture](docs/architecture.md) is.
+- A writing command on an archive whose root cannot be written to now refuses
+  with `archive.not_writable`, in the `archive` bucket at exit `4`, instead of
+  the retryable `write.interrupted`. Nothing was interrupted and no retry can
+  succeed until the directory changes, so the refusal names the cause: its
+  message says the archive root itself has to become writable and that
+  `archive repair-permissions` cannot help there, because the repair takes the
+  same single-writer lock. A read-only mount and a root whose permissions
+  withhold write access are the same condition. `write.interrupted` keeps
+  every genuinely torn write. On Windows a directory's read-only attribute
+  does not stop a file from being created in it, so the condition arises there
+  from an access-control list or a read-only volume rather than from that
+  attribute.
+- The `stage` a diagnostic carries is now the closed set the contract names,
+  and the contract names all of it: the lock file joins `record_write` with
+  the rest of the archive root, the object store's own writes report
+  `object_write` rather than the undocumented `object`, the rebuildable index
+  reports `record_write` rather than the undocumented `cache_write`, a
+  rewritten record reports `record_write` rather than the undocumented
+  `record_replace`, which `case update` could report on a platform without a
+  directory flush, and the
+  two deletion phases `delete` and `purge` are enumerated beside the three
+  write stages. A test reads every call in `openpapir-core` that takes a stage
+  and holds each one to the contract's enumeration, so an emitter can no
+  longer publish a word no caller can branch on.
+
 - `import` no longer reads every stored import event once per file, so
   importing a directory costs the batch rather than the history behind it.
   Duplicate detection reads the import events at most once for a whole

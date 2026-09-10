@@ -75,12 +75,13 @@ existing archive can refuse with `usage.archive_root_missing`,
 `archive check`, `archive status`, `case export`, and `archive export` open
 the archive read-only, which creates no layout directory and flushes nothing,
 but runs the same checks.
-Every command that writes adds `lock.held`, `path.overwrite`,
-`path.cross_device`, `write.interrupted`, `input.cap.record_size`, and
-`platform.filesystem_unsupported`. Every command that reads a stored document
-can report `record.malformed`. The per-command tables and lists below name
-only what is particular to that command, and the whole set with its exit codes
-is in [Implemented codes and exit codes](#implemented-codes-and-exit-codes).
+Every command that writes adds `lock.held`, `archive.not_writable`,
+`path.overwrite`, `path.cross_device`, `write.interrupted`,
+`input.cap.record_size`, and `platform.filesystem_unsupported`. Every command
+that reads a stored document can report `record.malformed`. The per-command
+tables and lists below name only what is particular to that command, and the
+whole set with its exit codes is in
+[Implemented codes and exit codes](#implemented-codes-and-exit-codes).
 `skill`, `completions`, and `manpage` are the exceptions: they open no
 archive, read no input, and can refuse only with `usage.arguments` or
 `internal.unexpected`.
@@ -2396,7 +2397,7 @@ answer about another.
 | Copies outward | An export writes only into a destination outside the archive root, creates every file there with create-new semantics, follows no symbolic link, replaces nothing, and re-digests every copy before it is published. A destination the export itself created is removed again when the export fails. |
 | Copies inward | An import reads only what the export's manifest lists, re-digests every copy before the archive is written to at all, and publishes the whole record set or none of it. An import that cannot finish removes the records it had published and the objects it had created, so `archive check` is clean either way. |
 | Path safety | Input files are opened with the platform's no-follow flag, `O_NOFOLLOW` on Unix and `FILE_FLAG_OPEN_REPARSE_POINT` on Windows, and no path is stat-ed before it is opened. Symbolic links inside the archive are refused, on Windows together with NTFS junctions and every other reparse point, and a user-supplied filename is never joined into a path. |
-| Single writer | A `lock` file recording the holder's process identifier, host, and start time admits one writer. A second writer refuses with `lock.held` rather than waiting. |
+| Single writer | A `lock` file recording the holder's process identifier, host, and start time admits one writer. A second writer refuses with `lock.held` rather than waiting. A root that refuses the lock file altogether is `archive.not_writable`, which names the directory that has to become writable and is not retryable; `archive repair-permissions` takes the same lock, so it cannot repair an archive whose root is read-only. On Windows a directory's read-only attribute does not stop a file from being created in it, so the condition arises there from an access-control list or a read-only volume rather than from that attribute. |
 
 ### Write stages
 
@@ -2404,12 +2405,16 @@ A `write.interrupted` refusal carries a `stage`, the kind of path that was
 being written, never the module that reported it. The three stages and the
 paths each one names are the same set the
 [error contract](error-contract.md) lists, and a test parses both tables and
-holds them to it.
+holds them to it. A second test reads every call in `openpapir-core` that
+takes a stage and holds each one to the values the contract enumerates, so an
+emitter cannot report a stage the contract does not define. `case delete`
+reports the phase it was in under the same key, `delete` or `purge`, and those
+two are not write stages: an interrupted publish always names a kind of path.
 
 | Stage | What it names |
 | --- | --- |
 | `object_write` | A stored object or an exported copy of one, the directory a copy is created in, a fan-out directory the repair cannot list, and a leftover staging file inside the object store. |
-| `record_write` | A record document, the directory one is written into, a cached file, a layout directory, a fan-out directory the repair cannot narrow, and the archive root. |
+| `record_write` | A record document, the directory one is written into, a cached file, a layout directory, a fan-out directory the repair cannot narrow, the single-writer lock file, and the archive root. |
 | `marker_write` | The archive marker, and outside the archive the export destination itself and its `manifest.json`. |
 
 The kinds of path the repair walks are a closed set in the implementation, and
@@ -2554,7 +2559,7 @@ emitted.
 | `0` | Success, including a duplicate import and a warning | |
 | `2` | `usage` | `usage.arguments`, `usage.archive_root_missing` |
 | `3` | `input`, `path` | the nine cap codes above, `path.symlink`, `path.overwrite`, `path.cross_device` |
-| `4` | `archive`, `lock`, `write`, `record`, `integrity`, `export`, `delete` | `record.not_found`, `record.malformed`, `record.inconsistent`, `archive.marker_missing`, `archive.marker_malformed`, `archive.adopt_refused`, `archive.schema_newer`, `archive.schema_older`, `archive.permissions_wide`, `archive.multiple_filesystems`, `lock.held`, `write.interrupted`, `integrity.digest_mismatch`, `integrity.length_mismatch`, `integrity.dangling_reference`, `integrity.orphan_object`, `export.destination_conflict`, `export.copy_mismatch`, `export.manifest_missing`, `export.manifest_malformed`, `export.object_mismatch`, `export.record_missing`, `export.record_conflict`, `delete.objects_retained`, `delete.records_retained`, `delete.record_entangled` |
+| `4` | `archive`, `lock`, `write`, `record`, `integrity`, `export`, `delete` | `record.not_found`, `record.malformed`, `record.inconsistent`, `archive.marker_missing`, `archive.marker_malformed`, `archive.adopt_refused`, `archive.schema_newer`, `archive.schema_older`, `archive.permissions_wide`, `archive.multiple_filesystems`, `archive.not_writable`, `lock.held`, `write.interrupted`, `integrity.digest_mismatch`, `integrity.length_mismatch`, `integrity.dangling_reference`, `integrity.orphan_object`, `export.destination_conflict`, `export.copy_mismatch`, `export.manifest_missing`, `export.manifest_malformed`, `export.object_mismatch`, `export.record_missing`, `export.record_conflict`, `delete.objects_retained`, `delete.records_retained`, `delete.record_entangled` |
 | `5` | `platform` | `platform.filesystem_unsupported`, for a filesystem that reports it cannot create the hard link the publish step needs. A link refused without saying so is `write.interrupted` at `4` instead. The named degradations are warnings, and the owner-only condition of the same code is not detected yet. |
 | `6` | `internal` | `internal.unexpected` |
 

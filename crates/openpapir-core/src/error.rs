@@ -36,6 +36,8 @@ pub mod codes {
     pub const ARCHIVE_PERMISSIONS_WIDE: &str = "archive.permissions_wide";
     /// The archive root spans more than one filesystem.
     pub const ARCHIVE_MULTIPLE_FILESYSTEMS: &str = "archive.multiple_filesystems";
+    /// The archive root itself cannot be written to, so no writer may start.
+    pub const ARCHIVE_NOT_WRITABLE: &str = "archive.not_writable";
 
     /// One file exceeds the single-file size cap.
     pub const INPUT_CAP_FILE_SIZE: &str = "input.cap.file_size";
@@ -120,6 +122,49 @@ pub mod codes {
 
     /// An invariant of the design was violated.
     pub const INTERNAL_UNEXPECTED: &str = "internal.unexpected";
+}
+
+/// The values the `stage` detail may take, and nothing else.
+///
+/// A `stage` names what was being done, never the module that reported it,
+/// and the set is closed: a diagnostic carrying a stage the contract does not
+/// list would describe the archive with a word no caller can branch on. Three
+/// of them name the kind of path a write was publishing and two name the
+/// phase of a deletion. Every emitter names one of these constants, and
+/// `docs/error-contract.md` is held to [`stages::ALL`] and to
+/// [`stages::WRITES`] by a test.
+pub mod stages {
+    /// A stored object or an exported copy of one, and their directories.
+    pub const OBJECT_WRITE: &str = "object_write";
+    /// A record document, a cached file, a layout directory, the lock file,
+    /// and the archive root.
+    pub const RECORD_WRITE: &str = "record_write";
+    /// The archive marker, an export destination, and its manifest.
+    pub const MARKER_WRITE: &str = "marker_write";
+
+    /// Removing the records a deletion planned to remove.
+    pub const DELETE: &str = "delete";
+    /// Unlinking the objects a deletion's purge planned to remove.
+    pub const PURGE: &str = "purge";
+
+    /// The write stages, in the order the contract's table reads in.
+    pub const WRITES: [&str; 3] = [OBJECT_WRITE, RECORD_WRITE, MARKER_WRITE];
+
+    /// Every value the contract enumerates for `stage`.
+    pub const ALL: [&str; 5] = [OBJECT_WRITE, RECORD_WRITE, MARKER_WRITE, DELETE, PURGE];
+
+    /// Whether `stage` is one of the values the contract enumerates.
+    #[must_use]
+    pub fn is_documented(stage: &str) -> bool {
+        ALL.contains(&stage)
+    }
+
+    /// Whether `stage` is one a write may report, which a deletion phase is
+    /// not: an interrupted publish names the kind of path it was writing.
+    #[must_use]
+    pub fn is_write(stage: &str) -> bool {
+        WRITES.contains(&stage)
+    }
 }
 
 /// The bucket a code belongs to; it decides the process exit code.

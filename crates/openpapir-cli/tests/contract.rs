@@ -1,6 +1,8 @@
 //! Executable contract tests use synthetic arguments only.
 use std::process::Command;
 
+use openpapir_core::error::stages;
+
 fn run(args: &[&str]) -> std::process::Output {
     Command::new(env!("CARGO_BIN_EXE_openpapir"))
         .args(args)
@@ -649,4 +651,262 @@ fn every_documented_capabilities_sample_is_json_and_reports_what_the_binary_does
         checked >= 2,
         "README.md and docs/architecture.md each carry a capabilities sample"
     );
+}
+
+/// The stages the error contract's own table enumerates, in table order.
+///
+/// The parse is fail-closed the way [`table_under`] is: a document that holds
+/// no stage table, or more than one, fails rather than agreeing with
+/// anything. `docs/architecture.md` repeats the table and a test in
+/// `export.rs` holds the two documents to the same paths per stage, so
+/// reading one of them here is enough to pin the set.
+fn documented_stages(document: &str) -> Vec<String> {
+    let mut tables = 0;
+    let mut stages = Vec::new();
+    let mut lines = document.lines().peekable();
+    while let Some(line) = lines.next() {
+        if table_cells(line) != ["Stage", "What it names"] {
+            continue;
+        }
+        tables += 1;
+        assert!(
+            lines
+                .next()
+                .is_some_and(|delimiter| delimiter.trim_start().starts_with('|')),
+            "a header row is followed by a delimiter"
+        );
+        while lines
+            .peek()
+            .is_some_and(|next| next.trim_start().starts_with('|'))
+        {
+            let row = table_cells(lines.next().expect("the row was peeked"));
+            stages.push(row[0].trim_matches('`').to_owned());
+        }
+    }
+    assert_eq!(tables, 1, "a document holds exactly one stage table");
+    assert!(!stages.is_empty(), "the stage table has rows");
+    stages
+}
+
+/// Every value the contract enumerates for `stage`, read from the paragraph
+/// that enumerates them.
+///
+/// The write stages have a table of their own, which [`documented_stages`]
+/// reads; the deletion phases are named in prose beside it, so the whole set
+/// is pinned rather than the tabled part of it alone. The count word is read
+/// too, so a value added to one and not the other is a failure rather than a
+/// sentence that quietly stops matching what it counts.
+fn enumerated_stages(document: &str) -> Vec<String> {
+    let counts = [
+        "zero", "one", "two", "three", "four", "five", "six", "seven", "eight",
+    ];
+    let opening = format!("`stage` has exactly {} values.", counts[stages::ALL.len()]);
+    let paragraph = document
+        .split_once(&opening)
+        .unwrap_or_else(|| panic!("the contract enumerates stage as: {opening}"))
+        .1
+        .split_once("\n\n")
+        .expect("the enumeration is a paragraph")
+        .0;
+    let mut values = Vec::new();
+    let mut rest = paragraph;
+    while let Some((_, after)) = rest.split_once('`') {
+        let (value, tail) = after.split_once('`').expect("a backtick is closed");
+        values.push(value.to_owned());
+        rest = tail;
+    }
+    assert!(!values.is_empty(), "the enumeration names its values");
+    values
+}
+
+/// Every `.rs` file under `crates/openpapir-core/src`, in no fixed order.
+fn core_sources() -> Vec<std::path::PathBuf> {
+    let mut pending =
+        vec![std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../openpapir-core/src")];
+    let mut files = Vec::new();
+    while let Some(directory) = pending.pop() {
+        for entry in std::fs::read_dir(&directory).expect("read a source directory") {
+            let path = entry.expect("read a source entry").path();
+            if path.is_dir() {
+                pending.push(path);
+            } else if path.extension().is_some_and(|suffix| suffix == "rs") {
+                files.push(path);
+            }
+        }
+    }
+    assert!(files.len() > 20, "the core sources were found");
+    files
+}
+
+/// The arguments of the call whose opening parenthesis is at `open`, split at
+/// the commas of that call alone.
+///
+/// Nesting and string literals are tracked, so an argument that is itself a
+/// call, a macro, or a text holding a comma or a parenthesis stays one
+/// argument. `None` means the call was left unclosed, which no compiling
+/// source does.
+fn call_arguments(source: &str, open: usize) -> Option<Vec<String>> {
+    let mut arguments = vec![String::new()];
+    let mut depth = 0_usize;
+    let mut in_text = false;
+    let mut escaped = false;
+    for character in source[open..].chars() {
+        let current = arguments.last_mut().expect("an argument is always open");
+        if in_text {
+            current.push(character);
+            match character {
+                _ if escaped => escaped = false,
+                '\\' => escaped = true,
+                '"' => in_text = false,
+                _ => {}
+            }
+            continue;
+        }
+        match character {
+            '"' => {
+                in_text = true;
+                current.push(character);
+            }
+            '(' | '[' | '{' => {
+                depth += 1;
+                if depth > 1 {
+                    current.push(character);
+                }
+            }
+            ')' | ']' | '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    let mut arguments: Vec<String> = arguments
+                        .iter()
+                        .map(|argument| argument.trim().to_owned())
+                        .collect();
+                    // A trailing comma leaves an empty argument behind, and
+                    // the stage is then the one before it.
+                    if arguments.last().is_some_and(String::is_empty) && arguments.len() > 1 {
+                        arguments.pop();
+                    }
+                    return Some(arguments);
+                }
+                current.push(character);
+            }
+            ',' if depth == 1 => arguments.push(String::new()),
+            _ => current.push(character),
+        }
+    }
+    None
+}
+
+/// Every emitter of a stage in the core names a documented stage.
+///
+/// The `stage` a refusal or a warning carries is a closed set the contract
+/// enumerates, and a value outside it is a word no caller can branch on. The
+/// evidence is read from the sources rather than from a list an emitter added
+/// later would not join: every call that takes a stage as its last argument
+/// is found, and a stage spelled as a literal there is held to the
+/// contract's enumeration. A stage passed as a constant is checked where the
+/// constant is defined, by the same rule.
+#[test]
+fn every_stage_emitter_in_the_core_names_a_documented_stage() {
+    let repository = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let contract = std::fs::read_to_string(repository.join("docs/error-contract.md"))
+        .expect("read the error contract");
+    let mut writes = documented_stages(&contract);
+    writes.sort();
+    let mut implemented: Vec<String> = stages::WRITES
+        .iter()
+        .map(|stage| (*stage).to_owned())
+        .collect();
+    implemented.sort();
+    assert_eq!(
+        writes, implemented,
+        "the contract's stage table and the write stages disagree"
+    );
+    let mut documented = enumerated_stages(&contract);
+    documented.sort();
+    let mut every: Vec<String> = stages::ALL
+        .iter()
+        .map(|stage| (*stage).to_owned())
+        .collect();
+    every.sort();
+    assert_eq!(
+        documented, every,
+        "the contract's enumeration of stage and the implementation disagree"
+    );
+
+    // The calls that take the stage as their last argument, and `.text`,
+    // which names it as the key of the detail it writes.
+    let calls = [
+        "publish_refusal(",
+        "link_refusal(",
+        "sync_directory(",
+        "no_directory_fsync_warning(",
+        "Staging::create(",
+        ".finish(",
+        ".publish(",
+        "replace_document(",
+        "write_document(",
+        ".text(",
+    ];
+    let mut sites = 0;
+    let mut literals = 0;
+    let mut constants = 0;
+    for path in core_sources() {
+        let source = std::fs::read_to_string(&path).expect("read a core source");
+        // A stage a call passes as a constant is spelled once, where the
+        // constant is defined, and that definition is held to the same rule.
+        for line in source.lines() {
+            let Some((declaration, value)) = line.split_once(": &str = \"") else {
+                continue;
+            };
+            let name = declaration.trim().rsplit(' ').next().unwrap_or_default();
+            if !(name == "STAGE" || name.ends_with("_WRITE")) {
+                continue;
+            }
+            constants += 1;
+            let value = value.split('"').next().expect("the literal is closed");
+            assert!(
+                documented.contains(&value.to_owned()),
+                "{} defines the stage {value:?}, which the contract does not enumerate",
+                path.display()
+            );
+        }
+        for call in calls {
+            for (index, _) in source.match_indices(call) {
+                // A name that merely ends with one of these, such as
+                // `symlink_refusal`, is a different call.
+                if !call.starts_with('.')
+                    && source[..index]
+                        .chars()
+                        .next_back()
+                        .is_some_and(|before| before.is_alphanumeric() || before == '_')
+                {
+                    continue;
+                }
+                let open = index + call.len() - 1;
+                let arguments = call_arguments(&source, open).expect("the call is closed");
+                if call == ".text(" && arguments.first().map(String::as_str) != Some("\"stage\"") {
+                    continue;
+                }
+                sites += 1;
+                let last = arguments.last().expect("a call has an argument").clone();
+                if let Some(stage) = last
+                    .strip_prefix('"')
+                    .and_then(|rest| rest.strip_suffix('"'))
+                {
+                    literals += 1;
+                    assert!(
+                        documented.contains(&stage.to_owned()),
+                        "{} passes the stage {stage:?}, which the contract does not enumerate",
+                        path.display()
+                    );
+                }
+            }
+        }
+    }
+    assert!(sites >= 25, "the stage-taking calls were found: {sites}");
+    assert!(
+        literals >= 10,
+        "stages spelled in place were found: {literals}"
+    );
+    assert!(constants >= 4, "stage constants were found: {constants}");
 }
