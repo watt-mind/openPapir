@@ -33,7 +33,10 @@ jobs:
       # The gitleaks CLI is MIT-licensed and free; only the marketplace
       # action requires a licence key for organisation repositories. The
       # tarball is verified against the checksums file published beside it
-      # in the same release before anything is unpacked or run.
+      # in the same release before anything is unpacked or run. GitHub
+      # Releases has answered 500 here before and turned a pull request red
+      # for an unrelated reason, so each download retries a transient
+      # failure a bounded number of times before the step fails.
       - name: Install gitleaks
         env:
           GITLEAKS_VERSION: 8.30.1
@@ -42,8 +45,10 @@ jobs:
           base="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
           tarball="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
           workdir=$(mktemp -d)
-          curl -sSfL -o "${workdir}/${tarball}" "${base}/${tarball}"
-          curl -sSfL -o "${workdir}/checksums.txt" \
+          curl -sSfL --retry 3 --retry-delay 5 --retry-all-errors \
+            -o "${workdir}/${tarball}" "${base}/${tarball}"
+          curl -sSfL --retry 3 --retry-delay 5 --retry-all-errors \
+            -o "${workdir}/checksums.txt" \
             "${base}/gitleaks_${GITLEAKS_VERSION}_checksums.txt"
           (cd "$workdir" && sha256sum --ignore-missing --check checksums.txt)
           sudo tar -xzf "${workdir}/${tarball}" -C /usr/local/bin gitleaks
