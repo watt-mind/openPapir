@@ -28,6 +28,7 @@ are in the Documentation section of [contributing](../CONTRIBUTING.md).
 | --- | --- |
 | [specification.md](specification.md) | Top-level index of purpose, scope, non-goals, implemented behaviour, decided designs, deferred contracts, and the separated receipt states. |
 | [architecture.md](architecture.md) | Canonical contract of what is implemented: crate responsibilities, one section per implemented command, the response envelope, the storage guarantees, the input caps, the measured cost of the linear scans, the implemented codes and exit codes, the privacy rule, planned ownership, and the integration boundary. |
+| [guide.md](guide.md) | End-to-end walkthrough of one matter on a synthetic example, with the real command output at every step, the receipt-retrieval window and the attributed sources behind it, and a short section for agents. |
 | [roadmap.md](roadmap.md) | Milestone sequencing and the discovery gates that must close before implementation, plus how work is split into bounded issues. |
 | [receipt-discovery.md](receipt-discovery.md) | Discovery note recording what public sources state about one candidate receipt type, a proposed local case model, and the questions that stay open. |
 | [archive-layout.md](archive-layout.md) | Design for review of the local archive: storage technology, on-disk layout, record shapes, association states, and export, backup, and deletion semantics. Partly implemented; architecture.md is authoritative for the implemented part. |
