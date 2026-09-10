@@ -22,10 +22,11 @@ implemented contract and the only place that lists the operations
 decision below is about one. Where architecture and this document disagree,
 architecture is authoritative and this page is a defect.
 
-Verification results, the rebuildable `cache/`
-index, schema migration, and encrypted backup at
+Verification results, schema migration, and encrypted backup at
 rest are **not implemented** and stay a design. `verified`
-is `false` in every envelope ([architecture](architecture.md)).
+is `false` in every envelope ([architecture](architecture.md)). The
+rebuildable `cache/` index has code, for the one question below that a
+scan answered most expensively.
 
 It is follow-up 3 of
 [receipt evidence and local case model decisions](receipt-discovery.md), the
@@ -74,7 +75,8 @@ Every durable fact lives in a file under the archive root: original bytes in a
 content-addressed object store, and every record as one small JSON document.
 An embedded database may later be added under `cache/` purely to accelerate
 listing and search, and it must be safe to delete and rebuild from the files at
-any time. The initial implementation ships no such index.
+any time. What is there today is one plain JSON index under the same rule,
+described under The rebuildable index below.
 
 Rationale. Each requirement above is satisfied by a single-file rename, which
 is the cheapest correct primitive available on every target platform. A backup
@@ -123,6 +125,7 @@ creates one implicitly as a side effect of another operation.
         derived/<digest>.json      derived metadata, on request only
         verifications/<id>.json    designed, not created
     cache/                  disposable, rebuildable, never authoritative
+        import-events-by-digest.json   which events name which artefact
 ```
 
 `records/verifications/` is part of this design and is not created by any
@@ -318,6 +321,72 @@ with no association. Creating an association must never create a verification
 result, and creating a verification result must never create an association.
 No record kind, field name, or output may be phrased as "delivered",
 "accepted", "official", or "legally effective".
+
+## The rebuildable index
+
+**Decided: one index under `cache/`, rebuilt from the records whenever it
+cannot be proved current, read by the three questions that are about a digest
+rather than about an identifier.**
+
+`cache/import-events-by-digest.json` maps each artefact digest to the
+identifier and the `imported_at` of every import event recorded against it.
+Records are named by a minted identifier, so without it each of those
+questions is a read of every import-event record:
+
+- `receipt add` without `--import-event`, which records the earliest event.
+- The history a duplicate import reports, which is how many events already
+  name the object and when the first of them was.
+- The deletion plan, which lists the events that go with a purged object.
+
+The rules that keep it from becoming a second authority:
+
+- It is **rebuilt** whenever it is absent, whenever the import-event
+  directory has changed since it was written, and whenever it does not parse
+  as the index this version writes. Deleting it is always safe.
+- It is **written only under the writer lock**, through the same
+  staging-then-rename procedure and with the same owner-only permissions as
+  every other file openPapir writes. Nothing else in the archive is written
+  because of it.
+- It is **counted, never a problem**, by the integrity check, which reports
+  how many files `cache/` holds and reads none of them. A stale index and a
+  damaged one are alike nothing at all.
+- It is **not exported**, in either export shape, and **not counted or
+  removed by a deletion**. A deletion leaves it where it is, and the next
+  read rebuilds it.
+- It **carries the refusal a scan carries**. An import-event document that
+  cannot be read is still `record.malformed`, with the same count, because
+  the index records how many it could not read. The index makes an answer
+  cheaper and never makes a refusal softer.
+
+Whether the index is current is decided by a stamp of the import-event
+directory: how many entries it holds and the newest modification time among
+them, both taken from one listing and compared for equality only, never
+ordered. Nothing therefore depends on a clock being monotonic, on a restored
+backup keeping its timestamps, or on two filesystems agreeing.
+
+A reader does not hold the writer lock, so it cannot assume the directory
+stays still while it looks. The rule that makes that safe is that an index is
+used only when it can be **proved** current: the stamp is taken before the
+file is opened and again after it has been parsed, and the index is used only
+when those two agree with each other and with the stamp the document itself
+records. A concurrent write changes the directory, which changes the stamp,
+which makes the reader read the records instead. The check can therefore be
+wrong in one direction only. It can refuse an index that was in fact current,
+which costs one scan, and it cannot accept one that is not. **A reader that
+cannot validate an index treats it as absent and scans.**
+
+Rejected: **a stamp inside the index alone**, with no re-check after the
+read. It would accept an index that a writer replaced while the reader was
+parsing the old one.
+
+Rejected: **invalidating the index by writing it on every record write.**
+That makes every write depend on the index being correct, which is exactly
+the second authority this design refuses.
+
+Rejected: **rebuilding the index eagerly after every import.** An import of
+new files would then pay for a read of every import event to write an index
+nobody has asked for. An import folds what it wrote into an index it already
+had, and otherwise leaves the rebuild to the next reader that wants one.
 
 ## Write procedure and platform behaviour
 

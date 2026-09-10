@@ -13,7 +13,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-use crate::archive::import::ImportEvent;
+use crate::cache;
 use crate::error::{Details, Diagnostic, Warning, codes};
 use crate::records::association::{self, Association};
 use crate::records::case::Case;
@@ -108,7 +108,8 @@ pub fn build(root: &Path, case_id: &str, purge: bool) -> Result<Plan, Diagnostic
     let submissions = document::list_records::<Submission>(root)?;
     let receipts = document::list_records::<Receipt>(root)?;
     let associations = document::list_records::<Association>(root)?;
-    let events = document::list_records::<ImportEvent>(root)?;
+    let events = cache::import_events(root);
+    events.refuse_unreadable()?;
 
     let going: BTreeSet<&str> = submissions
         .iter()
@@ -141,12 +142,12 @@ pub fn build(root: &Path, case_id: &str, purge: bool) -> Result<Plan, Diagnostic
     );
     let purged: BTreeSet<&str> = plan.objects.iter().map(String::as_str).collect();
     plan.derived = derived_records(root, &purged);
-    for event in &events {
-        if let Some(hex) = hex(&event.digest).filter(|hex| purged.contains(hex)) {
+    for (digest, events) in events.digests() {
+        if let Some(hex) = hex(digest).filter(|hex| purged.contains(hex)) {
             plan.import_events
                 .entry(hex.to_owned())
                 .or_default()
-                .push(event.id.clone());
+                .extend(events.iter().map(|event| event.id.clone()));
         }
     }
     Ok(plan)

@@ -59,6 +59,7 @@
 //! state or imply authenticity, delivery, or legal effect.
 
 pub mod archive;
+mod cache;
 pub mod clock;
 pub mod deletion;
 pub mod derived;

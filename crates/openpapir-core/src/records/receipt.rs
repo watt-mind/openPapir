@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use crate::archive::import::ImportEvent;
 use crate::archive::lock::WriterLock;
 use crate::archive::{Archive, SUPPORTED_SCHEMA_VERSION};
+use crate::cache;
 use crate::clock;
 use crate::error::{Diagnostic, Failure, Outcome, Result, Warning};
 use crate::ident;
@@ -164,11 +165,17 @@ fn add_record(
 /// the earliest event for the digest, by `imported_at` and then by identifier
 /// so that the choice is the same on every run.
 ///
-/// Records are named by a minted identifier and nothing indexes them by
-/// digest, so an unnamed event costs one scan of the import events, once per
-/// invocation rather than once per input. A named one costs one record read.
-/// The Performance section of `docs/architecture.md` says what that scan
-/// measured over twenty thousand events.
+/// Records are named by a minted identifier, so an unnamed event is a
+/// question about the digest rather than about an identifier. It is answered
+/// from the archive's rebuildable index (`crate::cache`), which reads the
+/// import-event records themselves whenever the cached answer cannot be
+/// proved current, so the event chosen is the event a full scan chose. A
+/// named one costs one record read and consults no index at all.
+///
+/// An unreadable import-event document is still `record.malformed` with the
+/// same count a scan reported, because the index carries that count: the
+/// index accelerates the answer and never softens a refusal. The Performance
+/// section of `docs/architecture.md` says what each of the two costs.
 fn resolve_import_event(
     root: &Path,
     digest: &str,
@@ -181,11 +188,11 @@ fn resolve_import_event(
         }
         return Ok(event.id);
     }
-    document::list_records::<ImportEvent>(root)?
-        .into_iter()
-        .filter(|event| event.digest == digest)
-        .min_by(|left, right| (&left.imported_at, &left.id).cmp(&(&right.imported_at, &right.id)))
-        .map(|event| event.id)
+    let index = cache::import_events(root);
+    index.refuse_unreadable()?;
+    index
+        .earliest(digest)
+        .map(|event| event.id.clone())
         .ok_or_else(|| document::not_found("import_event", "artefact_digest"))
 }
 
