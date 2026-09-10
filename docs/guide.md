@@ -15,8 +15,9 @@ openPapir is an independent local tool. It is not the e-Papír service and is
 not affiliated with its operators.
 
 - openPapir sends nothing. It opens no socket, reaches no mailbox, and submits
-  nothing to any authority. You do the submitting yourself, in the service's
-  own web interface, and openPapir records what you state you did.
+  nothing to any authority. You submit through the service yourself, by
+  whatever route the service offers you, and openPapir records what you state
+  you did.
 - openPapir verifies nothing cryptographically. It checks no signature, no
   seal, and no time stamp. A digest identifies bytes and says nothing about
   authenticity, delivery, or legal effect. Every envelope this build emits
@@ -28,10 +29,10 @@ not affiliated with its operators.
 
 Every statement about the e-Papír service in this guide is numbered and
 attributed to a source in [receipt evidence and local case model
-decisions](receipt-discovery.md), and labelled descriptive (an operator's own
-account of behaviour) or normative (a legal or operator requirement). The
-statements are collected in [What the sources
-state](#what-the-sources-state) at the end.
+decisions](receipt-discovery.md), labelled descriptive (an operator's own
+account of behaviour) or normative (a legal or operator requirement), and given
+with the date that source was retrieved. The statements are collected in [What
+the sources state](#what-the-sources-state) at the end.
 
 ## The example
 
@@ -54,7 +55,7 @@ first and refuses to adopt a directory holding anything else.
 $ mkdir -p ./archive
 $ openpapir archive init ./archive
 Archive created at the supplied root.
-Archive identifier: 9e78a92b60116eb638eeb84cf0745082. Schema version: 1.
+Archive identifier: 21b7b5db3b5d642729243845405ae6dd. Schema version: 1.
 ```
 
 ## 2. Import the files before you send them
@@ -66,8 +67,8 @@ sent rather than a later copy of them.
 ```console
 $ openpapir import --archive ./archive ./inbox/request-form.pdf ./inbox/site-plan.pdf
 Stored 2 artefact(s); 0 already present.
-sha256:1e48579f2023edd5119906d743c45810572950c8e477cea3d6fc1ce62d825529 (53 bytes), import event 66034f42fcf3a7f76b8687945302a9dc, stored.
-sha256:833b43e6edae9901243f234f2752467ea291d75f851c207dc694727d85a83925 (29 bytes), import event 77c4b1776b601b65781881189b7f20c6, stored.
+sha256:1e48579f2023edd5119906d743c45810572950c8e477cea3d6fc1ce62d825529 (53 bytes), import event 9f214f0a5ccaa7e642615dde546aa034, stored.
+sha256:833b43e6edae9901243f234f2752467ea291d75f851c207dc694727d85a83925 (29 bytes), import event 67b986d7126c0b48b0688cacf85f0703, stored.
 A digest identifies bytes only. Nothing here is verified, matched, or delivered.
 ```
 
@@ -89,7 +90,7 @@ $ openpapir case create --archive ./archive \
     --title "Workshop roof permit, Kovacs Dorottya" \
     --notes "Municipal permit request for the workshop roof." \
     --tag permit --tag municipal
-Case 6b2a2c099a4711b02cd791a0206cb5bb, recorded 2026-09-10T08:13:54Z.
+Case fb3a8eeb2968c64b22aab6c4d1223011, recorded 2026-09-10T08:29:41Z.
 Title: Workshop roof permit, Kovacs Dorottya
 Notes: Municipal permit request for the workshop roof.
 Status: open
@@ -99,19 +100,20 @@ Cases and submissions are the user's own local records. Nothing here is verified
 
 ## 4. Send it yourself, then record the submission
 
-Submit through the service's own interface. openPapir has no part in that
-step. When it is done, record what you sent, against the case, naming the
-stored artefacts and their roles and stating the date in your own words.
+Submit through the service yourself. openPapir has no part in that step, and
+nothing about how you do it reaches the archive. When it is done, record what
+you sent, against the case, naming the stored artefacts and their roles and
+stating the date in your own words.
 
 ```console
 $ openpapir submission add --archive ./archive \
-    --case 6b2a2c099a4711b02cd791a0206cb5bb \
+    --case fb3a8eeb2968c64b22aab6c4d1223011 \
     --description "Sent the roof permit request through the service." \
     --date 2026-09-01 \
     --artefact sha256:1e48579f2023edd5119906d743c45810572950c8e477cea3d6fc1ce62d825529:primary \
     --artefact sha256:833b43e6edae9901243f234f2752467ea291d75f851c207dc694727d85a83925:attachment
-Case 6b2a2c099a4711b02cd791a0206cb5bb.
-Submission aad18df7f02cce666a35eb416f470011, recorded 2026-09-10T08:13:54Z.
+Case fb3a8eeb2968c64b22aab6c4d1223011.
+Submission e3f278b2b94d7c36b782a4efb33d283f, recorded 2026-09-10T08:29:41Z.
 Description: Sent the roof permit request through the service.
 Date stated by the user: 2026-09-01. openPapir does not interpret it.
 Artefacts referenced: 2.
@@ -135,7 +137,7 @@ As of 2026-09-10. Case(s): 1. Submission(s): 1. Receipt(s): 0. Association(s): 0
 Case(s) by status: open 1, closed 0.
 Submission(s) with no usable date: 0.
 Reminder(s) to look for a submission receipt in the delivery storage while the 30-day window the operator describes is open: 1.
-case 6b2a2c099a4711b02cd791a0206cb5bb, submission aad18df7f02cce666a35eb416f470011, stated 2026-09-01, look by 2026-10-01, 21 day(s) left.
+case fb3a8eeb2968c64b22aab6c4d1223011, submission e3f278b2b94d7c36b782a4efb33d283f, stated 2026-09-01, look by 2026-10-01, 21 day(s) left.
 The window is the operator's own published description of their storage, not a rule openPapir applies or checks. Nothing was read from any mailbox or service, and nothing here states that a submission was delivered, that a receipt exists, that one was received by an authority, or that any legal effect followed.
 The summary read the archive and changed nothing.
 ```
@@ -168,7 +170,7 @@ you believe it to be a receipt.
 ```console
 $ openpapir import --archive ./archive ./inbox/feladasi-igazolas.pdf
 Stored 1 artefact(s); 0 already present.
-sha256:362d93e8f17fc55691799951f2b2da7ec3b7d3acdff1045c539299d3f8529180 (57 bytes), import event 51d82a811f6a457de510ef2dc859d313, stored.
+sha256:362d93e8f17fc55691799951f2b2da7ec3b7d3acdff1045c539299d3f8529180 (57 bytes), import event a2304c6ac539b1b27efc56c190f950ee, stored.
 A digest identifies bytes only. Nothing here is verified, matched, or delivered.
 ```
 
@@ -176,9 +178,9 @@ A digest identifies bytes only. Nothing here is verified, matched, or delivered.
 $ openpapir receipt add --archive ./archive \
     --artefact sha256:362d93e8f17fc55691799951f2b2da7ec3b7d3acdff1045c539299d3f8529180 \
     --label "Feladasi igazolas taken from the storage"
-Receipt ad39f9439e990b778a70921df14326fb, recorded 2026-09-10T08:13:54Z.
+Receipt a70c8badfbd952836ba6012dcb0feb49, recorded 2026-09-10T08:29:41Z.
 Artefact: sha256:362d93e8f17fc55691799951f2b2da7ec3b7d3acdff1045c539299d3f8529180
-Import event: 51d82a811f6a457de510ef2dc859d313
+Import event: a2304c6ac539b1b27efc56c190f950ee
 Label: Feladasi igazolas taken from the storage
 These are the user's own assertions. openPapir checked nothing about the file and reports no delivery, authenticity, or legal effect.
 ```
@@ -195,59 +197,64 @@ that fits, which is a candidate.
 
 ```console
 $ openpapir association create --archive ./archive \
-    --receipt ad39f9439e990b778a70921df14326fb --outcome candidate \
-    --candidate "aad18df7f02cce666a35eb416f470011:moderate:The date on the file matches the day the request was sent."
-Association 37e92027eaa98b208359d8a4f84059d4, recorded 2026-09-10T08:13:54Z by user.
-Receipt: ad39f9439e990b778a70921df14326fb
+    --receipt a70c8badfbd952836ba6012dcb0feb49 --outcome candidate \
+    --candidate "e3f278b2b94d7c36b782a4efb33d283f:moderate:The date on the file matches the day the request was sent."
+Association 78151bafd0a94250957fcfc5fc9fcc67, recorded 2026-09-10T08:29:41Z by user.
+Receipt: a70c8badfbd952836ba6012dcb0feb49
 Outcome: candidate
 Confirmed submission: none
 Supersedes: nothing
 Candidates: 1.
-aad18df7f02cce666a35eb416f470011 confidence moderate
+e3f278b2b94d7c36b782a4efb33d283f confidence moderate
 user_assertion from user: The date on the file matches the day the request was sent.
 These are the user's own assertions. openPapir checked nothing about the file and reports no delivery, authenticity, or legal effect.
 ```
 
-Later you open the file, find the reference number the request carries, and are
-sure. Do not edit the first record. Write a new one that supersedes it.
+Later she opens the file, reads on it what she takes to be the reference number
+her request carries, and is willing to say so. That is her reading of the file
+and nothing more: no consulted source establishes what such a file contains or
+how it is laid out, and openPapir checked none of it. Do not edit the first
+record. Write a new one that supersedes it.
 
 ```console
 $ openpapir association create --archive ./archive \
-    --receipt ad39f9439e990b778a70921df14326fb --outcome associated \
-    --candidate "aad18df7f02cce666a35eb416f470011:strong:The reference number on the file is the one the request carries." \
-    --supersedes 37e92027eaa98b208359d8a4f84059d4
-Association 729b19f742bcb99699a553d33337ab47, recorded 2026-09-10T08:13:54Z by user.
-Receipt: ad39f9439e990b778a70921df14326fb
+    --receipt a70c8badfbd952836ba6012dcb0feb49 --outcome associated \
+    --candidate "e3f278b2b94d7c36b782a4efb33d283f:strong:The reference number on the file is the one the request carries." \
+    --supersedes 78151bafd0a94250957fcfc5fc9fcc67
+Association ba3fec13b4149371bbfc0d839703ec12, recorded 2026-09-10T08:29:41Z by user.
+Receipt: a70c8badfbd952836ba6012dcb0feb49
 Outcome: associated
-Confirmed submission: aad18df7f02cce666a35eb416f470011
-Supersedes: 37e92027eaa98b208359d8a4f84059d4
+Confirmed submission: e3f278b2b94d7c36b782a4efb33d283f
+Supersedes: 78151bafd0a94250957fcfc5fc9fcc67
 Candidates: 1.
-aad18df7f02cce666a35eb416f470011 confidence strong
+e3f278b2b94d7c36b782a4efb33d283f confidence strong
 user_assertion from user: The reference number on the file is the one the request carries.
 These are the user's own assertions. openPapir checked nothing about the file and reports no delivery, authenticity, or legal effect.
 ```
 
-Both records stay. `association list` shows the whole history, newest first,
-superseded records included, so the reason you changed your mind stays legible.
+The statement stored above is hers, in her words, and openPapir repeats it back
+without having read the file. Both records stay. `association list` shows the
+whole history, newest first, superseded records included, so the reason she
+changed her mind stays legible.
 
 ```console
-$ openpapir association list --archive ./archive --receipt ad39f9439e990b778a70921df14326fb
-2 association(s) for receipt ad39f9439e990b778a70921df14326fb, newest first.
-Association 729b19f742bcb99699a553d33337ab47, recorded 2026-09-10T08:13:54Z by user.
-Receipt: ad39f9439e990b778a70921df14326fb
+$ openpapir association list --archive ./archive --receipt a70c8badfbd952836ba6012dcb0feb49
+2 association(s) for receipt a70c8badfbd952836ba6012dcb0feb49, newest first.
+Association ba3fec13b4149371bbfc0d839703ec12, recorded 2026-09-10T08:29:41Z by user.
+Receipt: a70c8badfbd952836ba6012dcb0feb49
 Outcome: associated
-Confirmed submission: aad18df7f02cce666a35eb416f470011
-Supersedes: 37e92027eaa98b208359d8a4f84059d4
+Confirmed submission: e3f278b2b94d7c36b782a4efb33d283f
+Supersedes: 78151bafd0a94250957fcfc5fc9fcc67
 Candidates: 1.
-aad18df7f02cce666a35eb416f470011 confidence strong
+e3f278b2b94d7c36b782a4efb33d283f confidence strong
 user_assertion from user: The reference number on the file is the one the request carries.
-Association 37e92027eaa98b208359d8a4f84059d4, recorded 2026-09-10T08:13:54Z by user.
-Receipt: ad39f9439e990b778a70921df14326fb
+Association 78151bafd0a94250957fcfc5fc9fcc67, recorded 2026-09-10T08:29:41Z by user.
+Receipt: a70c8badfbd952836ba6012dcb0feb49
 Outcome: candidate
 Confirmed submission: none
 Supersedes: nothing
 Candidates: 1.
-aad18df7f02cce666a35eb416f470011 confidence moderate
+e3f278b2b94d7c36b782a4efb33d283f confidence moderate
 user_assertion from user: The date on the file matches the day the request was sent.
 These are the user's own assertions. openPapir checked nothing about the file and reports no delivery, authenticity, or legal effect.
 ```
@@ -258,31 +265,40 @@ legal effect followed.
 
 ## 8. Withdraw an assertion you no longer stand behind
 
-A second file turned up in the storage the same week. Dorottya recorded it as a
-receipt and guessed weakly that it belonged to this matter.
+A second file turned up in the storage the same week. Import it exactly as
+before, then record it as a receipt.
+
+```console
+$ openpapir import --archive ./archive ./inbox/unknown-notice.pdf
+Stored 1 artefact(s); 0 already present.
+sha256:562f95dc47d2a4f9ef789066b68238d00b4c7c051b82155f9b571d1aedc92131 (61 bytes), import event efd7036c0e115a25f30973d49735067a, stored.
+A digest identifies bytes only. Nothing here is verified, matched, or delivered.
+```
 
 ```console
 $ openpapir receipt add --archive ./archive \
     --artefact sha256:562f95dc47d2a4f9ef789066b68238d00b4c7c051b82155f9b571d1aedc92131 \
     --label "Notice found in the storage the same week"
-Receipt 01b2c32c31c7f243dd64ef155ac41c8d, recorded 2026-09-10T08:13:54Z.
+Receipt 7099e121dd744f3f2eeb855cc8480725, recorded 2026-09-10T08:29:41Z.
 Artefact: sha256:562f95dc47d2a4f9ef789066b68238d00b4c7c051b82155f9b571d1aedc92131
-Import event: 290ccc6c8a898d326a62722254065916
+Import event: efd7036c0e115a25f30973d49735067a
 Label: Notice found in the storage the same week
 These are the user's own assertions. openPapir checked nothing about the file and reports no delivery, authenticity, or legal effect.
 ```
 
+She guessed weakly that it belonged to this matter.
+
 ```console
 $ openpapir association create --archive ./archive \
-    --receipt 01b2c32c31c7f243dd64ef155ac41c8d --outcome candidate \
-    --candidate "aad18df7f02cce666a35eb416f470011:weak:It arrived in the same week as the request."
-Association 26efbdbfd0d9dbec4cb7958b65ac088f, recorded 2026-09-10T08:13:54Z by user.
-Receipt: 01b2c32c31c7f243dd64ef155ac41c8d
+    --receipt 7099e121dd744f3f2eeb855cc8480725 --outcome candidate \
+    --candidate "e3f278b2b94d7c36b782a4efb33d283f:weak:It arrived in the same week as the request."
+Association ade6c901c30f81c2e94dc917c7e40903, recorded 2026-09-10T08:29:41Z by user.
+Receipt: 7099e121dd744f3f2eeb855cc8480725
 Outcome: candidate
 Confirmed submission: none
 Supersedes: nothing
 Candidates: 1.
-aad18df7f02cce666a35eb416f470011 confidence weak
+e3f278b2b94d7c36b782a4efb33d283f confidence weak
 user_assertion from user: It arrived in the same week as the request.
 These are the user's own assertions. openPapir checked nothing about the file and reports no delivery, authenticity, or legal effect.
 ```
@@ -292,14 +308,14 @@ supersedes it and claims nothing. It does not delete the guess and does not
 assert the opposite of it.
 
 ```console
-$ openpapir association retire --archive ./archive 26efbdbfd0d9dbec4cb7958b65ac088f \
+$ openpapir association retire --archive ./archive ade6c901c30f81c2e94dc917c7e40903 \
     --reason "It belongs to a different matter."
 The assertion is withdrawn. Both records stay, and nothing was edited or removed.
-Association 0ea9da55a017e945bc8b7c1777475dac, recorded 2026-09-10T08:13:54Z by user.
-Receipt: 01b2c32c31c7f243dd64ef155ac41c8d
+Association 7e5fdf00ca4b528daaf06ac9be6adbab, recorded 2026-09-10T08:29:41Z by user.
+Receipt: 7099e121dd744f3f2eeb855cc8480725
 Outcome: unassociated
 Confirmed submission: none
-Supersedes: 26efbdbfd0d9dbec4cb7958b65ac088f
+Supersedes: ade6c901c30f81c2e94dc917c7e40903
 Candidates: 0.
 These are the user's own assertions. openPapir checked nothing about the file and reports no delivery, authenticity, or legal effect.
 ```
@@ -312,14 +328,14 @@ The reason is stored and is never repeated in a message.
 case's identifier and creation time and reports which fields it changed.
 
 ```console
-$ openpapir case update --archive ./archive 6b2a2c099a4711b02cd791a0206cb5bb \
+$ openpapir case update --archive ./archive fb3a8eeb2968c64b22aab6c4d1223011 \
     --status closed --tag granted
-Case 6b2a2c099a4711b02cd791a0206cb5bb, recorded 2026-09-10T08:13:54Z.
+Case fb3a8eeb2968c64b22aab6c4d1223011, recorded 2026-09-10T08:29:41Z.
 Title: Workshop roof permit, Kovacs Dorottya
 Notes: Municipal permit request for the workshop roof.
 Status: closed
 Tags: granted, municipal, permit
-Updated: 2026-09-10T08:13:54Z
+Updated: 2026-09-10T08:29:41Z
 Changed: status, tags.
 Cases and submissions are the user's own local records. Nothing here is verified, matched, or delivered.
 ```
@@ -332,7 +348,7 @@ query text is never echoed back.
 ```console
 $ openpapir case list --archive ./archive --status closed --tag permit
 1 case(s) listed.
-6b2a2c099a4711b02cd791a0206cb5bb 2026-09-10T08:13:54Z closed Workshop roof permit, Kovacs Dorottya
+fb3a8eeb2968c64b22aab6c4d1223011 2026-09-10T08:29:41Z closed Workshop roof permit, Kovacs Dorottya
 Cases and submissions are the user's own local records. Nothing here is verified, matched, or delivered.
 ```
 
@@ -349,7 +365,7 @@ records claim. It takes no lock and changes nothing.
 
 ```console
 $ openpapir archive check --archive ./archive
-Checked 4 object(s) and 16 record(s); 200 byte(s) digested.
+Checked 4 object(s) and 12 record(s); 200 byte(s) digested.
 No problem found.
 Orphan object(s): 0. Object(s) not digested: 0. Record directory(ies) not read: 0. Leftover staging file(s): 0 incoming, 0 in record directories.
 The check read the archive and changed nothing. A digest identifies bytes only: a passing check is storage integrity, never authenticity, delivery, or legal effect.
@@ -365,14 +381,14 @@ readable JSON records, and a manifest. The archive is not changed, and every
 copy is re-digested as it is written.
 
 ```console
-$ openpapir case export --archive ./archive --case 6b2a2c099a4711b02cd791a0206cb5bb --to ./export
-Exported case 6b2a2c099a4711b02cd791a0206cb5bb to ./export.
-Copied 4 object(s), 200 byte(s), and wrote 15 record(s).
+$ openpapir case export --archive ./archive --case fb3a8eeb2968c64b22aab6c4d1223011 --to ./export
+Exported case fb3a8eeb2968c64b22aab6c4d1223011 to ./export.
+Copied 4 object(s), 200 byte(s), and wrote 11 record(s).
 case 1
 submission 1
 receipt 2
 association 3
-import_event 8
+import_event 4
 The archive was not changed. Every copy was re-digested: a digest identifies bytes only, never authenticity, delivery, or legal effect.
 ```
 
@@ -395,19 +411,19 @@ to at all, and the whole case then lands at once or not at all.
 $ mkdir -p ./second-archive
 $ openpapir archive init ./second-archive
 Archive created at the supplied root.
-Archive identifier: f37ea6b84842112eea79415a2f0fc5e3. Schema version: 1.
+Archive identifier: 1a1c1f7017ac4c55a006125bab44eda3. Schema version: 1.
 ```
 
 ```console
 $ openpapir case import --archive ./second-archive --from ./export
-Imported case 6b2a2c099a4711b02cd791a0206cb5bb from ./export.
+Imported case fb3a8eeb2968c64b22aab6c4d1223011 from ./export.
 Stored 4 object(s), 200 byte(s); 0 already present.
-Wrote 15 record(s); 0 already present.
+Wrote 11 record(s); 0 already present.
 case 1
 submission 1
 receipt 2
 association 3
-import_event 8
+import_event 4
 Recorded 4 import event(s) with source export.
 Every restored copy was re-digested: a digest identifies bytes only, never authenticity, delivery, or legal effect.
 ```
@@ -419,7 +435,7 @@ Check the result before trusting it.
 
 ```console
 $ openpapir archive check --archive ./second-archive
-Checked 4 object(s) and 19 record(s); 200 byte(s) digested.
+Checked 4 object(s) and 15 record(s); 200 byte(s) digested.
 No problem found.
 Orphan object(s): 0. Object(s) not digested: 0. Record directory(ies) not read: 0. Leftover staging file(s): 0 incoming, 0 in record directories.
 The check read the archive and changed nothing. A digest identifies bytes only: a passing check is storage integrity, never authenticity, delivery, or legal effect.
@@ -442,7 +458,7 @@ and reads no content.
 
 ```console
 $ openpapir archive repair-permissions --archive ./second-archive
-Narrowed 0 of 43 archive path(s) to owner-only.
+Narrowed 0 of 39 archive path(s) to owner-only.
 cache 0
 directory 0
 marker 0
@@ -462,29 +478,44 @@ names one case, and it removes stored bytes only when `--purge` says so.
 Without `--purge` the records go and the objects stay.
 
 ```console
-$ openpapir case delete --archive ./second-archive --case 6b2a2c099a4711b02cd791a0206cb5bb
+$ openpapir case delete --archive ./second-archive --case fb3a8eeb2968c64b22aab6c4d1223011
 Removed 7 record(s): association 3, case 1, import_event 0, receipt 2, submission 1.
 Removed 0 object(s); 4 retained: purge_not_requested 4, records_retained 0, referenced_elsewhere 0, unremovable 0.
 No purge was requested, so no object was removed.
 Deletion unlinked files in this archive. It does not erase data from the storage medium, and any backup already taken is outside openPapir's reach.
 ```
 
+The case is gone from the second archive now, so bring it back from the export
+before deleting it again, this time with the bytes.
+
+```console
+$ openpapir case import --archive ./second-archive --from ./export
+Imported case fb3a8eeb2968c64b22aab6c4d1223011 from ./export.
+Stored 0 object(s), 0 byte(s); 4 already present.
+Wrote 7 record(s); 4 already present.
+case 1
+submission 1
+receipt 2
+association 3
+import_event 4
+Recorded 0 import event(s) with source export.
+Every restored copy was re-digested: a digest identifies bytes only, never authenticity, delivery, or legal effect.
+```
+
 With `--purge`, an object is unlinked as well, and then only when no remaining
 import event, receipt, or submission references it.
 
 ```console
-$ openpapir case delete --archive ./second-archive --case 6b2a2c099a4711b02cd791a0206cb5bb --purge
-Removed 19 record(s): association 3, case 1, import_event 12, receipt 2, submission 1.
+$ openpapir case delete --archive ./second-archive --case fb3a8eeb2968c64b22aab6c4d1223011 --purge
+Removed 15 record(s): association 3, case 1, import_event 8, receipt 2, submission 1.
 Removed 4 object(s); 0 retained: purge_not_requested 0, records_retained 0, referenced_elsewhere 0, unremovable 0.
 A purge was requested: an object is unlinked only when no remaining import event, receipt, or submission references it.
 Deletion unlinked files in this archive. It does not erase data from the storage medium, and any backup already taken is outside openPapir's reach.
 ```
 
-The counts differ between the two runs because the export had been imported
-again in between. Read the closing line literally: deletion unlinks files, it
-does not erase data from the storage medium, and the backup you took in step 13
-is entirely outside openPapir's reach. Export first if you want the case to
-survive the deletion.
+Read the closing line literally: deletion unlinks files, it does not erase data
+from the storage medium, and the backup taken in step 13 is entirely outside
+openPapir's reach. Export first if you want the case to survive the deletion.
 
 ```console
 $ openpapir archive check --archive ./second-archive
@@ -502,12 +533,15 @@ on stderr. The shape is one envelope for every command: `schema_version`, `ok`,
 
 ```console
 $ openpapir archive status --archive ./archive --as-of 2026-09-10 --json
-{"schema_version":1,"ok":true,"command":"archive.status","data":{"as_of":"2026-09-10","associations":0,"cases":1,"cases_by_status":[{"count":1,"status":"open"},{"count":0,"status":"closed"}],"receipts":0,"receipts_to_retrieve":[{"case_id":"6b2a2c099a4711b02cd791a0206cb5bb","days_left":21,"retrieve_by":"2026-10-01","submission_date":"2026-09-01","submission_id":"aad18df7f02cce666a35eb416f470011"}],"retention_window_days":30,"stored_objects":2,"submissions":1,"undated_submissions":0},"verified":false}
+{"schema_version":1,"ok":true,"command":"archive.status","data":{"as_of":"2026-09-10","associations":0,"cases":1,"cases_by_status":[{"count":1,"status":"open"},{"count":0,"status":"closed"}],"receipts":0,"receipts_to_retrieve":[{"case_id":"fb3a8eeb2968c64b22aab6c4d1223011","days_left":21,"retrieve_by":"2026-10-01","submission_date":"2026-09-01","submission_id":"e3f278b2b94d7c36b782a4efb33d283f"}],"retention_window_days":30,"stored_objects":2,"submissions":1,"undated_submissions":0},"verified":false}
 ```
+
+That one was taken at the point step 5 reached, which is why its reminder list
+is not empty. The next was taken at the end of step 9.
 
 ```console
 $ openpapir case list --archive ./archive --status closed --json
-{"schema_version":1,"ok":true,"command":"case.list","data":{"cases":[{"archive_schema_version":1,"created_at":"2026-09-10T08:13:54Z","id":"6b2a2c099a4711b02cd791a0206cb5bb","notes":"Municipal permit request for the workshop roof.","record_kind":"case","status":"closed","tags":["granted","municipal","permit"],"title":"Workshop roof permit, Kovacs Dorottya","updated_at":"2026-09-10T08:13:54Z"}],"count":1},"verified":false}
+{"schema_version":1,"ok":true,"command":"case.list","data":{"cases":[{"archive_schema_version":1,"created_at":"2026-09-10T08:29:41Z","id":"fb3a8eeb2968c64b22aab6c4d1223011","notes":"Municipal permit request for the workshop roof.","record_kind":"case","status":"closed","tags":["granted","municipal","permit"],"title":"Workshop roof permit, Kovacs Dorottya","updated_at":"2026-09-10T08:29:41Z"}],"count":1},"verified":false}
 ```
 
 Branch on the exit code first, which carries the error's bucket and nothing
@@ -543,9 +577,10 @@ human lines, whose wording is not a contract.
 ## What the sources state
 
 Each statement is numbered, attributed to a source in the [evidence
-matrix](receipt-discovery.md#evidence-matrix), and labelled descriptive or
-normative. Nothing here is openPapir's own claim about the service, and none of
-it is checked by any code in this repository.
+matrix](receipt-discovery.md#evidence-matrix), labelled descriptive or
+normative, and given with the date that source was retrieved. Nothing here is
+openPapir's own claim about the service, and none of it is checked by any code
+in this repository.
 
 - **S1**: a submitter receives a *Feladási igazolás* in their personal
   delivery storage after a successful submission (E1, descriptive, retrieved
@@ -557,20 +592,26 @@ it is checked by any code in this repository.
   openPapir applies or verifies.
 - **S3**: the receipt destination is a single storage mailbox surface serving
   citizens and organisation gateways, not a per-application inbox (E3,
-  descriptive).
+  descriptive, retrieved 2026-09-09).
 - **S4**: the service provider must make available to the submitter, or
   deliver by the secure delivery rules, a confirmation evidencing at least the
-  lodging of the submission, its point in time, and its content (E2 § 133(4),
-  normative). The normative text names no file format, no field list, and no
-  identifier syntax for such a confirmation.
+  lodging of the submission, its point in time, and its content, and the decree
+  names the event that confirmation is issued about: the delivery of the
+  submission or of the reply to it, or the failure of that delivery (E2
+  § 133(4), normative, retrieved in full 2026-09-10). Both halves are
+  statements about what the decree requires of the service provider. Neither is
+  a claim about any artefact openPapir stores, and the normative text names no
+  file format, no field list, and no identifier syntax for such a confirmation.
 - **S5**: the accepted attachment formats and the size limit are set by the
-  service provider rather than by the decree (E2 § 133(2), normative); the
-  operator's help page describes attachments up to 25 MB and an accepted format
-  list including `.pdf` (E1, descriptive, retrieved 2026-09-09).
+  service provider rather than by the decree (E2 § 133(2), normative, retrieved
+  in full 2026-09-10); the operator's help page describes attachments up to
+  25 MB and an accepted format list including `.pdf` (E1, descriptive,
+  retrieved 2026-09-09).
 - **S6**: for one authority's own channel, a family of distinct notification
   artefacts is named around a single submission rather than one, including a
   *Feladási igazolás*, a *Letöltési igazolás*, and an *Automatikus válasz*
-  (E6, descriptive, for that authority's channel only).
+  (E6, descriptive, for that authority's channel only, retrieved 2026-09-10
+  after a first attempt returned HTTP 403).
 
 Nothing above establishes what a receipt file looks like on disk. That question
 is open, and the open questions and their bounded follow-ups are recorded in
