@@ -601,6 +601,57 @@ fn retiring_an_entangled_association_lets_the_deletion_proceed() {
     assert!(fixture.check().status.success(), "the archive stays clean");
 }
 
+/// A `supersedes` cycle cannot be written through the CLI, which refuses a
+/// retirement of a record something already supersedes and a `--supersedes`
+/// outside the receipt, so the record is hand-edited here. A cycle has no
+/// live record, so the entanglement rule cannot read one: without a rule of
+/// its own the whole cycle would be taken as history nobody asserts and
+/// removed, silently taking a record about the other case with it. It is
+/// refused instead, as the integrity anomaly it is, and the refusal is
+/// symmetric because either case's submission is named inside the cycle.
+#[test]
+fn a_supersedes_cycle_naming_a_departing_submission_refuses_the_deletion() {
+    let fixture = Fixture::new();
+    let first = fixture.import("first.bin", FIRST);
+    let second = fixture.import("second.bin", SECOND);
+    let going = fixture.case("A local matter");
+    let staying = fixture.case("Another local matter");
+    let departing = fixture.submission(&going, &first);
+    let remaining = fixture.submission(&staying, &second);
+    let receipt = fixture.receipt(&second);
+    let older = association(&fixture, &receipt, &departing, None);
+    let newer = association(&fixture, &receipt, &remaining, Some(&older));
+    rewrite_document(&fixture, "associations", &older, |stored| {
+        stored["supersedes"] = Value::String(newer.clone());
+    });
+    let before = snapshot(&fixture.root);
+
+    for case_id in [&going, &staying] {
+        for purge in [false, true] {
+            let output = fixture.delete(case_id, purge);
+            assert_eq!(output.status.code(), Some(4));
+            let envelope = stdout_json(&output);
+            assert_eq!(envelope["ok"], false);
+            assert_eq!(envelope["error"]["code"], "record.inconsistent");
+            assert_eq!(envelope["error"]["details"]["bucket"], "record");
+            assert_eq!(envelope["error"]["details"]["record_kind"], "association");
+            assert_eq!(envelope["error"]["details"]["rule"], "supersedes_cycle");
+            assert_eq!(envelope["data"], serde_json::json!({}));
+            assert_private(&envelope);
+            let text = envelope.to_string();
+            assert!(
+                !text.contains(&older) && !text.contains(&newer),
+                "the refusal names no record"
+            );
+            assert_eq!(
+                snapshot(&fixture.root),
+                before,
+                "the refusal comes before anything is unlinked"
+            );
+        }
+    }
+}
+
 /// A record directory the process cannot write to is the one way to refuse a
 /// record unlink from outside. The probe that precedes the record pass sees
 /// it and refuses the whole deletion before the first unlink, so no object is
@@ -1199,4 +1250,36 @@ fn snapshot(root: &Path) -> Vec<(String, u64)> {
     }
     entries.sort();
     entries
+}
+
+/// Create one association naming one submission, optionally superseding
+/// another record of the same receipt, and return its identifier.
+fn association(
+    fixture: &Fixture,
+    receipt_id: &str,
+    submission_id: &str,
+    supersedes: Option<&str>,
+) -> String {
+    let candidate = format!("{submission_id}:weak:The user stated a link.");
+    let root = fixture.root_text();
+    let mut args = vec![
+        "association",
+        "create",
+        "--archive",
+        &root,
+        "--receipt",
+        receipt_id,
+        "--outcome",
+        "associated",
+        "--candidate",
+        &candidate,
+        "--json",
+    ];
+    if let Some(superseded) = supersedes {
+        args.extend_from_slice(&["--supersedes", superseded]);
+    }
+    data(&args)["association"]["id"]
+        .as_str()
+        .expect("an association identifier")
+        .to_owned()
 }
