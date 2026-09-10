@@ -90,17 +90,40 @@ toolchain; it is therefore the one artefact the workflow cannot smoke test,
 and every other artefact runs `openpapir capabilities --json` on the runner
 that built it.
 
-Each archive holds the binary, `LICENSE`, `README.md`, and `CHANGELOG.md`
-under a single directory named `openpapir-<version>-<target>`. It carries no
-generated shell completion script and no generated man page: the binary writes
-both itself, `openpapir completions <shell>` and `openpapir manpage`, from the
-command definition it was built with, so a copy in the archive could only be
-the same bytes or stale ones, and generating them per target would add a step
-to five build jobs for a file the user already has. A packager who wants them
-as files runs the two commands during packaging, which
-[README.md](../README.md) documents. Should a first release want them shipped
-anyway, adding them is a change to `.github/workflows/release.yml` and to this
-section, taken in its own pull request.
+Each archive holds the following under a single directory named
+`openpapir-<version>-<target>`.
+
+| Path in the archive | What it is |
+| --- | --- |
+| `openpapir`, or `openpapir.exe` on Windows | The binary for that target. |
+| `LICENSE`, `README.md`, `CHANGELOG.md` | Copied from the built tree. |
+| `completions/openpapir.bash` | The `bash` completion script. |
+| `completions/_openpapir` | The `zsh` completion script. |
+| `completions/openpapir.fish` | The `fish` completion script. |
+| `completions/_openpapir.ps1` | The `powershell` completion script. |
+| `completions/openpapir.elv` | The `elvish` completion script. |
+| `man/man1/openpapir.1` | The man page for the whole command tree. |
+
+The completion scripts and the man page are not committed anywhere. Each is
+written by the built binary of that target, through `openpapir completions
+<shell>` and `openpapir manpage`, on the runner that built it and in the step
+that stages the archive, so a shipped script cannot describe a command the
+archived binary does not have. The file names are the ones each shell looks
+for, so installing one is a copy to the shell's own directory, which
+[README.md](../README.md) documents alongside the manual route of running the
+two commands.
+
+The staging is `scripts/package-release.sh`, which copies the binary and the
+three documents, generates the five scripts and the page, and then checks the
+staged directory: every file above has to exist and hold something, and the
+man page has to carry a `.TH openpapir 1` header among its first lines, which
+is where the roff header sits behind the two-line quote-escaping preamble the
+generator emits. The CI test job calls the same script on the release binary
+it already builds, on each of Linux, macOS, and Windows, so the layout is
+exercised on every pull request without a tag and without an archive. The
+script also prints that listing on request, and the draft release and the
+dry-run summary print what it says, so a release cannot name a layout other
+than the one that was staged.
 
 Beside each archive is a `<archive>.sha256` file in the format
 `sha256sum --check` reads. The checksum is written and verified on the runner
@@ -134,7 +157,8 @@ It has three triggers.
 - A push of a `v*` tag. The workflow refuses a tag whose commit is not on
   `master`, takes the version from the tag, and creates a **draft** GitHub
   release whose notes are the [CHANGELOG.md](../CHANGELOG.md) section for that
-  version, with every archive and checksum file attached. A version with no
+  version and the artefact listing below it, with every archive and checksum
+  file attached. A version with no
   changelog section fails the run. Publishing the draft is a separate human
   act.
 - A manual `workflow_dispatch` with the `dry_run` input, which defaults to
@@ -150,15 +174,24 @@ gh workflow run release.yml --ref <branch> -f dry_run=true
   registers a `workflow_dispatch` trigger only from the default branch, so a
   change to this workflow could otherwise not be exercised before it is
   merged. The trigger is filtered to that one path, so it is a dry run on the
-  pull requests that change the pipeline and nothing at all on the rest.
+  pull requests that change the pipeline and nothing at all on the rest. The
+  one part of the pipeline every pull request does exercise is the archive
+  staging, because CI runs `scripts/package-release.sh` in its test job on all
+  three platforms; a change to the archive layout is therefore caught without
+  this trigger firing.
 
 The workflow never creates a tag, never pushes, and never publishes a draft.
 
 ### The release notes
 
 The notes of a draft release are one [CHANGELOG.md](../CHANGELOG.md) section,
-copied verbatim. `scripts/release-notes.py` is the only thing that reads one,
-and both the job that creates the release and the dry run call it.
+copied verbatim, followed by one `The artefacts` section that names what an
+archive holds. `scripts/release-notes.py` is the only thing that reads a
+changelog section, and both the job that creates the release and the dry run
+call it. The trailing section is not read from anywhere: it is printed by
+`scripts/package-release.sh --describe`, the script that staged the archives,
+so the notes describe the layout that was actually staged and cannot be
+edited out of step with it. Nothing else is added to the notes.
 
 A section runs from its `##` heading to the next `##` heading **outside a
 code fence**. A line that looks like a heading inside a fenced block, opened
