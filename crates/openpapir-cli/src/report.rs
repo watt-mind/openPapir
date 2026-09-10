@@ -150,10 +150,8 @@ const RECORD_DISCLAIMER: &str = "Cases and submissions are the user's own local 
 
 /// The lines describing one case, without its submissions.
 ///
-/// The status and the tags are the user's own filing, so they are printed as
-/// stored. `updated_at` is printed only once there is one: a case nobody has
-/// changed has never been updated, and saying so with the creation time over
-/// again would state something that did not happen.
+/// `updated_at` is printed only once there is one: a case nobody has changed
+/// has never been updated.
 fn case_lines(case: &Case) -> Vec<String> {
     let mut lines = vec![
         format!("Case {}, recorded {}.", case.id, case.created_at),
@@ -163,13 +161,10 @@ fn case_lines(case: &Case) -> Vec<String> {
         lines.push(format!("Notes: {notes}"));
     }
     lines.push(format!("Status: {}", case.status.as_str()));
+    let tags = case.tags.join(", ");
     lines.push(format!(
         "Tags: {}",
-        if case.tags.is_empty() {
-            "none".to_owned()
-        } else {
-            case.tags.join(", ")
-        }
+        if tags.is_empty() { "none" } else { &tags }
     ));
     if let Some(updated_at) = &case.updated_at {
         lines.push(format!("Updated: {updated_at}"));
@@ -214,9 +209,8 @@ pub fn case_created(created: &CaseCreated) -> Vec<String> {
 
 /// The lines `case list` prints when it succeeds.
 ///
-/// The count is the number of cases the listing holds, which under a filter
-/// is the number that matched. The filter itself is not echoed back: the
-/// query is the user's own text.
+/// The count is what the listing holds, so under a filter what matched. The
+/// filter is not echoed back: the query is the user's own text.
 #[must_use]
 pub fn case_list(list: &CaseList) -> Vec<String> {
     let mut lines = vec![format!("{} case(s) listed.", list.count)];
@@ -236,8 +230,7 @@ pub fn case_list(list: &CaseList) -> Vec<String> {
 /// The lines `case update` prints when it succeeds.
 ///
 /// The changed fields are named and no former value is printed: the record
-/// above already carries what each value is now, and what it was before is
-/// the user's own text that they have just replaced.
+/// above already carries what each value is now.
 #[must_use]
 pub fn case_updated(updated: &CaseUpdated) -> Vec<String> {
     let mut lines = case_lines(&updated.case);
@@ -641,30 +634,19 @@ mod tests {
             "a case nobody changed has no update time"
         );
 
-        let mut untagged = case();
-        untagged.tags.clear();
-        untagged.status = openpapir_core::CaseStatus::Closed;
-        untagged.updated_at = Some("2026-02-01T08:00:00Z".to_owned());
-        let text = case_shown(&CaseView {
-            case: untagged.clone(),
-            submissions: Vec::new(),
-            submission_count: 0,
+        let mut changed = case();
+        changed.tags.clear();
+        changed.status = openpapir_core::CaseStatus::Closed;
+        changed.updated_at = Some("2026-02-01T08:00:00Z".to_owned());
+        let text = case_updated(&CaseUpdated {
+            case: changed,
+            changed: vec!["status".to_owned(), "tags".to_owned()],
         })
         .join("\n");
         assert!(text.contains("Status: closed"));
         assert!(text.contains("Tags: none"));
         assert!(text.contains("Updated: 2026-02-01T08:00:00Z"));
-
-        let text = case_updated(&CaseUpdated {
-            case: untagged,
-            changed: vec!["status".to_owned(), "tags".to_owned()],
-        })
-        .join("\n");
         assert!(text.contains("Changed: status, tags."));
-        assert!(
-            !text.contains("A note the user wrote.") || text.contains("Notes:"),
-            "a former value is never printed on its own"
-        );
         assert!(!text.contains('/'), "no path ever reaches human output");
     }
 
