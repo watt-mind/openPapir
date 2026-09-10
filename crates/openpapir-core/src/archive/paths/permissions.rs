@@ -166,8 +166,21 @@ pub fn sync_directory(path: &Path, stage: &'static str) -> Option<Warning> {
 }
 
 /// The warning reported where a directory entry cannot be flushed.
+///
+/// The stage is a write stage wherever a write asked for the flush, and the
+/// deletion's own phase where a deletion did: the entry the flush would have
+/// made durable is then a removal rather than a publication.
+///
+/// # Panics
+///
+/// In a debug build, when `stage` is not one the contract enumerates; see
+/// [`super::publish_refusal`].
 #[must_use]
 pub fn no_directory_fsync_warning(stage: &'static str) -> Warning {
+    debug_assert!(
+        crate::error::stages::is_documented(stage),
+        "a write stage the error contract does not enumerate"
+    );
     Diagnostic::new(
         codes::PLATFORM_NO_DIRECTORY_FSYNC,
         "Directory durability is weaker on this platform.",

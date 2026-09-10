@@ -83,6 +83,18 @@ pub struct World {
     pub association_ids: Vec<String>,
 }
 
+impl Drop for World {
+    /// Give a root a case narrowed back the access its removal needs.
+    ///
+    /// A case that withholds write access from the archive root would
+    /// otherwise leave the temporary directory behind, because removing what
+    /// is inside it needs that access.
+    fn drop(&mut self) {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(&self.archive, fs::Permissions::from_mode(0o700));
+    }
+}
+
 impl World {
     /// Build a synthetic archive up to `stage`.
     #[must_use]
@@ -494,6 +506,16 @@ pub fn derive_metadata(world: &World) {
 /// Widen one layout directory, so the permission repair has work to report.
 pub fn widen_one_directory(world: &World) {
     permissions(&world.archive.join("records/cases"), 0o750);
+}
+
+/// Withhold write access from the archive root itself, so that the writer
+/// lock cannot be created there.
+///
+/// It is the read-only archive a copy onto read-only media leaves behind. The
+/// permissions are put back when the world is dropped, so the temporary
+/// directory can still be removed.
+pub fn withhold_write_access_from_the_root(world: &World) {
+    permissions(&world.archive, 0o500);
 }
 
 /// Set one path's mode, which the golden cases only ever do deliberately.

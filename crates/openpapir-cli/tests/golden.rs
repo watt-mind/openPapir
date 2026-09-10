@@ -47,6 +47,7 @@ fn ready(_: &World) {}
 fn cases() -> Vec<Case> {
     let mut cases = archive_cases();
     cases.extend(usage_cases());
+    cases.extend(permission_cases());
     cases.extend(derived_cases());
     cases.extend(transfer_cases());
     cases.extend(record_cases());
@@ -82,6 +83,28 @@ fn usage_cases() -> Vec<Case> {
                     "list".to_owned(),
                 ]
             },
+        },
+    ]
+}
+
+/// The cases about permissions: the repair that narrows a directory some
+/// copy tool widened, and the root that withholds write access from openPapir
+/// itself, which refuses the writer lock rather than reporting a torn write.
+fn permission_cases() -> Vec<Case> {
+    vec![
+        Case {
+            name: "archive.repair-permissions",
+            stage: Stage::Associated,
+            second_submission: false,
+            prepare: golden_support::widen_one_directory,
+            arguments: |world| world.command(&["archive", "repair-permissions"]),
+        },
+        Case {
+            name: "archive.not-writable",
+            stage: Stage::Associated,
+            second_submission: false,
+            prepare: golden_support::withhold_write_access_from_the_root,
+            arguments: |world| world.command(&["archive", "repair-permissions"]),
         },
     ]
 }
@@ -205,13 +228,6 @@ fn archive_cases() -> Vec<Case> {
                 ]);
                 arguments
             },
-        },
-        Case {
-            name: "archive.repair-permissions",
-            stage: Stage::Associated,
-            second_submission: false,
-            prepare: golden_support::widen_one_directory,
-            arguments: |world| world.command(&["archive", "repair-permissions"]),
         },
         Case {
             name: "case.delete",

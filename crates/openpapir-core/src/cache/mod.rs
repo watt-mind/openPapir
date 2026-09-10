@@ -77,7 +77,7 @@ use sha2::{Digest as _, Sha256};
 
 use crate::archive::import::{EVENT_KIND, ImportEvent};
 use crate::archive::{CACHE_DIR, IMPORTS_DIR, limits, paths, write};
-use crate::error::Diagnostic;
+use crate::error::{Diagnostic, stages};
 use crate::records::document;
 
 /// The index file, as `docs/archive-layout.md` names it.
@@ -97,7 +97,11 @@ const IMPORT_EVENTS_KIND: &str = "import_events_by_digest";
 const CACHE_SCHEMA_VERSION: u64 = 2;
 
 /// The write stage the atomic write procedure reports this file under.
-const STAGE: &str = "cache_write";
+///
+/// A cached file is a record write: the stage names the kind of path being
+/// written and the contract enumerates the kinds, so the index does not get a
+/// stage of its own ([`crate::error::stages`]).
+const STAGE: &str = stages::RECORD_WRITE;
 
 /// One import event, reduced to what the three callers ask of it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

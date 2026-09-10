@@ -223,6 +223,16 @@ for a path the user named on the command line. A new value is additive.
 argument `argument` names was written in the wrong place rather than being
 unknown. A new value is additive.
 
+`stage` has exactly five values. `object_write`, `record_write`, and
+`marker_write` name the kind of path a write was publishing, and are the write
+stages the table below enumerates; `delete` and `purge` name the phase of a
+deletion that observed the condition, which is the removal of the records the
+deletion planned to remove and the unlinking of the objects a purge was asked
+for. Nothing else may appear there, a write reports one of the first three
+only, and a new value is additive like a new key. A condition that cannot be
+described by one of them is a condition that needs its own code rather than a
+stage the contract does not define.
+
 ### `usage`: the invocation itself
 
 - **`usage.arguments`**: usage, not retryable. The command line is
@@ -290,6 +300,22 @@ unknown. A new value is additive.
 - **`archive.multiple_filesystems`**: archive, not retryable. The archive
   root spans more than one filesystem, which the atomic write procedure
   forbids. Details: `bucket`, `archive_path`.
+- **`archive.not_writable`**: archive, not retryable. The archive root
+  refuses to be written to, so the single-writer lock cannot be created and
+  no writing command can start. Details: `bucket`, `scope` (`archive`),
+  `archive_path` (`.`, the root itself). Every writing command reports it,
+  including `archive repair-permissions`, which takes the same lock: the
+  repair narrows permissions inside an archive it can write to and cannot
+  reach an archive whose root refuses the lock, so the message says which
+  directory has to become writable and that the repair does not help here.
+  This is not `write.interrupted`: nothing was interrupted, no staging file
+  was left behind, the archive is exactly as it was, and no retry of the same
+  command succeeds until the directory changes. A read-only mount and a root
+  whose permissions withhold write access are the same condition for a
+  caller, so both are this code. On Windows the read-only attribute of a
+  directory does not stop a file from being created in it, so a root marked
+  read-only there is likely to be writable in this sense and the condition
+  arises from an access-control list or a read-only volume instead.
 
 ### `input`: bounds refused before allocation
 
@@ -406,8 +432,15 @@ followed ([archive-layout](archive-layout.md)).
   | Stage | What it names |
   | --- | --- |
   | `object_write` | A stored object or an exported copy of one, the directory a copy is created in, a fan-out directory the repair cannot list, and a leftover staging file inside the object store. |
-  | `record_write` | A record document, the directory one is written into, a cached file, a layout directory, a fan-out directory the repair cannot narrow, and the archive root. |
+  | `record_write` | A record document, the directory one is written into, a cached file, a layout directory, a fan-out directory the repair cannot narrow, the single-writer lock file, and the archive root. |
   | `marker_write` | The archive marker, and outside the archive the export destination itself and its `manifest.json`. |
+
+  The code is for a write that began and could not be published. A refusal
+  the system raised before anything was written, because the directory it
+  would be written into is not writable at all, is not interrupted and is not
+  retryable: creating the lock file in a root that refuses it is
+  `archive.not_writable` above, and only the conditions that leave a torn
+  write behind keep this code.
 
   The destination and its `manifest.json` describe the export rather than any
   one record, which is why they are a marker write. [Architecture](architecture.md#write-stages)
@@ -785,8 +818,10 @@ envelope; it is never dropped because the command ended badly.
 
 - **`platform.no_directory_fsync`**: the directory entry created by a rename
   may not be durable after power loss, although the file content was flushed.
-  Details: `bucket`, `stage` (`object_write`, `record_write`, or
-  `marker_write`).
+  Details: `bucket`, `stage`: one of the three write stages where a write
+  asked for the flush, and `delete` or `purge` where a deletion did, because
+  the entry it would have made durable is a removal rather than a
+  publication.
 - **`platform.replace_while_open`**: emitted as a warning only where the
   design permits the operation to continue; where it stops the write it is the
   error of the same name. Details: `bucket`, `stage`.

@@ -210,7 +210,7 @@ pub(crate) fn replace_document(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::error::codes;
+    use crate::error::{codes, stages};
 
     #[test]
     fn a_document_is_written_whole_and_never_replaces_one() {
@@ -260,7 +260,7 @@ mod tests {
             "case.json",
             "records/cases/case.json",
             b"{\"a\":2}\n",
-            "record_replace",
+            stages::RECORD_WRITE,
         )
         .unwrap();
         assert_eq!(
@@ -298,7 +298,7 @@ mod tests {
             "linked.json",
             "records/cases/linked.json",
             b"{}\n",
-            "record_replace",
+            stages::RECORD_WRITE,
         )
         .unwrap_err();
         assert_eq!(refusal.code, codes::PATH_SYMLINK);
@@ -308,7 +308,7 @@ mod tests {
     fn an_abandoned_staging_file_is_removed_and_never_adopted() {
         let directory = tempfile::tempdir().unwrap();
         {
-            let mut staging = Staging::create(directory.path(), "object").unwrap();
+            let mut staging = Staging::create(directory.path(), stages::OBJECT_WRITE).unwrap();
             staging.file().write_all(b"partial").unwrap();
         }
         let remaining: Vec<_> = fs::read_dir(directory.path())
@@ -330,7 +330,7 @@ mod tests {
                 "linked.json",
                 "records/imports/linked.json",
                 b"{}\n",
-                "record",
+                stages::RECORD_WRITE,
             )
             .unwrap_err();
             assert_eq!(refusal.code, codes::PATH_SYMLINK);

@@ -12,7 +12,9 @@
 //! therefore each either succeed outright or refuse with that one code, and
 //! what the archive holds afterwards must be exactly what the successful ones
 //! wrote: no half-written record, no leftover staging file, and a clean
-//! `archive check`.
+//! `archive check`. A root that refuses the lock file altogether is the third
+//! outcome, and it is named rather than reported as an interrupted write: no
+//! retry succeeds until the directory becomes writable.
 //!
 //! The second is that a reader needs no lock at all. A record is published by
 //! renaming a fully written staging file over its final name, which is atomic
@@ -370,4 +372,71 @@ fn a_listing_taken_during_a_publication_never_sees_a_partial_record() {
     );
 
     check_is_clean(&root, PUBLICATIONS as u64);
+}
+
+/// A root that withholds write access refuses every writing command by name,
+/// including the repair that cannot help, and changes nothing.
+///
+/// Unix-only, because a permission bit is the only portable way to withhold
+/// write access from a directory: on Windows a directory's read-only
+/// attribute does not stop a file from being created in it, so the same
+/// condition arises there from an access-control list or a read-only volume.
+#[test]
+#[cfg(unix)]
+fn a_root_that_withholds_write_access_names_the_cause_and_writes_nothing() {
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let (_home, root) = archive();
+    let narrow = |mode| {
+        fs::set_permissions(&root, fs::Permissions::from_mode(mode)).expect("set the root's mode");
+    };
+    narrow(0o500);
+    let created = run(&[
+        "case",
+        "create",
+        "--archive",
+        path(&root),
+        "--title",
+        "Tax matter",
+        "--json",
+    ]);
+    let repaired = run(&[
+        "archive",
+        "repair-permissions",
+        "--archive",
+        path(&root),
+        "--json",
+    ]);
+    let lock_left = root.join("lock").exists();
+    narrow(0o700);
+    if created.status.success() {
+        // The process writes anyway, which happens when the tests run with
+        // privileges that ignore the permission bits.
+        return;
+    }
+    assert!(!lock_left, "the lock file was never created");
+    for (output, command) in [
+        (&created, "case.create"),
+        (&repaired, "archive.repair_permissions"),
+    ] {
+        assert_eq!(
+            output.status.code(),
+            Some(4),
+            "{command} exits on its bucket"
+        );
+        let envelope = envelope(output);
+        assert_eq!(envelope["ok"], false);
+        assert_eq!(envelope["command"], command);
+        let error = &envelope["error"];
+        assert_eq!(error["code"], "archive.not_writable");
+        assert_eq!(error["details"]["archive_path"], ".");
+        let message = error["message"].as_str().expect("a human sentence");
+        assert!(message.contains("archive root"), "it names the directory");
+        assert!(
+            message.contains("repair-permissions"),
+            "it says the repair cannot help"
+        );
+        assert!(!message.contains(path(&root)), "no path is echoed");
+    }
 }
