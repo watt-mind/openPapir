@@ -105,7 +105,7 @@ Each archive holds the following under a single directory named
 | Path in the archive | What it is |
 | --- | --- |
 | `openpapir`, or `openpapir.exe` on Windows | The binary for that target. |
-| `LICENSE`, `README.md`, `CHANGELOG.md` | Copied from the built tree. |
+| `LICENSE`, `THIRD-PARTY-NOTICES.md`, `README.md`, `CHANGELOG.md` | Copied from the built tree. |
 | `completions/openpapir.bash` | The `bash` completion script. |
 | `completions/_openpapir` | The `zsh` completion script. |
 | `completions/openpapir.fish` | The `fish` completion script. |
@@ -123,7 +123,7 @@ for, so installing one is a copy to the shell's own directory, which
 two commands.
 
 The staging is `scripts/package-release.sh`, which copies the binary and the
-three documents, generates the five scripts and the page, and then checks the
+four documents, generates the five scripts and the page, and then checks the
 staged directory: every file above has to exist, be a regular file rather than
 a symbolic link, and hold something, and the man page has to carry a
 `.TH openpapir 1` header among its first lines, which is where the roff header
@@ -155,6 +155,42 @@ Beside each archive is a `<archive>.sha256` file in the format
 `sha256sum --check` reads. The checksum is written and verified on the runner
 that built the archive and verified again from the collected artefacts before
 a draft release is created.
+
+### The third-party notice
+
+`THIRD-PARTY-NOTICES.md` is the attribution the dependency licences require.
+Every licence in the `deny.toml` allow list is permissive, and every one of
+them asks for attribution: the file names each dependency a shipped binary
+links, with the version resolved from `Cargo.lock` and the licence expression
+the crate declares. It is not a claim about openPapir's own terms, which stay
+the MIT licence in `LICENSE`.
+
+It is committed at the repository root and copied into an archive like the
+other three documents, so nothing is generated at release time. It is written
+by `scripts/third-party-notices.py`, which reads `cargo metadata` and needs
+cargo and Python 3, both of which the existing checks already require: no
+build-time dependency is added to the workspace, and no extra tool has to be
+installed. `cargo-about` and similar tools would embed every licence text and
+produce a fuller notice; they stay optional, and the committed path works
+without them.
+
+```sh
+python3 scripts/third-party-notices.py          # rewrite the notice
+python3 scripts/third-party-notices.py --check  # fail if it is stale
+```
+
+The generator walks the resolved graph from both workspace crates over normal
+and build edges only, with every feature on and no platform filter, so one
+committed file is a superset of what any single release target links and no
+target needs a notice of its own. Development-only dependencies are left out,
+because no shipped binary holds them.
+
+`--check` regenerates the notice and compares it with the committed file. It
+runs in `./scripts/check.sh` and in the CI lint job, so a dependency added,
+removed, or moved to another version fails the pull request that did it until
+the notice is regenerated and committed. Because `package-release.sh` stages
+the committed file, that check is what keeps a release archive's attribution
+current.
 
 ### Provenance
 

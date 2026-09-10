@@ -5,7 +5,17 @@ version = 2
 yanked = "deny"
 [licenses]
 version = 2
-allow = ["MIT", "Apache-2.0", "Unicode-3.0"]
+# BSD-3-Clause was added on 2026-09-10 by an operator decision taken on its own
+# terms, before any crate that needs it is proposed. The reasons: it is OSI
+# approved and FSF free, it is permissive on the same footing as MIT and
+# Apache-2.0, and its only obligations beyond them are attribution and the
+# clause forbidding use of the copyright holder's name to endorse a derived
+# work, neither of which constrains how openPapir is built or used. The
+# attribution obligation is discharged by THIRD-PARTY-NOTICES.md, which
+# scripts/third-party-notices.py generates from cargo metadata and every
+# release archive carries; a crate admitted under this identifier is attributed
+# there by the same pull request that adds it.
+allow = ["MIT", "Apache-2.0", "BSD-3-Clause", "Unicode-3.0"]
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"

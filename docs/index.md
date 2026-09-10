@@ -55,6 +55,7 @@ are in the Documentation section of [contributing](../CONTRIBUTING.md).
 | [CHANGELOG.md](../CHANGELOG.md) | Keep a Changelog record of user-visible and contributor-visible change, with an entry added by every pull request. |
 | [AGENTS.md](../AGENTS.md) | Instructions and hard boundaries for automated contributors, plus the repository layout and who may change each path. |
 | [LICENSE](../LICENSE) | The MIT licence covering the source; fixtures are covered separately under CC0. |
+| [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md) | Generated attribution for the dependencies a shipped binary links, with each one's version and declared licence. Written by `scripts/third-party-notices.py`, carried by every release archive, and checked for staleness by the local script and CI. |
 | [CLAUDE.md](../CLAUDE.md) | Pointer file directing Claude to `AGENTS.md` and the orchestrator instructions. |
 | [GEMINI.md](../GEMINI.md) | Pointer file directing Gemini to `AGENTS.md`. |
 

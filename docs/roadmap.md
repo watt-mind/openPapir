@@ -147,9 +147,15 @@ page's last update.
   there. That review ran on 2026-09-10 and is recorded as Dependency review in
   the same document; it admitted no candidate, because the only crate that
   implements the decided container reaches three BSD-3-Clause crates the
-  `deny.toml` allow list does not carry. The gate therefore stays shut until
-  that allow list is decided on its own terms: blocked on that decision. Every
-  other item above is implemented.
+  `deny.toml` allow list did not carry. That allow list was then decided on its
+  own terms, also on 2026-09-10, and now carries `BSD-3-Clause` with its
+  reasons in a comment beside it, so the licence objection is gone and the
+  attribution the licence requires ships as `THIRD-PARTY-NOTICES.md` in every
+  release archive. The gate stays shut nonetheless: it opens on a review that
+  admits a container crate, and admitting one needs a fresh review of that
+  crate against the versions published on the date it is taken. No such review
+  has run since the licence decision and this roadmap schedules none: blocked
+  on that review. Every other item above is implemented.
 
 ## Later, subject to evidence
 

@@ -42,6 +42,7 @@ The repository supplies `scripts/commit-msg.sh` for subject validation.
 | Rustdoc | `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked` | Local script, CI |
 | Unused dependencies | `cargo machete` | Local script, CI |
 | Licences and advisories | `cargo deny --all-features check` | Local script; CI runs the same arguments through the pinned `cargo-deny` action |
+| Third-party notice is current | `python3 scripts/third-party-notices.py --check` | Local script, CI |
 | Relative Markdown links and anchors | `python3 scripts/check-doc-links.py` | Local script, CI |
 | Source file length | `python3 scripts/check-file-length.py` | Local script, CI |
 | Prose style, no em-dashes | `python3 scripts/check-prose.py` | Local script, CI |
@@ -60,6 +61,33 @@ The full local baseline is:
 cargo build --release --locked
 cargo run --locked -p openpapir-cli -- capabilities --json
 ```
+
+### Dependency licences
+
+A dependency is admitted only under a licence the allow list in `deny.toml`
+carries, which is `MIT`, `Apache-2.0`, `BSD-3-Clause`, and `Unicode-3.0`. A
+crate offering a choice of licences passes when any one of them is on that
+list. `cargo deny --all-features check` enforces it locally and in CI, and a
+crate under anything else fails the pull request that adds it.
+
+Widening the list is a decision of its own, argued on its own terms, taken in
+its own pull request, and recorded in a comment beside the list; it is not
+made as part of adding a crate that needs it. `BSD-3-Clause` was added that
+way on 2026-09-10.
+
+All four are permissive and all four ask for attribution, which the release
+archives carry as `THIRD-PARTY-NOTICES.md`. That file is generated, never
+edited by hand:
+
+```sh
+python3 scripts/third-party-notices.py
+```
+
+Run it in the pull request that changes a dependency or the lockfile, and
+commit the result. `--check` fails when the committed file is stale, and both
+the local script and CI run it. See
+[releasing](docs/releasing.md) for what the notice covers and how a release
+archive gets it.
 
 ## Documentation
 
