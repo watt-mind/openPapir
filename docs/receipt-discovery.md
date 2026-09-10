@@ -4,8 +4,9 @@ Discovery note for [roadmap](roadmap.md) milestones 1 and 2. It records what
 authoritative public sources actually state about one candidate receipt type,
 proposes the smallest useful local case model, and lists what remains unknown.
 
-Nothing in this note is implemented. The tool exposes help, version,
-`capabilities`, and the seventeen operations `capabilities` reports, none of
+Nothing in this note is implemented, beyond the retention window the
+`archive status` reminders read this note for. The tool exposes help, version,
+`capabilities`, and the eighteen operations `capabilities` reports, none of
 which parses a receipt; see [architecture](architecture.md). This note does
 not claim a universal e-Papír receipt format, does not describe a submission
 API, and does not assert conformance with any government service.
@@ -160,6 +161,14 @@ Established (with the labels above):
   normative).
 - The mailbox retains such items for 30 days unless moved to permanent storage
   (E1, descriptive), so a local archive is the durable copy, not the mailbox.
+  This is the one place the 30-day figure comes from. `archive status`
+  implements it as a single constant and states the same provenance in
+  [architecture](architecture.md): the operator's help page states 30 days,
+  retrieved 2026-09-09, descriptive rather than normative. openPapir does not
+  enforce the window, reads no mailbox, and checks no service, so a reminder
+  it prints is arithmetic over the user's own stated date and this published
+  description, and asserts no delivery, no receipt by an authority, and no
+  legal effect.
 
 Not established, and must not be assumed:
 

@@ -18,7 +18,7 @@ The Rust edition 2024 workspace has an MSRV of 1.88 and two unpublished crates:
 
 | Crate | Current responsibility |
 | --- | --- |
-| `openpapir-core` | The local archive: marker, artefact store, atomic writes, single-writer lock, input caps, path safety, import-event records, the case, submission, receipt, and association records, the read-only whole-archive integrity check, the export of one case, the permission repair, and the deletion of one case with its explicit purge. |
+| `openpapir-core` | The local archive: marker, artefact store, atomic writes, single-writer lock, input caps, path safety, import-event records, the case, submission, receipt, and association records, the read-only whole-archive integrity check, the read-only summary and its receipt-retrieval reminders, the export of one case, the permission repair, and the deletion of one case with its explicit purge. |
 | `openpapir-cli` | Argument parsing, the response envelope, and the exit-code mapping. |
 
 Only these invocations are supported:
@@ -39,6 +39,7 @@ openpapir association create --archive <root> --receipt <receipt-id> --outcome <
 openpapir association list --archive <root> --receipt <receipt-id> [--json]
 openpapir association retire --archive <root> <association-id> [--reason <text>] [--json]
 openpapir archive check --archive <root> [--json]
+openpapir archive status --archive <root> [--as-of <yyyy-mm-dd>] [--json]
 openpapir case export --archive <root> --case <case-id> --to <dir> [--json]
 openpapir archive repair-permissions --archive <root> [--json]
 openpapir case delete --archive <root> --case <case-id> [--purge] [--json]
@@ -56,8 +57,9 @@ existing archive can refuse with `usage.archive_root_missing`,
 `archive.marker_missing`, `archive.marker_malformed`, `archive.schema_newer`,
 `archive.schema_older`, `archive.multiple_filesystems`,
 `archive.permissions_wide`, or `path.symlink` for a linked layout directory;
-`archive check` and `case export` open the archive read-only, which creates no
-layout directory and flushes nothing, but runs the same checks.
+`archive check`, `archive status`, and `case export` open the archive
+read-only, which creates no layout directory and flushes nothing, but runs the
+same checks.
 Every command that writes adds `lock.held`, `path.overwrite`,
 `path.cross_device`, `write.interrupted`, `input.cap.record_size`, and
 `platform.filesystem_unsupported`. Every command that reads a stored document
@@ -67,11 +69,12 @@ is in [Implemented codes and exit codes](#implemented-codes-and-exit-codes).
 `skill` is the exception: it opens no archive, reads no input, and can refuse
 only with `usage.arguments` or `internal.unexpected`.
 
-Seventeen operations are implemented, `archive.init`, `import`, `case.create`,
+Eighteen operations are implemented, `archive.init`, `import`, `case.create`,
 `case.list`, `case.show`, `submission.add`, `receipt.add`, `receipt.list`,
 `association.create`, `association.list`, `association.retire`,
-`archive.check`, `case.export`, `archive.repair_permissions`, `case.delete`,
-`skill`, and `case.update`, and those are the seventeen names `capabilities`
+`archive.check`, `archive.status`, `case.export`,
+`archive.repair_permissions`, `case.delete`,
+`skill`, and `case.update`, and those are the eighteen names `capabilities`
 reports. Everything else in
 [local archive layout and storage design](archive-layout.md) and
 [import error, JSON, and exit-code contract](error-contract.md) remains a
@@ -95,7 +98,7 @@ never shares stdout with the JSON object.
 | --- | --- |
 | `schema_version` | The envelope's version, currently `1`, independent of `archive_schema_version`. |
 | `ok` | `true` only when the command completed its stated work. |
-| `command` | The invoked command's stable name: `capabilities`, or one of the seventeen operation names `capabilities` reports. An invocation the argument parser rejected before it recognised a subcommand carries `openpapir` instead. |
+| `command` | The invoked command's stable name: `capabilities`, or one of the eighteen operation names `capabilities` reports. An invocation the argument parser rejected before it recognised a subcommand carries `openpapir` instead. |
 | `data` | The command's result. `{}` when `ok` is `false`, except `archive check`, whose report is the result the user asked for and stays in `data` beside the error. |
 | `verified` | Always `false`. No cryptographic check is implemented. |
 | `error` | Present exactly when `ok` is `false`: `code`, `message`, `details`. |
@@ -109,7 +112,7 @@ carries `bucket`. Changes within `schema_version` are additive only.
 `stage` is a plain string that names how far the implementation has come, and
 it is one of a small closed set: `scaffold`, `alpha`, `beta`, `stable`. It is
 not a version, not a support promise, and never a verification verdict. The
-value is `alpha` today, because the seventeen operations below are implemented
+value is `alpha` today, because the eighteen operations below are implemented
 against a local archive whose on-disk layout may still change. A move to
 another value is a release decision, recorded in `CHANGELOG.md` in the pull
 request that makes it; the set itself grows or shrinks the same way. A caller
@@ -118,7 +121,7 @@ the last value it knows", and a caller that needs to know what the binary can
 do reads `operations`, not `stage`. Changing the value is not a
 `schema_version` change: the field's name, type, and meaning are unchanged.
 
-The capabilities response is unchanged in shape and lists the seventeen
+The capabilities response is unchanged in shape and lists the eighteen
 implemented operations:
 
 ```json
@@ -142,6 +145,7 @@ implemented operations:
       "association.list",
       "association.retire",
       "archive.check",
+      "archive.status",
       "case.export",
       "archive.repair_permissions",
       "case.delete",
@@ -863,6 +867,114 @@ The check read the archive and changed nothing. A digest identifies bytes only: 
 An archive that cannot be opened at all is a refusal rather than a report,
 with the codes `archive init` and `import` already use, and `data` is then
 `{}` like any other refusal.
+
+## `archive status`
+
+`openpapir archive status --archive <root> [--as-of <yyyy-mm-dd>]` summarises
+what the archive holds and reminds the user which submission receipts are
+still worth fetching from their delivery storage. It is read-only exactly as
+`archive check` is: no writer lock is taken, so a held lock never stops it, no
+missing layout directory is created, no directory entry is flushed, and
+nothing inside the root is written, renamed, or removed. It reads no artefact
+bytes at all, because it counts objects rather than judging them; judging them
+is `archive check`'s work.
+
+### The retention window and where it comes from
+
+The window is one constant, 30 days. The operator's help page states that the
+personal delivery storage retains incoming documents, *igazolások* and
+*nyugták* for 30 days unless they are moved to permanent storage. It was
+retrieved on 2026-09-09, and the claim is **descriptive**, not normative
+([receipt-discovery](receipt-discovery.md), E1). openPapir does not enforce
+the window, does not read any mailbox, and does not check any service: a
+reminder here is arithmetic over the date the user typed themselves and the
+operator's own published description of their storage, and nothing else.
+
+A reminder therefore says one thing: go and fetch a file from the delivery
+storage while the operator says it is still there. It never states that
+anything was delivered, that a receipt exists, that one was received by an
+authority, or that any legal effect followed. The human wording is bound by
+that rule as tightly as the JSON is.
+
+### What is listed
+
+A submission is listed in `receipts_to_retrieve` when all three hold:
+
+1. It carries a date the user supplied, which is a `YYYY-MM-DD` calendar date.
+2. No association with outcome `associated` or `candidate` names it, either as
+   its confirmed submission or as one of its candidates. `unassociated` and
+   `contradictory` do not take a submission off the list: neither ties a
+   receipt to it. Superseded association records count like any other, because
+   openPapir never collapses association history, and the reminder errs
+   towards silence: once the user has recorded that a receipt may relate to a
+   submission, openPapir stops reminding them to go and look for one.
+3. Its date plus the window is on or after the as-of date. The last day of the
+   window still counts as open, so `days_left` is then `0`.
+
+Each entry carries the case identifier, the submission identifier, the date
+the user stated, the computed `retrieve_by`, and `days_left`, and the list is
+ordered by `retrieve_by` and then by submission identifier, so one archive
+always reports one order. A submission carrying no date, or a stored date
+openPapir cannot read as a calendar date, is counted in `undated_submissions`
+and never listed: without a date there is nothing to remind anybody of, and a
+stored date is the user's own text, which openPapir never repairs or guesses
+at.
+
+`--as-of` is validated exactly as `submission add --date` is, and a date in
+the past or the future is accepted rather than refused, because asking what
+the archive looked like, or will look like, on another day is the point of the
+flag. Without it the date is the process clock's own UTC date. A value that is
+not a calendar date is `usage.arguments` with `argument` `as_of`, refused
+before the archive is opened and never echoing the value.
+
+`cases` is a total. A case record carries no status field in this build, so
+there is nothing to break the count down by; when one is added, the breakdown
+is an additive field beside this count.
+
+```json
+{
+  "schema_version": 1,
+  "ok": true,
+  "command": "archive.status",
+  "data": {
+    "as_of": "2026-02-10",
+    "associations": 2,
+    "cases": 1,
+    "receipts": 1,
+    "receipts_to_retrieve": [
+      {
+        "case_id": "<id>",
+        "days_left": 9,
+        "retrieve_by": "2026-02-19",
+        "submission_date": "2026-01-20",
+        "submission_id": "<id>"
+      }
+    ],
+    "retention_window_days": 30,
+    "stored_objects": 3,
+    "submissions": 4,
+    "undated_submissions": 1
+  },
+  "verified": false
+}
+```
+
+`data` carries counts, dates, and the identifiers openPapir minted, and
+nothing else: no title, no description, no notes, no statement, no digest, and
+no path. Human output prints the same figures in the same order and no path.
+
+```text
+As of 2026-02-10. Case(s): 1. Submission(s): 4. Receipt(s): 1. Association(s): 2. Stored object(s): 3.
+Submission(s) with no usable date: 1.
+Reminder(s) to fetch a submission receipt from the delivery storage while the 30-day window the operator describes is open: 1.
+case <id>, submission <id>, stated 2026-01-20, fetch by 2026-02-19, 9 day(s) left.
+```
+
+The summary always completes its stated work, so it exits `0` with `ok`
+`true` whatever it counted; an empty archive is a summary of zeroes rather
+than a refusal. The refusals are those of opening an archive, plus
+`record.malformed` for a stored document that cannot be read as a record of
+its kind, plus `usage.arguments` for an unusable `--as-of`.
 
 ## `case export`
 

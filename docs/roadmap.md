@@ -92,7 +92,7 @@ page's last update.
   30 days ([receipt evidence and local case model
   decisions](receipt-discovery.md), source E1, retrieved 2026-09-09), which
   the tool would restate as that operator's description while reading no
-  mailbox and asserting no deadline of its own: planned.
+  mailbox and asserting no deadline of its own: implemented.
 - The entangled-deletion remedy (`association retire`) marks an association
   withdrawn instead of removing it, so that separating a receipt from a case
   leaves the earlier record readable, gated on the record and deletion

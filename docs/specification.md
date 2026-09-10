@@ -44,7 +44,8 @@ provenance of every association recorded, without uploading anything.
 The executable creates a local archive, imports files into it, organises what
 it holds into cases and submissions, records receipts and the user's own
 assertions about them, checks the whole archive against what its records
-claim, copies one case out of the archive, narrows a restored archive's
+claim, summarises what it holds and what is still worth fetching, copies one
+case out of the archive, narrows a restored archive's
 permissions back to owner-only, deletes a case on request, and writes the
 agent skill document it carries. These invocations exist and nothing else:
 
@@ -52,7 +53,7 @@ agent skill document it carries. These invocations exist and nothing else:
 | --- | --- |
 | `openpapir --help` | Usage text from the argument parser. |
 | `openpapir --version` | The crate version. |
-| `openpapir capabilities [--json]` | The project, its stage, and the seventeen implemented operations. |
+| `openpapir capabilities [--json]` | The project, its stage, and the eighteen implemented operations. |
 | `openpapir archive init <root> [--json]` | Creates an archive in an existing, empty directory: the marker first, then the owner-only layout. |
 | `openpapir import --archive <root> <file>... [--json]` | Stores each file's original bytes in the content-addressed artefact store and records one import event per input. |
 | `openpapir case create --archive <root> --title <t> [--notes <n>] [--tag <t>]... [--status open\|closed] [--json]` | Records one case, the user's own folder of related correspondence, with its status and its tags. |
@@ -66,6 +67,7 @@ agent skill document it carries. These invocations exist and nothing else:
 | `openpapir association list --archive <root> --receipt <receipt-id> [--json]` | Lists one receipt's whole association history, newest first. |
 | `openpapir association retire --archive <root> <association-id> [--reason <text>] [--json]` | Withdraws one assertion by writing a record that supersedes it and claims nothing. Nothing is edited or removed. |
 | `openpapir archive check --archive <root> [--json]` | Re-digests every stored object and reports, in counts only, what disagrees with the records. It takes no lock and changes nothing. |
+| `openpapir archive status --archive <root> [--as-of <yyyy-mm-dd>] [--json]` | Summarises what the archive holds and lists the submissions whose receipt is still worth fetching from the delivery storage inside the 30-day window the operator describes. It takes no lock and changes nothing. |
 | `openpapir case export --archive <root> --case <case-id> --to <dir> [--json]` | Copies one case's objects byte for byte, writes its records as JSON, and writes a manifest, into a destination outside the archive. It changes nothing in the archive. |
 | `openpapir archive repair-permissions --archive <root> [--json]` | Narrows every path in the archive back to owner-only and reports the counts it changed. It only ever narrows. |
 | `openpapir case delete --archive <root> --case <case-id> [--purge] [--json]` | Deletes one case and its submissions, with the receipts and association histories tied only to them. Objects go only with `--purge`, and only when nothing that remains references them. |

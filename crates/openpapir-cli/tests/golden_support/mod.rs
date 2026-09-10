@@ -273,6 +273,21 @@ impl World {
         arguments
     }
 
+    /// Record one more submission with a date, for the summary's window
+    /// cases. The date is the user's own text and is stored verbatim.
+    pub fn add_dated_submission(&self, description: &str, date: &str) {
+        let mut arguments = self.command(&["submission", "add"]);
+        arguments.extend([
+            "--case".to_owned(),
+            self.case_id.clone(),
+            "--description".to_owned(),
+            description.to_owned(),
+            "--date".to_owned(),
+            date.to_owned(),
+        ]);
+        self.json(&arguments);
+    }
+
     /// The deletion of the one case, with or without a purge.
     #[must_use]
     pub fn delete_arguments(&self, purge: bool) -> Vec<String> {
@@ -367,6 +382,25 @@ fn write_inputs(root: &Path) -> Vec<PathBuf> {
         })
         .collect()
 }
+
+/// Record the two extra submissions the archive summary's case needs: one
+/// whose retention window closed before the pinned as-of date, and one whose
+/// window is still open on it.
+///
+/// Together with the world's own two submissions, one dated and named by a
+/// candidate association and one carrying no date at all, the archive then
+/// holds exactly one submission of each kind the summary distinguishes.
+pub fn record_window_submissions(world: &World) {
+    world.add_dated_submission("Sent the first reminder.", ELAPSED_DATE);
+    world.add_dated_submission("Sent the second reminder.", OPEN_DATE);
+}
+
+/// The date every window in the summary case is measured against.
+pub const STATUS_AS_OF: &str = "2026-02-10";
+/// A stated date whose window closed before [`STATUS_AS_OF`].
+const ELAPSED_DATE: &str = "2025-12-01";
+/// A stated date whose window is still open on [`STATUS_AS_OF`].
+const OPEN_DATE: &str = "2026-01-20";
 
 /// Replace one stored object's bytes with others of the same length.
 ///

@@ -6,8 +6,9 @@ description: >-
   preserved, record cases, submissions, receipts and the user's own assertions
   about them, withdraw an assertion, update a case's title, notes, status and
   tags, search and filter the case list, check the archive against its
-  records, copy one case out, delete one case, and narrow a restored archive
-  back to owner-only. Use whenever a
+  records, see what is in it and where to look for the submission receipts
+  still outstanding, copy one case out, delete one case, and narrow a restored
+  archive back to owner-only. Use whenever a
   task involves organising what was sent to an authority and what came back,
   without uploading anything.
 license: MIT
@@ -37,7 +38,8 @@ believes to be a receipt, recording the user's own link between the two,
 withdrawing such a link when the user says it no longer stands,
 keeping a case's own title, notes, status, and tags current, finding a case
 again by status, tag, or a substring of its title or notes, checking storage
-integrity, exporting one case, and deleting one case when the user asks for
+integrity, summarising what the archive holds and what is still worth looking
+for, exporting one case, and deleting one case when the user asks for
 that by name.
 
 Do not use it to send anything, to decide whether a document is genuine, to
@@ -337,7 +339,41 @@ precedence: `path.symlink`, `record.malformed`, `integrity.digest_mismatch`,
 the name, or the digest of a damaged object. Report the counts and the code,
 and never invent which file it was.
 
-### 8. Export one case
+### 8. See what is in the archive, and what is left to fetch
+
+```sh
+openpapir archive status --archive ./archive --json
+openpapir archive status --archive ./archive --as-of 2026-02-10 --json
+```
+
+Run this at the start of a session to orient yourself, and whenever the user
+asks what is outstanding. It is read-only in the same sense as
+`archive check`: no lock, nothing written, and no artefact byte read.
+
+`data` holds `as_of`, `cases`, `submissions`, `receipts`, `associations`,
+`stored_objects`, `undated_submissions`, `retention_window_days`, and
+`receipts_to_retrieve[]`, each entry with `case_id`, `submission_id`,
+`submission_date`, `retrieve_by`, and `days_left`, ordered by `retrieve_by`.
+`cases` is a total: a case record carries no status field in this build.
+
+A submission is listed when it carries a user-supplied date, no association
+with outcome `associated` or `candidate` names it, and its date plus the
+window is on or after the as-of date. `days_left` `0` is the last open day.
+Submissions with no usable date are counted in `undated_submissions` and never
+listed. `--as-of` is `YYYY-MM-DD`, defaults to today, and accepts a past or
+future date as a what-if; an unusable one is `usage.arguments` with `argument`
+`as_of`.
+
+The 30-day window is the operator's own published description of the personal
+delivery storage, retrieved 2026-09-09, and it is descriptive rather than a
+rule openpapir applies. Report an entry as a reminder to go and fetch a
+submission receipt from the delivery storage while the operator says it is
+still there. Never report it as a deadline openpapir enforces, as proof that a
+receipt exists, as delivery, as receipt by an authority, or as legal effect,
+and never claim openpapir looked in any mailbox or checked any service. It
+read the local archive and did arithmetic on the date the user typed.
+
+### 9. Export one case
 
 ```sh
 openpapir case export --archive ./archive --case <case-id> --to ./out --json
@@ -356,7 +392,7 @@ exactly what it created.
 and `export.copy_mismatch` means a copy re-digested to something else and was
 removed. Importing an export back into an archive is not implemented.
 
-### 9. Delete one case
+### 10. Delete one case
 
 ```sh
 openpapir case delete --archive ./archive --case <case-id> --json
@@ -398,7 +434,7 @@ Deletion unlinks files. It does not erase data from the storage medium, and a
 backup already taken is outside openpapir's reach. Say both when you report a
 deletion.
 
-### 10. Repair permissions after a restore
+### 11. Repair permissions after a restore
 
 ```sh
 openpapir archive repair-permissions --archive ./archive --json
@@ -464,6 +500,7 @@ delivered, or a match a verification.
 openpapir capabilities --json
 openpapir archive init ROOT --json
 openpapir archive check --archive ROOT --json
+openpapir archive status --archive ROOT [--as-of YYYY-MM-DD] --json
 openpapir archive repair-permissions --archive ROOT --json
 openpapir import --archive ROOT FILE... --json
 openpapir case create --archive ROOT --title T [--notes N] [--tag TAG]... \
