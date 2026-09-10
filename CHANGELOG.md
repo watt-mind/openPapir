@@ -45,6 +45,17 @@ envelope.
   code paths are linted on every pull request instead of only in the Windows
   test job. `docs/testing.md` records how to run the same lint locally. The
   required-check names are unchanged.
+- `openpapir association retire --archive <root> <association-id>
+  [--reason <text>] [--json]` withdraws an assertion the user no longer stands
+  behind. It writes a new association record for the same receipt, with
+  outcome `unassociated`, no candidate, and `supersedes` naming the record the
+  user retired, so nothing is edited and nothing is removed and
+  `association list` shows both. `--reason` is the user's own single line, at
+  most 512 bytes; it is stored on the new record as the optional record-level
+  `statement`, which only a retirement carries, and no message, warning, or
+  count repeats it. Retiring a record something already supersedes is
+  `record.inconsistent` with the new rule `already_superseded`. `capabilities`
+  lists `association.retire`, so sixteen operations are reported.
 
 - `openpapir skill` writes the agent skill document the binary carries to
   stdout, byte for byte and with nothing added. It takes no file and no
@@ -304,6 +315,17 @@ envelope.
 
 ### Changed
 
+- `case delete` decides an association's fate by supersession chain rather
+  than by single record, so a retired history goes with the case it was about.
+  A chain goes when one of its records names a departing submission and its
+  live record, the one no other record supersedes, names none that remains;
+  every record of a departing chain is counted under `records_removed` as
+  `association`. `delete.record_entangled` stays the refusal while a live
+  association still names submissions in two cases, its `retained_count` now
+  counts the live records in the way rather than the history behind them, and
+  its message says to retire the record first, naming no identifier. A case
+  whose only obstacle was an association the user has since retired can now be
+  deleted, and the archive stays clean afterwards.
 - `docs/roadmap.md` gains a fifth milestone, the local organiser, which
   sequences the remaining local work and names the gate and the state of each
   item; none of the eleven items is implemented yet. The

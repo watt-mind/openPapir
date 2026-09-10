@@ -867,6 +867,7 @@ fn capabilities_report_exactly_the_implemented_operations() {
             "receipt.list",
             "association.create",
             "association.list",
+            "association.retire",
             "archive.check",
             "case.export",
             "archive.repair_permissions",

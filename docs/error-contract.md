@@ -433,8 +433,9 @@ followed ([archive-layout](archive-layout.md)).
   readable, but they cannot be true together under a rule
   [archive-layout](archive-layout.md) already states: an outcome whose
   candidate count the design forbids, one submission named as a candidate
-  twice, a superseded record belonging to another receipt, or a named import
-  event recording another artefact. The refusal happens before anything is
+  twice, a superseded record belonging to another receipt, a retirement naming
+  a record something already supersedes, or a named import event recording
+  another artefact. The refusal happens before anything is
   written. Details: `bucket`, `record_kind` (the kind whose creation was
   refused, such as `association` or `receipt`) and `rule`, a short, stable
   snake_case name for the broken invariant. Nothing else: no identifier, no
@@ -448,6 +449,7 @@ followed ([archive-layout](archive-layout.md)).
   | `contradictory_requires_two_candidates` | `contradictory` was given fewer than two candidates. |
   | `duplicate_candidate_submission` | One submission was named as a candidate more than once. |
   | `supersedes_other_receipt` | The superseded record belongs to another receipt. |
+  | `already_superseded` | The record `association retire` names is superseded already. |
   | `import_event_digest_mismatch` | A named import event records another artefact. |
 
   A rule name is stable once published, and a new rule is an additive change
@@ -569,13 +571,17 @@ would name belongs to an archive the refusal is not about.
 - **`delete.record_entangled`**: archive, not retryable. **Added additively by
   `case delete`.** A record that has to survive the deletion names a record
   the deletion would remove. Only an association reaches it today, by naming
-  submissions in two cases: it references a submission that remains, so it
-  cannot go, and one that is going, so keeping it whole would leave a dangling
-  reference. openPapir edits no stored record, so the deletion is refused in
-  the scan, before anything is unlinked, rather than corrupting the
-  association or deleting the user's assertion about a case they did not name.
-  Details: `bucket`, `record_kind`, `retained_count`; never an identifier.
-  `data` is `{}` like any other refusal.
+  submissions in two cases while the user still asserts it: it references a
+  submission that remains, so it cannot go, and one that is going, so keeping
+  it whole would leave a dangling reference. openPapir edits no stored record,
+  so the deletion is refused in the scan, before anything is unlinked, rather
+  than corrupting the association or deleting the user's assertion about a
+  case they did not name. The message tells the user to retire the record
+  first: `association retire` withdraws the assertion by superseding it, and
+  the deletion then takes the withdrawn history with the case. Details:
+  `bucket`, `record_kind`, `retained_count`, which counts the live records in
+  the way and never a superseded one; never an identifier. `data` is `{}` like
+  any other refusal.
 
 Deletion itself is real and its summary is **not persisted**: counts and
 record kinds only, never filenames, digests, or titles
@@ -845,6 +851,12 @@ shape follows the association record:
 }
 ```
 
+A retirement is the same shape with `outcome` `unassociated`, no candidate,
+`supersedes` naming the record it withdraws, and one further key, `statement`,
+which carries the user's own reason and is written only when they gave one.
+Every other association record omits it, and no message, warning, or count
+repeats it.
+
 `receipt_id` here is openPapir's own minted receipt-record identifier, which
 the privacy rule allows, as distinct from any receipt identifier issued by an
 authority, which is never emitted.
@@ -925,7 +937,9 @@ precedence between its codes, `integrity.digest_mismatch`,
 
 The receipt and user-asserted association records are implemented, so the four
 association outcomes and the association shape above are contract rather than
-proposal, and `record.inconsistent` is emitted. Automatic association,
+proposal, and `record.inconsistent` is emitted. Withdrawing an assertion is
+implemented as `association retire`, which supersedes a record rather than
+editing or removing one, so `already_superseded` is contract as well. Automatic association,
 derived metadata, and any extractor stay unimplemented: every evidence entry
 this build writes carries `kind` `user_assertion` and `source` `user`, and
 every association carries `created_by` `user`.

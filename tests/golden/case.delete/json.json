@@ -4,7 +4,7 @@
     "objects_removed": 0,
     "objects_retained": [
       {
-        "count": 1,
+        "count": 2,
         "reason": "purge_not_requested"
       },
       {
@@ -20,11 +20,11 @@
         "reason": "unremovable"
       }
     ],
-    "objects_retained_total": 1,
+    "objects_retained_total": 2,
     "purge": false,
     "records_removed": [
       {
-        "count": 1,
+        "count": 2,
         "kind": "association"
       },
       {
@@ -36,7 +36,7 @@
         "kind": "import_event"
       },
       {
-        "count": 0,
+        "count": 1,
         "kind": "receipt"
       },
       {
@@ -44,7 +44,7 @@
         "kind": "submission"
       }
     ],
-    "records_removed_total": 3,
+    "records_removed_total": 5,
     "records_retained": 0
   },
   "ok": true,

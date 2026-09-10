@@ -58,8 +58,9 @@ duplicated parser, and importing an export back into an archive.
 
 Import receipts and offer evidence-backed matching with explicit unresolved
 and ambiguous outcomes. The user-asserted half is done: `receipt add`,
-`receipt list`, `association create`, and `association list` record and list
-the four outcomes with the user's own evidence. What remains is receipt
+`receipt list`, `association create`, `association list`, and
+`association retire` record, list, and withdraw the four outcomes with the
+user's own evidence. What remains is receipt
 parsing and derived evidence, which stay blocked on the format gap, so every
 association this build writes carries `created_by` `user`. Keep imported,
 matched, and cryptographically verified states separate. Signature

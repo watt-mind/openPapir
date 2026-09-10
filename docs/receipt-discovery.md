@@ -5,7 +5,7 @@ authoritative public sources actually state about one candidate receipt type,
 proposes the smallest useful local case model, and lists what remains unknown.
 
 Nothing in this note is implemented. The tool exposes help, version,
-`capabilities`, and the fifteen operations `capabilities` reports, none of
+`capabilities`, and the sixteen operations `capabilities` reports, none of
 which parses a receipt; see [architecture](architecture.md). This note does
 not claim a universal e-Papír receipt format, does not describe a submission
 API, and does not assert conformance with any government service.

@@ -102,6 +102,9 @@ each. All but the last can process input:
   `contradictory`.
 - `association list` lists one receipt's whole association history, newest
   first, superseded records included.
+- `association retire` withdraws one assertion by writing a record that
+  supersedes it and claims nothing; both records stay, and nothing is edited
+  or removed.
 - `archive check` re-digests what the store holds and reports counts only; it
   takes no lock, changes nothing, and a passing check is storage integrity
   rather than authenticity.

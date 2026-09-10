@@ -52,7 +52,7 @@ agent skill document it carries. These invocations exist and nothing else:
 | --- | --- |
 | `openpapir --help` | Usage text from the argument parser. |
 | `openpapir --version` | The crate version. |
-| `openpapir capabilities [--json]` | The project, its stage, and the fifteen implemented operations. |
+| `openpapir capabilities [--json]` | The project, its stage, and the sixteen implemented operations. |
 | `openpapir archive init <root> [--json]` | Creates an archive in an existing, empty directory: the marker first, then the owner-only layout. |
 | `openpapir import --archive <root> <file>... [--json]` | Stores each file's original bytes in the content-addressed artefact store and records one import event per input. |
 | `openpapir case create --archive <root> --title <t> [--notes <n>] [--json]` | Records one case, the user's own folder of related correspondence. |
@@ -63,10 +63,11 @@ agent skill document it carries. These invocations exist and nothing else:
 | `openpapir receipt list --archive <root> [--json]` | Lists every receipt in the archive. |
 | `openpapir association create --archive <root> --receipt <receipt-id> --outcome <outcome> [--candidate <submission-id>:<confidence>:<statement>]... [--supersedes <association-id>] [--json]` | Records what the user asserts about one receipt, with one of the four outcomes. |
 | `openpapir association list --archive <root> --receipt <receipt-id> [--json]` | Lists one receipt's whole association history, newest first. |
+| `openpapir association retire --archive <root> <association-id> [--reason <text>] [--json]` | Withdraws one assertion by writing a record that supersedes it and claims nothing. Nothing is edited or removed. |
 | `openpapir archive check --archive <root> [--json]` | Re-digests every stored object and reports, in counts only, what disagrees with the records. It takes no lock and changes nothing. |
 | `openpapir case export --archive <root> --case <case-id> --to <dir> [--json]` | Copies one case's objects byte for byte, writes its records as JSON, and writes a manifest, into a destination outside the archive. It changes nothing in the archive. |
 | `openpapir archive repair-permissions --archive <root> [--json]` | Narrows every path in the archive back to owner-only and reports the counts it changed. It only ever narrows. |
-| `openpapir case delete --archive <root> --case <case-id> [--purge] [--json]` | Deletes one case and its submissions, with the receipts and associations tied only to them. Objects go only with `--purge`, and only when nothing that remains references them. |
+| `openpapir case delete --archive <root> --case <case-id> [--purge] [--json]` | Deletes one case and its submissions, with the receipts and association histories tied only to them. Objects go only with `--purge`, and only when nothing that remains references them. |
 | `openpapir skill` | Writes the embedded agent skill document to stdout, byte for byte and with nothing added. It takes no file and no `--json`, touches no archive, and exits `0`. |
 
 The exact envelope, the storage guarantees, the input caps, the implemented

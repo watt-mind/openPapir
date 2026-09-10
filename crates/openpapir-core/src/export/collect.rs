@@ -237,6 +237,7 @@ mod tests {
             outcome: "candidate".to_owned(),
             receipt_id: "aaaabbbbccccddddeeeeffff00001111".to_owned(),
             record_kind: "association".to_owned(),
+            statement: None,
             submission_id: submission_id.map(str::to_owned),
             supersedes: None,
         }

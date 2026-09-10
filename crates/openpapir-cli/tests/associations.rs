@@ -770,3 +770,127 @@ fn the_human_form_prints_the_same_fields_and_no_path() {
     assert!(text.contains("1 receipt(s) in this archive."));
     assert!(text.contains(LABEL) || text.contains(PAYLOAD_DIGEST));
 }
+
+/// The user's own reason for withdrawing an assertion. It is stored on the
+/// record, so it may appear in `data`, and nowhere else.
+const REASON: &str = "The user withdrew the statement about this receipt.";
+
+/// Retire one association and return the whole envelope.
+fn retire(root: &Path, association_id: &str, reason: Option<&str>) -> Output {
+    let mut args = vec![
+        "association".to_owned(),
+        "retire".to_owned(),
+        "--archive".to_owned(),
+        path(root).to_owned(),
+        association_id.to_owned(),
+        "--json".to_owned(),
+    ];
+    if let Some(reason) = reason {
+        args.push("--reason".to_owned());
+        args.push(reason.to_owned());
+    }
+    let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
+    run(&borrowed)
+}
+
+#[test]
+fn retiring_writes_a_record_that_claims_nothing_and_keeps_the_history() {
+    let f = fixture();
+    let receipt = add_receipt(f.root.path());
+    let created = create_association(
+        f.root.path(),
+        &receipt,
+        "associated",
+        &[candidate(&f.first, "strong")],
+    );
+    let asserted = identifier(&stdout_json(&created), "/data/association/id");
+
+    let output = retire(f.root.path(), &asserted, Some(REASON));
+    let envelope = stdout_json(&output);
+    assert_envelope(&envelope, "association.retire", true);
+    assert_eq!(output.status.code(), Some(0));
+    let record = &envelope["data"]["association"];
+    assert_eq!(record["outcome"], "unassociated");
+    assert_eq!(record["candidates"], serde_json::json!([]));
+    assert_eq!(record["submission_id"], Value::Null);
+    assert_eq!(record["supersedes"], asserted.as_str());
+    assert_eq!(record["receipt_id"], receipt.as_str());
+    assert_eq!(record["record_kind"], "association");
+    assert_eq!(record["statement"], REASON, "the reason is stored");
+
+    let history = stdout_json(&run(&[
+        "association",
+        "list",
+        "--archive",
+        path(f.root.path()),
+        "--receipt",
+        &receipt,
+        "--json",
+    ]));
+    assert_eq!(history["data"]["count"], 2, "both records are kept");
+    assert_eq!(
+        history["data"]["associations"][1]["outcome"], "associated",
+        "the retired record is unchanged"
+    );
+}
+
+#[test]
+fn a_record_already_superseded_may_not_be_retired_again() {
+    let f = fixture();
+    let receipt = add_receipt(f.root.path());
+    let created = create_association(
+        f.root.path(),
+        &receipt,
+        "candidate",
+        &[candidate(&f.first, "weak")],
+    );
+    let asserted = identifier(&stdout_json(&created), "/data/association/id");
+    assert!(
+        retire(f.root.path(), &asserted, None).status.success(),
+        "the first retirement is recorded"
+    );
+
+    let output = retire(f.root.path(), &asserted, Some(REASON));
+    assert_rule(&output, "association.retire", "already_superseded");
+    assert!(
+        !String::from_utf8(output.stdout)
+            .unwrap()
+            .contains("withdrew"),
+        "a refusal never echoes the reason"
+    );
+
+    let absent = retire(f.root.path(), ABSENT_ID, None);
+    assert_refusal(&absent, "association.retire", "record.not_found", 4);
+}
+
+#[test]
+fn the_human_form_of_a_retirement_prints_the_record_and_not_the_reason() {
+    let f = fixture();
+    let receipt = add_receipt(f.root.path());
+    let created = create_association(
+        f.root.path(),
+        &receipt,
+        "candidate",
+        &[candidate(&f.first, "moderate")],
+    );
+    let asserted = identifier(&stdout_json(&created), "/data/association/id");
+    let output = run(&[
+        "association",
+        "retire",
+        "--archive",
+        path(f.root.path()),
+        &asserted,
+        "--reason",
+        REASON,
+    ]);
+    assert!(output.status.success());
+    let text = String::from_utf8(output.stdout).expect("stdout is UTF-8");
+    assert!(text.contains("Outcome: unassociated"));
+    assert!(text.contains(&format!("Supersedes: {asserted}")));
+    assert!(!text.contains(REASON), "the reason is not printed back");
+    assert!(!text.contains(path(f.root.path())), "no path is printed");
+    let lower = text.to_lowercase();
+    for word in ["delivered", "accepted", "official", "legally effective"] {
+        assert!(!lower.contains(word), "no wording implies an authority");
+    }
+}

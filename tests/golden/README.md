@@ -95,6 +95,7 @@ never observes what the JSON run wrote.
 | `association.create.associated` | The same with exactly one candidate |
 | `association.create.contradictory` | The same with two candidates |
 | `association.list` | `association list` over a two-record history |
+| `association.retire` | `association retire --reason` over the live record of that history |
 | `archive.check.clean` | `archive check` on an undamaged archive |
 | `archive.check.damaged` | `archive check` after one stored object's bytes were replaced |
 | `case.delete` | `case delete` without `--purge`, which touches no object |

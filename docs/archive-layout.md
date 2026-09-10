@@ -349,7 +349,9 @@ implying certainty. The record carries `id`, `receipt_id`, `submission_id`
 exists), `created_at`, `supersedes` (null unless the record replaces an
 earlier one), and `candidates`. Evidence and confidence are not record-level
 fields: each entry in `candidates` carries its own `submission_id`,
-`confidence`, and `evidence` list. `candidates` holds one entry for
+`confidence`, and `evidence` list. One record-level field is optional and only
+a retirement carries it: `statement`, the user's own reason for withdrawing an
+assertion, written only when they gave one. `candidates` holds one entry for
 `associated`, one or more for `candidate`, two or more for `contradictory`,
 and none for `unassociated`. [error-contract](error-contract.md) is
 authoritative for wire shapes.
@@ -372,6 +374,20 @@ calibration data exists and a number would imply one. Records are append-only:
 a change writes a new record superseding the previous one, so history is
 inspectable. An association never implies delivery, receipt by an authority,
 authenticity, or legal effect ([architecture](architecture.md)).
+
+Withdrawing an assertion is that same supersession rather than an edit or a
+removal, implemented as `association retire`. It writes a record for the same
+receipt with outcome `unassociated`, no candidate, and `supersedes` naming the
+record the user retired, so the history reads as what they asserted and then
+that they withdrew it. The retired record is untouched, and a record something
+already supersedes cannot be retired again: the newest record of a history is
+the one a further statement supersedes. That is the chosen remedy for a
+deletion refused because an association spans two cases, decided over the two
+alternatives considered, an edit that drops the departing candidate and a
+`case delete` flag that removes the association outright. Both were rejected:
+openPapir edits no stored record, and no deletion of one case may silently
+discard the user's own assertion about another. Retiring is the user's own
+statement, and the deletion below then treats what it withdrew as history.
 
 ## Export and backup
 
@@ -439,10 +455,15 @@ record still points at content the user asked to purge.
 What goes with the case is fixed:
 
 - Every submission recorded against the case.
-- Every association whose named submissions are all going, provided it names
-  at least one. An association naming no submission stays, and one a surviving
-  association supersedes is kept, because removing it would leave the newer
-  record naming a record the archive no longer holds.
+- Every association of a departing supersession chain. The chain is the unit,
+  because removing a record another one supersedes would leave the newer
+  record naming a record the archive no longer holds. A chain goes when one of
+  its records names a departing submission and its live record, the one no
+  other record supersedes, names none that remains: that is the ordinary case,
+  where every candidate the chain ever named belongs to this case, and the
+  retired one, where the live record asserts nothing at all, so the withdrawn
+  history goes with the case it was about. A chain naming no departing
+  submission stays.
 - Every receipt an association tied to a departing submission, unless a
   remaining association still names it.
 - **Import events are history and are kept.** The one exception is an import
@@ -452,11 +473,13 @@ What goes with the case is fixed:
   referenced object rather than becoming an orphan.
 
 An association naming submissions in **two cases** is refused rather than
-resolved. It references a submission that remains, so it cannot go, and one
-that is going, so keeping it whole would leave a dangling reference. openPapir
-edits no stored record, so the deletion is refused in the scan before anything
-is unlinked, and the refusal is symmetric: until the user resolves the
-association themselves, neither case can be deleted.
+resolved while the user still asserts it. It references a submission that
+remains, so it cannot go, and one that is going, so keeping it whole would
+leave a dangling reference. openPapir edits no stored record, so the deletion
+is refused in the scan before anything is unlinked, and the refusal is
+symmetric: until the assertion is withdrawn, neither case can be deleted. The
+remedy is the user's own `association retire` above, after which either case
+can go and takes the withdrawn history with it.
 
 Deletion is real: the record files are removed. The deletion summary (counts
 and record kinds only, no filenames, digests, or titles) is reported to the
@@ -512,8 +535,9 @@ The discovery note left seven open questions
    request. That keeps listings reproducible and avoids background work.
 5. **Retention of import events and association history: resolved.** History
    is deletable, and openPapir keeps no immutable log of the user's own
-   correspondence. As implemented, deleting a case removes the associations
-   tied only to it, and removes an import event only together with an object
+   correspondence. As implemented, deleting a case removes the association
+   chains tied only to it and the ones the user retired, and removes an import
+   event only together with an object
    the purge actually unlinked; every other import event is kept as history.
    Whether a separate "delete history, keep artefacts" operation is worth
    offering stays deferred.
@@ -542,8 +566,8 @@ tracker owns; the sequencing only is recorded here.
   command.
 - **Association records with candidate and contradictory outcomes**
   (follow-up 6): **implemented** as `receipt add`, `receipt list`,
-  `association create`, and `association list`, using the user's own evidence
-  only and no receipt parsing.
+  `association create`, `association list`, and `association retire`, using
+  the user's own evidence only and no receipt parsing.
 - **Whole-archive integrity check** (new): **implemented** as `archive check`.
 - **Case export, backup, and the permission-repair action** (new):
   **implemented** as `case export` and `archive repair-permissions`.

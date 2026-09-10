@@ -1,7 +1,7 @@
 {
   "command": "case.delete",
   "data": {
-    "objects_removed": 1,
+    "objects_removed": 2,
     "objects_retained": [
       {
         "count": 0,
@@ -24,7 +24,7 @@
     "purge": true,
     "records_removed": [
       {
-        "count": 1,
+        "count": 2,
         "kind": "association"
       },
       {
@@ -32,11 +32,11 @@
         "kind": "case"
       },
       {
-        "count": 1,
+        "count": 2,
         "kind": "import_event"
       },
       {
-        "count": 0,
+        "count": 1,
         "kind": "receipt"
       },
       {
@@ -44,7 +44,7 @@
         "kind": "submission"
       }
     ],
-    "records_removed_total": 4,
+    "records_removed_total": 7,
     "records_retained": 0
   },
   "ok": true,

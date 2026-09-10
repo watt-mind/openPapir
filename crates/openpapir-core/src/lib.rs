@@ -13,12 +13,12 @@
 //!
 //! # Status
 //!
-//! Fifteen operations are implemented, `archive.init`, `import`,
+//! Sixteen operations are implemented, `archive.init`, `import`,
 //! `case.create`, `case.list`, `case.show`, `submission.add`, `receipt.add`,
 //! `receipt.list`, `association.create`, `association.list`,
-//! `archive.check`, `case.export`, `archive.repair_permissions`,
-//! `case.delete`, and `skill`, and they are the fifteen [`capabilities`]
-//! reports. `skill` is the one that touches no archive: it belongs to the
+//! `association.retire`, `archive.check`, `case.export`,
+//! `archive.repair_permissions`, `case.delete`, and `skill`, and they are the
+//! sixteen [`capabilities`] reports. `skill` is the one that touches no archive: it belongs to the
 //! CLI, which writes the agent skill document it carries, and is reported
 //! here so that a machine caller learns of it from the same list as every
 //! other operation.
@@ -92,6 +92,7 @@ const OPERATIONS: &[&str] = &[
     "receipt.list",
     "association.create",
     "association.list",
+    "association.retire",
     "archive.check",
     "case.export",
     "archive.repair_permissions",
@@ -177,6 +178,7 @@ mod tests {
                 "receipt.list",
                 "association.create",
                 "association.list",
+                "association.retire",
                 "archive.check",
                 "case.export",
                 "archive.repair_permissions",

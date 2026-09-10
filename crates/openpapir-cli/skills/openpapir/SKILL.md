@@ -4,8 +4,9 @@ description: >-
   Keep Hungarian government correspondence in one local, offline archive with
   the openpapir CLI: create the archive, import files with their bytes
   preserved, record cases, submissions, receipts and the user's own assertions
-  about them, check the archive against its records, copy one case out, delete
-  one case, and narrow a restored archive back to owner-only. Use whenever a
+  about them, withdraw an assertion, check the archive against its records,
+  copy one case out, delete one case, and narrow a restored archive back to
+  owner-only. Use whenever a
   task involves organising what was sent to an authority and what came back,
   without uploading anything.
 license: MIT
@@ -32,6 +33,7 @@ submits nothing, and it opens no socket at all.
 Use it to build or inspect a local archive of correspondence: importing files,
 recording what the user says they sent, recording an artefact the user
 believes to be a receipt, recording the user's own link between the two,
+withdrawing such a link when the user says it no longer stands,
 checking storage integrity, exporting one case, and deleting one case when
 the user asks for that by name.
 
@@ -229,6 +231,8 @@ openpapir association create --archive ./archive --receipt <receipt-id> \
   --outcome candidate \
   --candidate '<submission-id>:moderate:The reference matches.' --json
 openpapir association list --archive ./archive --receipt <receipt-id> --json
+openpapir association retire --archive ./archive <association-id> \
+  [--reason 'The user withdrew it.'] --json
 ```
 
 `--outcome` is `unassociated`, `candidate`, `associated`, or
@@ -247,6 +251,7 @@ never a number, because no calibration data exists.
 | `contradictory_requires_two_candidates` | `contradictory` needs at least two. |
 | `duplicate_candidate_submission` | A submission was named twice. |
 | `supersedes_other_receipt` | The superseded record is another receipt's. |
+| `already_superseded` | The record a retirement names is superseded already. Retire the newest record of the history instead. |
 
 `data.association` holds `outcome`, `candidates[]` with their `evidence[]`,
 `created_by` (always `user`), `submission_id` (the confirmed submission, set
@@ -255,6 +260,15 @@ append-only: `--supersedes` names an earlier association for the same
 receipt, and the superseded record is never modified or removed.
 `association list` returns the whole history newest first, superseded records
 included, with `associations[]`, `count`, and `receipt_id`.
+
+`association retire` withdraws an assertion the user no longer stands behind.
+It writes a new record for the same receipt with outcome `unassociated`, no
+candidate, and `supersedes` naming the record the user retired, so both
+records stay and nothing is edited or removed. `--reason` is the user's own
+text, at most 512 bytes; it is stored on the new record as `statement` and is
+never repeated in a message. Retire an association when a `case delete` was
+refused with `delete.record_entangled`, and only after the user has said they
+want the assertion withdrawn.
 
 ### 7. Check the archive
 
@@ -311,8 +325,11 @@ retained instead. Confirm with the user before either form, and say plainly
 that nothing here can bring an object's bytes back.
 
 What goes with the case: every submission recorded against it; every
-association whose named submissions are all going; every receipt an association
-tied to a departing submission that no remaining association still names. An
+supersession chain of associations that names a departing submission and
+whose newest record names no submission that remains, the withdrawn history
+of a retired assertion included, counted under `records_removed` as
+`association`; every receipt an association tied to a departing submission
+that no remaining association still names. An
 import event is history and is kept, unless `--purge` removed the object it
 describes. The whole archive is read first, under the writer lock, and the
 removal set is decided before a single file is unlinked.
@@ -327,7 +344,7 @@ is why no deletion record is written and no audit log is kept.
 
 | Code | Meaning |
 | --- | --- |
-| `delete.record_entangled` | An association names submissions in this case and in another. Nothing was touched. Ask the user to resolve the association; until they do, neither case can be deleted. |
+| `delete.record_entangled` | A live association names submissions in this case and in another. Nothing was touched, and `retained_count` counts the live records in the way, naming none of them. Ask the user whether to withdraw the assertion with `association retire`; until one of them does, neither case can be deleted. |
 | `delete.records_retained` | A record unlink was refused, so the object pass never ran. `data` keeps the counts, `ok` is `false`, and the exit code is `4`. |
 | `delete.objects_retained` | Only the purge fell short. The same shape. |
 
@@ -415,6 +432,8 @@ openpapir association create --archive ROOT --receipt RECEIPT_ID \
   [--candidate 'SUBMISSION_ID:weak|moderate|strong:STATEMENT']... \
   [--supersedes ASSOCIATION_ID] --json
 openpapir association list --archive ROOT --receipt RECEIPT_ID --json
+openpapir association retire --archive ROOT ASSOCIATION_ID [--reason TEXT] \
+  --json
 openpapir skill
 ```
 
