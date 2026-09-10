@@ -155,8 +155,16 @@ context.
 
 [Roadmap and discovery gates](roadmap.md) records the milestone order:
 discover supported inputs, design local cases, implement one offline import
-workflow, then associate one supported receipt type. The roadmap records design
-sequencing, not queue status.
+workflow, associate one supported receipt type, then build the local
+organiser. That fifth milestone sequences the work that turns the implemented
+archive into a usable local organiser, none of it implemented yet: restoring
+from an export, case lifecycle and search, the receipt-retrieval reminder, the
+entangled-deletion remedy, generative testing, a release pipeline and a
+Windows-target lint, shell completions and man pages, an end-to-end user
+guide, a whole-archive export, derived metadata on explicit request, and
+encrypted backup at rest. Receipt parsing, KRX package import, delegated
+`.es3` verification, and any integration with the e-Papír service stay behind
+their blockers. The roadmap records design sequencing, not queue status.
 
 [Releasing](releasing.md) records the current release position: the artefact
 policy and the release workflow exist, and no version is published.

@@ -304,6 +304,15 @@ envelope.
 
 ### Changed
 
+- `docs/roadmap.md` gains a fifth milestone, the local organiser, which
+  sequences the remaining local work and names the gate and the state of each
+  item; none of the eleven items is implemented yet. The
+  receipt-retrieval reminder is attributed to the operator's own descriptive
+  30-day statement in `docs/receipt-discovery.md` source E1, retrieved
+  2026-09-09. "Later, subject to evidence" now names receipt parsing, KRX
+  package import, delegated `.es3` verification, and any service integration
+  with their blockers. `docs/specification.md` and `README.md` point at the
+  new milestone. No behaviour, contract, or output changes.
 - The changelog rules in `CONTRIBUTING.md` say which changes to
   `openpapir-core`'s public Rust API are logged. While the crate has no
   published version they need no entry, the CLI contract in
