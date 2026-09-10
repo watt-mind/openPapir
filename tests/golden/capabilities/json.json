@@ -17,7 +17,8 @@
       "case.export",
       "archive.repair_permissions",
       "case.delete",
-      "skill"
+      "skill",
+      "case.update"
     ],
     "project": "openPapir",
     "stage": "alpha"

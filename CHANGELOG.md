@@ -55,7 +55,36 @@ envelope.
   `statement`, which only a retirement carries, and no message, warning, or
   count repeats it. Retiring a record something already supersedes is
   `record.inconsistent` with the new rule `already_superseded`. `capabilities`
-  lists `association.retire`, so sixteen operations are reported.
+  lists `association.retire`, so seventeen operations are reported.
+- `case update` rewrites one case record in place, keeping its `id` and its
+  `created_at` and adding an `updated_at`. It is the one operation that
+  rewrites a stored record, and it rewrites only the case record: a
+  submission, a receipt, and an association are the user's evidence of what
+  they recorded at the time, and evidence that can be edited is no longer
+  evidence, while a case is the user's own folder label and carries none. The
+  decision and its reasoning are recorded in `docs/archive-layout.md` and
+  `docs/architecture.md`. It takes `--title`, `--notes` or `--clear-notes`,
+  `--status`, and repeatable `--tag` and `--untag`, refuses with
+  `usage.arguments` and `argument` `update` when nothing would change, and
+  reports the changed fields by name only. `capabilities` lists it as the
+  seventeenth operation.
+- The case record gains `status`, `open` or `closed`, and `tags`, stored
+  sorted and deduplicated. Both read through a serde default, so a case
+  record an earlier build wrote reads as `open` with no tag and no archive
+  needs migrating. `case create` takes `--status` and repeatable `--tag`, and
+  `case show` prints the status, the tags, and the update time once there is
+  one.
+- `case list` takes `--status`, repeatable `--tag` where every tag must match,
+  and `--query`, a case-insensitive substring of the title or notes. There is
+  no index: the query is applied in one linear scan over the records the
+  listing already read, so its cost grows with the number of cases. The query
+  is the user's own text and is echoed in no output, in either form, whether
+  it matched anything or not. The order of the listing is unchanged.
+- `input.cap.tag_length` and `input.cap.tag_count` bound a case tag at 64
+  bytes and a case at 32 distinct tags. Both are `input` refusals and exit
+  `3`. The length refusal reports the tag's position among the tags supplied
+  and never the tag itself, and the count is the one that would be stored, so
+  a tag the user repeated never spends part of the cap.
 
 - `openpapir skill` writes the agent skill document the binary carries to
   stdout, byte for byte and with nothing added. It takes no file and no
@@ -335,6 +364,14 @@ envelope.
   package import, delegated `.es3` verification, and any service integration
   with their blockers. `docs/specification.md` and `README.md` point at the
   new milestone. No behaviour, contract, or output changes.
+- The human form of `case list` now reads `N case(s) listed.` rather than
+  `N case(s) in this archive.`, because a filtered listing holds what matched
+  rather than what the archive holds, and each line carries the case's status
+  between its creation time and its title. The JSON is unchanged but for the
+  added fields.
+- The case handlers moved out of `crates/openpapir-cli/src/main.rs` into
+  `crates/openpapir-cli/src/cases.rs`, which now also holds the `case`
+  subcommand definitions. `main.rs` keeps one hook. No behaviour changed.
 - The changelog rules in `CONTRIBUTING.md` say which changes to
   `openpapir-core`'s public Rust API are logged. While the crate has no
   published version they need no entry, the CLI contract in

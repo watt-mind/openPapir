@@ -103,6 +103,50 @@ impl Staging {
         }
         Ok(warnings)
     }
+
+    /// Put the staged file at `destination`, replacing the document there.
+    ///
+    /// This is the one publish step that may replace a file, and the only
+    /// caller allowed to use it is the rewrite of a case record, which
+    /// `docs/archive-layout.md` singles out. The step is a rename rather than
+    /// the link the never-overwrite publish uses, because a rename is the
+    /// only way to put one whole document where another one is without a
+    /// moment in which the path holds neither. A reader therefore sees the
+    /// old document or the new one and never a partial file.
+    ///
+    /// The destination is still refused when it is a symbolic link, and the
+    /// rename still stays inside the archive root, so neither the no-follow
+    /// rule nor the single-filesystem rule is weakened.
+    ///
+    /// # Errors
+    ///
+    /// Returns `path.symlink`, `path.cross_device`, or `write.interrupted`,
+    /// as the condition requires.
+    pub fn replace(
+        mut self,
+        destination: &Path,
+        archive_path: &str,
+        stage: &'static str,
+    ) -> Result<Vec<Warning>, Diagnostic> {
+        self.finish(stage)?;
+        if paths::is_symlink(destination) {
+            return Err(paths::symlink_refusal(
+                Details::new()
+                    .text("scope", "archive")
+                    .text("archive_path", archive_path),
+            ));
+        }
+        fs::rename(&self.path, destination)
+            .map_err(|error| paths::publish_refusal(&error, archive_path, stage))?;
+        self.file = None;
+        let mut warnings = Vec::new();
+        if let Some(parent) = destination.parent()
+            && let Some(warning) = paths::sync_directory(parent, stage)
+        {
+            warnings.push(warning);
+        }
+        Ok(warnings)
+    }
 }
 
 impl Drop for Staging {
@@ -131,6 +175,29 @@ pub fn write_document(
         .write_all(content)
         .map_err(|error| paths::publish_refusal(&error, archive_path, stage))?;
     staging.publish(&directory.join(file_name), archive_path, stage)
+}
+
+/// Write one document into `directory`, replacing the one already there.
+///
+/// The name is one openPapir derived itself, exactly as in
+/// [`write_document`]; only the publish step differs.
+///
+/// # Errors
+///
+/// Returns the same refusals as [`Staging::replace`].
+pub fn replace_document(
+    directory: &Path,
+    file_name: &str,
+    archive_path: &str,
+    content: &[u8],
+    stage: &'static str,
+) -> Result<Vec<Warning>, Diagnostic> {
+    let mut staging = Staging::create(directory, stage)?;
+    staging
+        .file()
+        .write_all(content)
+        .map_err(|error| paths::publish_refusal(&error, archive_path, stage))?;
+    staging.replace(&directory.join(file_name), archive_path, stage)
 }
 
 #[cfg(test)]
@@ -168,6 +235,53 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(refusal.code, codes::PATH_OVERWRITE);
+    }
+
+    #[test]
+    fn a_replacement_puts_the_whole_document_where_the_old_one_was() {
+        let directory = tempfile::tempdir().unwrap();
+        write_document(
+            directory.path(),
+            "case.json",
+            "records/cases/case.json",
+            b"{\"a\":1}\n",
+            "record_write",
+        )
+        .unwrap();
+        replace_document(
+            directory.path(),
+            "case.json",
+            "records/cases/case.json",
+            b"{\"a\":2}\n",
+            "record_replace",
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read_to_string(directory.path().join("case.json")).unwrap(),
+            "{\"a\":2}\n",
+            "the replacement is the whole new document"
+        );
+        let remaining = fs::read_dir(directory.path()).unwrap().count();
+        assert_eq!(remaining, 1, "no staging file survives a replacement");
+    }
+
+    #[test]
+    fn a_replacement_onto_a_symbolic_link_is_refused_like_any_other_publish() {
+        let directory = tempfile::tempdir().unwrap();
+        if !cfg!(unix) {
+            return;
+        }
+        #[cfg(unix)]
+        std::os::unix::fs::symlink("/etc/hostname", directory.path().join("linked.json")).unwrap();
+        let refusal = replace_document(
+            directory.path(),
+            "linked.json",
+            "records/cases/linked.json",
+            b"{}\n",
+            "record_replace",
+        )
+        .unwrap_err();
+        assert_eq!(refusal.code, codes::PATH_SYMLINK);
     }
 
     #[test]

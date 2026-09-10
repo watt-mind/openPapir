@@ -1,6 +1,8 @@
 Case <id>, recorded <time>.
 Title: Tax matter
 Notes: First contact with the office.
+Status: open
+Tags: none
 Submissions recorded: 1.
 Submission <id>, recorded <time>.
 Description: Posted the completed form.

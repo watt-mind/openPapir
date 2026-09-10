@@ -67,16 +67,17 @@ is in [Implemented codes and exit codes](#implemented-codes-and-exit-codes).
 `skill` is the exception: it opens no archive, reads no input, and can refuse
 only with `usage.arguments` or `internal.unexpected`.
 
-Sixteen operations are implemented, `archive.init`, `import`, `case.create`,
+Seventeen operations are implemented, `archive.init`, `import`, `case.create`,
 `case.list`, `case.show`, `submission.add`, `receipt.add`, `receipt.list`,
 `association.create`, `association.list`, `association.retire`,
 `archive.check`, `case.export`, `archive.repair_permissions`, `case.delete`,
-and `skill`, and those are the sixteen names `capabilities` reports.
-Everything else in
+`skill`, and `case.update`, and those are the seventeen names `capabilities`
+reports. Everything else in
 [local archive layout and storage design](archive-layout.md) and
 [import error, JSON, and exit-code contract](error-contract.md) remains a
 design: no derived-metadata or verification records; no automatic matching, no
-receipt parsing, no import from an export, and no editing of a stored record,
+receipt parsing, no import from an export, and no editing of a stored record
+other than the case record `case.update` rewrites, no
 deletion of a single submission or receipt, deletion of an archive, or
 migration. openPapir reads artefact bytes only to re-digest a stored object
 during the integrity check and to copy one out during an export, and never to
@@ -94,7 +95,7 @@ never shares stdout with the JSON object.
 | --- | --- |
 | `schema_version` | The envelope's version, currently `1`, independent of `archive_schema_version`. |
 | `ok` | `true` only when the command completed its stated work. |
-| `command` | The invoked command's stable name: `capabilities`, or one of the sixteen operation names `capabilities` reports. An invocation the argument parser rejected before it recognised a subcommand carries `openpapir` instead. |
+| `command` | The invoked command's stable name: `capabilities`, or one of the seventeen operation names `capabilities` reports. An invocation the argument parser rejected before it recognised a subcommand carries `openpapir` instead. |
 | `data` | The command's result. `{}` when `ok` is `false`, except `archive check`, whose report is the result the user asked for and stays in `data` beside the error. |
 | `verified` | Always `false`. No cryptographic check is implemented. |
 | `error` | Present exactly when `ok` is `false`: `code`, `message`, `details`. |
@@ -108,7 +109,7 @@ carries `bucket`. Changes within `schema_version` are additive only.
 `stage` is a plain string that names how far the implementation has come, and
 it is one of a small closed set: `scaffold`, `alpha`, `beta`, `stable`. It is
 not a version, not a support promise, and never a verification verdict. The
-value is `alpha` today, because the sixteen operations below are implemented
+value is `alpha` today, because the seventeen operations below are implemented
 against a local archive whose on-disk layout may still change. A move to
 another value is a release decision, recorded in `CHANGELOG.md` in the pull
 request that makes it; the set itself grows or shrinks the same way. A caller
@@ -117,7 +118,7 @@ the last value it knows", and a caller that needs to know what the binary can
 do reads `operations`, not `stage`. Changing the value is not a
 `schema_version` change: the field's name, type, and meaning are unchanged.
 
-The capabilities response is unchanged in shape and lists the sixteen
+The capabilities response is unchanged in shape and lists the seventeen
 implemented operations:
 
 ```json
@@ -144,7 +145,8 @@ implemented operations:
       "case.export",
       "archive.repair_permissions",
       "case.delete",
-      "skill"
+      "skill",
+      "case.update"
     ]
   },
   "verified": false
@@ -272,7 +274,23 @@ holding `id` (a 128-bit random identifier as 32 lowercase hexadecimal
 characters), `record_kind`, `archive_schema_version`, and `created_at`. Records
 reference each other, and reference stored artefacts, by identifier only.
 Records are written through the atomic write procedure, under the writer lock,
-into owner-only directories. Opening an archive for writing creates any layout
+into owner-only directories. The case record is the one kind that may be
+rewritten in place, by `case update`, keeping its `id` and its `created_at`
+and gaining an `updated_at`; every other kind stays append-only. The reason is
+what each record is for. A submission, a receipt, and an association are the
+user's evidence of what they recorded at the time, and evidence that can be
+edited is no longer evidence, so a change there writes a new record that
+supersedes the earlier one. A case is the user's own folder label, carries no
+evidence, and is named by the same identifier for the life of the archive, so
+writing a second record for a retitling would leave every reference the user
+already holds pointing at a document that is no longer current. The same
+decision, with the same reasoning, is recorded in
+[local archive layout and storage design](archive-layout.md). The rewrite goes
+through the atomic write procedure like every other write, with a rename in
+place of the link the never-overwrite publish uses, so a concurrent reader
+sees the whole old document or the whole new one and never a partial file.
+
+Opening an archive for writing creates any layout
 directory this build expects and an earlier one did not, so an archive created
 by an earlier build gains the record directories it lacks; nothing else
 changes. Opening an archive read-only creates nothing, and an absent layout
@@ -280,7 +298,7 @@ directory reads as empty there.
 
 | Record | Path | Fields |
 | --- | --- | --- |
-| Case | `records/cases/<id>.json` | `title`, optional `notes`, plus the four common fields. |
+| Case | `records/cases/<id>.json` | `title`, optional `notes`, `status`, `tags`, optional `updated_at`, plus the four common fields. |
 | Submission | `records/submissions/<id>.json` | `case_id`, `description`, optional `stated_date`, `artefacts`, plus the four common fields. |
 | Receipt | `records/receipts/<id>.json` | `artefact_digest`, `import_event_id`, optional `label`, plus the four common fields. |
 | Association | `records/associations/<id>.json` | `receipt_id`, `outcome`, `candidates`, `created_by`, `submission_id`, `supersedes`, an optional `statement` a retirement carries, plus the four common fields. |
@@ -291,6 +309,15 @@ digest of an object already stored in this archive, and an optional `role`, the
 short label the user gave that artefact. `role` is omitted when the user
 supplied none, so an entry is `{"digest": "sha256:..."}` or
 `{"digest": "sha256:...", "role": "cover letter"}`.
+
+`status` is `open` or `closed` and means only what the user's own filing
+means: a closed case is one the user stopped working on. It says nothing about
+delivery, receipt by an authority, authenticity, or legal effect, and openPapir
+never sets it on its own. `tags` are the user's own words, stored sorted and
+deduplicated. A case record written before these fields existed reads as
+`open` with no tag, so an archive an earlier build wrote needs no migration.
+`updated_at` is absent until `case update` changes something, so the field
+states what happened rather than repeating `created_at`.
 
 `stated_date` is the user's own statement about their own submission. It is
 accepted as `YYYY-MM-DD` only, checked for calendar plausibility, stored
@@ -311,6 +338,7 @@ other control character.
 | `role` | 64 bytes | No | `input.cap.field_length` |
 | `label` | 200 bytes | No | `input.cap.field_length` |
 | `statement` | 512 bytes | Yes, per candidate | `input.cap.field_length` |
+| `tag` | 64 bytes each, 32 distinct per case | No | `input.cap.tag_length`, `input.cap.tag_count` |
 
 An empty required field, a forbidden control character, an unusable artefact
 reference, and a date that is not a calendar date are `usage.arguments`,
@@ -318,12 +346,18 @@ naming the argument and never its value.
 
 ## `case create`
 
-`openpapir case create --archive <root> --title <t> [--notes <n>]` writes one
+`openpapir case create --archive <root> --title <t> [--notes <n>]
+[--tag <t>]... [--status open|closed]` writes one
 case record. It takes the writer lock and runs the archive's permission checks
 first. An empty or oversized `--title` or `--notes` is refused before the
-archive is touched, as `usage.arguments` or `input.cap.field_length`. `data`
-holds `case`, the document just written, so it carries the user's own title
-and notes and nothing else.
+archive is touched, as `usage.arguments` or `input.cap.field_length`, and so
+is a tag over its cap or past the per-case count, as `input.cap.tag_length` or
+`input.cap.tag_count`. `--tag` may be repeated; the tags are stored sorted and
+deduplicated, so a tag the user repeated never spends part of the count cap.
+`--status` takes `open` or `closed` and is `open` when it is not given; any
+other value is `usage.arguments` naming the argument and never the value.
+`data` holds `case`, the document just written, so it carries the user's own
+title, notes, status, and tags and nothing else.
 
 ```json
 {
@@ -337,6 +371,8 @@ and notes and nothing else.
       "id": "6b73d041fb6bed26be75545fabfd45bc",
       "notes": "First contact.",
       "record_kind": "case",
+      "status": "open",
+      "tags": [],
       "title": "Tax matter"
     }
   },
@@ -346,18 +382,36 @@ and notes and nothing else.
 
 ## `case list`
 
-`openpapir case list --archive <root>` reads every case record. It takes no
-lock, because no record file is ever modified in place. `data` holds `cases`,
-ordered by identifier, and `count`. An archive with no case is not an error:
-`cases` is empty, `count` is `0`, and the exit code is `0`. Beyond the shared
+`openpapir case list --archive <root> [--status <s>] [--tag <t>]...
+[--query <text>]` reads every case record and keeps the ones that match every
+filter it was given. It takes no lock: a reader sees one whole document or
+another and never a partial one. `data` holds `cases`, ordered by identifier,
+and `count`, which is how many cases the listing holds and so, under a filter,
+how many matched. The order is the identifier order whether a filter was given
+or not.
+
+`--status` keeps only cases with that status. `--tag` may be repeated and
+every tag given must be on the case. `--query` keeps only cases whose title or
+notes contain the text, compared without regard to case. There is **no index**:
+the query is a substring match applied in one linear scan over the records the
+listing already read, so its cost grows with the number of cases the archive
+holds. The query text is the user's own and is never echoed back, in either
+output form, whether it matched anything or not.
+
+An archive with no case, and a filter that matches none, are both not errors:
+`cases` is empty, `count` is `0`, and the exit code is `0`. A `--status` that
+is not `open` or `closed` is `usage.arguments`. Beyond that and the shared
 refusals it emits nothing of its own. `data` is the user's own records read
-back to them, so it carries the titles and notes they typed, and no path.
+back to them, so it carries the titles, notes, statuses, and tags they typed,
+and no path.
 
 ## `case show`
 
 `openpapir case show --archive <root> <case-id>` reads one case and the
 submissions that name it. `data` holds `case`, `submissions` ordered by
-identifier, and `submission_count`. An identifier that names no case, and one
+identifier, and `submission_count`. The human form prints the case's status
+and tags, and its `updated_at` once there is one. An identifier that names no
+case, and one
 that is not 32 lowercase hexadecimal characters, are both `record.not_found`,
 naming the kind and how it was referenced and never the value the user
 supplied. `data` is the user's own records read back to them, and carries no
@@ -374,6 +428,8 @@ path.
       "created_at": "2026-01-14T09:12:33Z",
       "id": "6b73d041fb6bed26be75545fabfd45bc",
       "record_kind": "case",
+      "status": "open",
+      "tags": [],
       "title": "Tax matter"
     },
     "submissions": [
@@ -394,6 +450,64 @@ path.
       }
     ],
     "submission_count": 1
+  },
+  "verified": false
+}
+```
+
+## `case update`
+
+`openpapir case update --archive <root> <case-id> [--title <t>]
+[--notes <n> | --clear-notes] [--status open|closed] [--tag <t>]...
+[--untag <t>]...` rewrites one case record in place. It is the one invocation
+that rewrites a stored record, and it rewrites only the case record; the rule
+and the reason are under [Records](#records) above.
+
+The record keeps its `id` and its `created_at` and gains an `updated_at`. What
+may change is the user's own filing: the title, the notes, the status, and the
+tags. `--tag` adds and `--untag` removes; both may be repeated, and the result
+is stored sorted and deduplicated. Removing a tag the case does not carry is
+not an error and changes nothing. `--notes` and `--clear-notes` may not be
+given together.
+
+Every supplied field is checked before the archive is opened, so a field over
+its cap is refused before the writer lock is even asked for. The command then
+takes the lock and reads the record.
+
+An update that would leave the record exactly as it is, either because the
+invocation named nothing at all or because it named only values the record
+already holds, is `usage.arguments` with `argument` `update`. Nothing is
+written and no `updated_at` moves. An identifier that names no case, and one
+that is not 32 lowercase hexadecimal characters, are both `record.not_found`.
+
+`data` holds `case`, the whole record as it now stands, and `changed`, the
+sorted names of the fields the update changed. `changed` carries **field names
+only**: what a value was before is the user's own text that they have just
+replaced, and the record beside it already carries what each value is now.
+
+```json
+{
+  "schema_version": 1,
+  "ok": true,
+  "command": "case.update",
+  "data": {
+    "case": {
+      "archive_schema_version": 1,
+      "created_at": "2026-01-14T09:12:33Z",
+      "id": "6b73d041fb6bed26be75545fabfd45bc",
+      "record_kind": "case",
+      "status": "closed",
+      "tags": [
+        "appeal"
+      ],
+      "title": "Tax appeal",
+      "updated_at": "2026-02-01T08:00:00Z"
+    },
+    "changed": [
+      "status",
+      "tags",
+      "title"
+    ]
   },
   "verified": false
 }
@@ -500,7 +614,8 @@ Every evidence entry this build writes carries `kind` `user_assertion` and
 matching, derived metadata, and receipt parsing do not exist, so no other
 value could be recorded honestly.
 
-Records are append-only. `--supersedes` names an earlier association for the
+Association records are append-only. `--supersedes` names an earlier
+association for the
 same receipt; the superseded record is never modified, moved, or removed, and
 history stays inspectable. Only an absent `--supersedes` records no
 supersession. A supplied value is always resolved, so an empty one is
@@ -1304,12 +1419,17 @@ environment variable, or configuration relaxes a cap.
 | Artefact role | 64 bytes | `input.cap.field_length` |
 | Receipt label | 200 bytes | `input.cap.field_length` |
 | Evidence statement | 512 bytes | `input.cap.field_length` |
+| Case tag | 64 bytes | `input.cap.tag_length` |
+| Case tags per record | 32 distinct | `input.cap.tag_count` |
 
 `input.cap.record_size` bounds a whole document and reports one cap, the
 record cap. A per-field cap has to say which field it refused and which of the
 six bounds applied, which that code cannot carry, so the field caps use the
-additive `input.cap.field_length` instead. Both are `input` refusals and both
-exit `3`.
+additive `input.cap.field_length` instead. A tag has its own two codes rather
+than a seventh field bound: one of them counts tags rather than bytes, and the
+length one reports the tag's position among the tags supplied, which is how a
+repeated flag says which value it refused without echoing the value. All of
+them are `input` refusals and all exit `3`.
 
 ## Implemented codes and exit codes
 
@@ -1320,7 +1440,7 @@ emitted.
 | --- | --- | --- |
 | `0` | Success, including a duplicate import and a warning | |
 | `2` | `usage` | `usage.arguments`, `usage.archive_root_missing` |
-| `3` | `input`, `path` | the six cap codes above, `path.symlink`, `path.overwrite`, `path.cross_device` |
+| `3` | `input`, `path` | the eight cap codes above, `path.symlink`, `path.overwrite`, `path.cross_device` |
 | `4` | `archive`, `lock`, `write`, `record`, `integrity`, `export`, `delete` | `record.not_found`, `record.malformed`, `record.inconsistent`, `archive.marker_missing`, `archive.marker_malformed`, `archive.adopt_refused`, `archive.schema_newer`, `archive.schema_older`, `archive.permissions_wide`, `archive.multiple_filesystems`, `lock.held`, `write.interrupted`, `integrity.digest_mismatch`, `integrity.length_mismatch`, `integrity.dangling_reference`, `integrity.orphan_object`, `export.destination_conflict`, `export.copy_mismatch`, `delete.objects_retained`, `delete.records_retained`, `delete.record_entangled` |
 | `5` | `platform` | `platform.filesystem_unsupported`, for a filesystem that reports it cannot create the hard link the publish step needs. A link refused without saying so is `write.interrupted` at `4` instead. The named degradations are warnings, and the owner-only condition of the same code is not detected yet. |
 | `6` | `internal` | `internal.unexpected` |

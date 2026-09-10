@@ -233,7 +233,10 @@ for a path the user named on the command line. A new value is additive.
   walking the raw arguments as the parser would, consuming each flag's value
   with the flag, so a value that spells a subcommand name is a value and not
   the command the envelope reports. `--help` and `--version` are not refusals: they
-  are written to stdout and exit `0`.
+  are written to stdout and exit `0`. `case update` reports this code with
+  `argument` `update` when the invocation would leave the record exactly as it
+  is, either because it named nothing to change or because it named only
+  values the record already holds; nothing is written in that case.
 - **`usage.archive_root_missing`**: usage, not retryable. No archive root was
   supplied, or the supplied path does not exist. The root is always supplied
   explicitly; openPapir never searches for an archive
@@ -281,13 +284,16 @@ and enforced again while streaming ([archive-layout](archive-layout.md)); a
 mid-stream breach aborts the write and removes the staging file. The record
 cap binds a stored document on the way in and on the way out: a record is
 checked against it before it is written and again, from the reported size,
-before it is read back. All six are refusals of the input, never archive
+before it is read back. All eight are refusals of the input, never archive
 damage, and all carry `bucket` with a cap and an observed value, `cap_bytes`
 or `cap_count` with `observed_bytes` or `observed_count`.
 
 The five import caps also carry `input_index`, the position of the offending
-input in the invocation, never its name. `input.cap.field_length` carries
-`field` instead, because a record field has no position in an input list.
+input in the invocation, never its name. `input.cap.tag_length` carries it too,
+because a tag comes from a repeatable flag and so does have a position.
+`input.cap.field_length` carries `field` instead, because a record field has no
+position in an input list, and `input.cap.tag_count` carries neither, because
+it is about how many tags there are rather than about any one of them.
 
 - **`input.cap.file_size`**: input, not retryable. One file exceeds the
   single-file cap (proposed 64 MiB).
@@ -308,6 +314,16 @@ input in the invocation, never its name. `input.cap.field_length` carries
   fixed openPapir name, never its value), `cap_bytes`, `observed_bytes`. The
   implemented fields and caps are in
   [architecture](architecture.md).
+- **`input.cap.tag_length`**: input, not retryable. One case tag exceeds the
+  per-tag cap (64 bytes). Added additively by the case record's tags. Details:
+  `bucket`, `cap_bytes`, `observed_bytes`, `input_index` (the tag's position
+  among the tags supplied, never the tag itself: a tag is the user's own word
+  for their own matter).
+- **`input.cap.tag_count`**: input, not retryable. A case would carry more
+  distinct tags than the per-record cap (32). The count is the one that would
+  be stored, after the duplicates a user may legitimately repeat on the command
+  line have been removed, so a repeated tag never spends part of the cap.
+  Details: `bucket`, `cap_count`, `observed_count`.
 
 Caps are never relaxed to make one input succeed ([AGENTS.md](../AGENTS.md)).
 The cap values themselves are proposals in

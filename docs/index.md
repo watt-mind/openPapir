@@ -4,7 +4,7 @@ Start at [README](../README.md) for what openPapir is and how to build it,
 then [specification.md](specification.md) for the single index of scope,
 implemented behaviour, decided designs, and deferred contracts.
 
-The implementation is early: help, version, and the sixteen operations
+The implementation is early: help, version, and the seventeen operations
 `capabilities` reports exist, which are archive creation, artefact import, the
 case, submission, receipt, and user-asserted association records, the
 withdrawal of one assertion, the read-only whole-archive integrity check, the

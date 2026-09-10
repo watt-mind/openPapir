@@ -1,3 +1,3 @@
-1 case(s) in this archive.
-<id> <time> Tax matter
+1 case(s) listed.
+<id> <time> open Tax matter
 Cases and submissions are the user's own local records. Nothing here is verified, matched, or delivered.

@@ -1,4 +1,6 @@
 Case <id>, recorded <time>.
 Title: Tax matter
 Notes: First contact with the office.
+Status: open
+Tags: none
 Cases and submissions are the user's own local records. Nothing here is verified, matched, or delivered.

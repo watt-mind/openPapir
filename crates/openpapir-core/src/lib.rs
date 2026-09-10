@@ -13,17 +13,19 @@
 //!
 //! # Status
 //!
-//! Sixteen operations are implemented, `archive.init`, `import`,
+//! Seventeen operations are implemented, `archive.init`, `import`,
 //! `case.create`, `case.list`, `case.show`, `submission.add`, `receipt.add`,
 //! `receipt.list`, `association.create`, `association.list`,
 //! `association.retire`, `archive.check`, `case.export`,
-//! `archive.repair_permissions`, `case.delete`, and `skill`, and they are the
-//! sixteen [`capabilities`] reports. `skill` is the one that touches no archive: it belongs to the
-//! CLI, which writes the agent skill document it carries, and is reported
-//! here so that a machine caller learns of it from the same list as every
-//! other operation.
-//! Everything else in the design stays a plan: no editing of a stored
-//! record, no deletion of a single submission or receipt, no deletion of an
+//! `archive.repair_permissions`, `case.delete`, `skill`, and `case.update`,
+//! and they are the seventeen
+//! [`capabilities`] reports. `skill` is the one that touches no archive: it
+//! belongs to the CLI, which writes the agent skill document it carries, and
+//! is reported here so that a machine caller learns of it from the same list
+//! as every other operation.
+//! Everything else in the design stays a plan: no editing of a stored record
+//! other than the case record `case.update` rewrites, no deletion of a single
+//! submission or receipt, no deletion of an
 //! archive, no import from an export, no automatic matching, no derived
 //! metadata, no receipt parsing, and no verification of any kind. An export
 //! copies the bytes the archive already holds and changes nothing inside it,
@@ -73,7 +75,9 @@ pub use integrity::{Report, check};
 pub use records::association::{
     Association, AssociationCreated, AssociationHistory, Candidate, Evidence,
 };
-pub use records::case::{Case, CaseCreated, CaseList, CaseView};
+pub use records::case::{
+    Case, CaseCreated, CaseList, CaseUpdated, CaseView, Filter as CaseFilter, Status as CaseStatus,
+};
 pub use records::receipt::{Receipt, ReceiptAdded, ReceiptList};
 pub use records::submission::{ArtefactRef, Submission, SubmissionAdded};
 
@@ -98,6 +102,7 @@ const OPERATIONS: &[&str] = &[
     "archive.repair_permissions",
     "case.delete",
     "skill",
+    "case.update",
 ];
 
 /// The closed set of implementation stages `capabilities` may report, in
@@ -183,7 +188,8 @@ mod tests {
                 "case.export",
                 "archive.repair_permissions",
                 "case.delete",
-                "skill"
+                "skill",
+                "case.update"
             ]
         );
         assert_eq!(reported.project, "openPapir");

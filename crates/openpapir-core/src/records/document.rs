@@ -7,8 +7,10 @@
 //! by identifier only.
 //!
 //! Writing goes through the archive's atomic write procedure, under the
-//! writer lock the caller already holds, and reading needs no lock because no
-//! record file is ever modified in place. A document that cannot be read as
+//! writer lock the caller already holds, and reading needs no lock because
+//! every write puts a whole document in place: a reader sees one complete
+//! document or another and never a partial one, including where a case record
+//! is rewritten. A document that cannot be read as
 //! the record it claims to be is `record.malformed`; it is never repaired,
 //! skipped, or guessed at.
 
@@ -138,6 +140,38 @@ pub fn write_record<R: Record>(root: &Path, record: &R) -> Result<Vec<Warning>, 
         &archive_path,
         content.as_bytes(),
         "record_write",
+    )
+}
+
+/// Rewrite one record in place, replacing the document already stored.
+///
+/// Only the case record may be rewritten. Every other kind is append-only,
+/// because its value is being evidence of what the user recorded at the time,
+/// and evidence that can be edited is no longer evidence. A case is the
+/// user's own folder label, carries no evidence, and is named by the same
+/// identifier for the life of the archive, so a new record for every retitling
+/// would leave the user's own references pointing at a document that is no
+/// longer current. The rule and the reason are in `docs/archive-layout.md`.
+///
+/// The caller holds the writer lock, exactly as for a first write. The
+/// publish step is a rename rather than a link, so a concurrent reader sees
+/// the whole old document or the whole new one.
+///
+/// # Errors
+///
+/// Returns `input.cap.record_size`, `internal.unexpected`, or any refusal of
+/// the atomic write procedure: `path.symlink`, `path.cross_device`, or
+/// `write.interrupted`.
+pub fn replace_record<R: Record>(root: &Path, record: &R) -> Result<Vec<Warning>, Diagnostic> {
+    let content = document(record)?;
+    let file_name = format!("{}.json", record.id());
+    let archive_path = format!("{}/{file_name}", R::DIRECTORY);
+    write::replace_document(
+        &root.join(R::DIRECTORY),
+        &file_name,
+        &archive_path,
+        content.as_bytes(),
+        "record_replace",
     )
 }
 

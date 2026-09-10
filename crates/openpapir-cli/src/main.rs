@@ -19,7 +19,9 @@
 //! - `openpapir archive repair-permissions --archive <root> [--json]`, the
 //!   only action besides `archive init` that narrows permissions.
 //! - `openpapir import --archive <root> <file>... [--json]`, artefact import.
-//! - `openpapir case create|list|show ... [--json]`, the user's own cases.
+//! - `openpapir case create|list|show|update ... [--json]`, the user's own
+//!   cases. `case update` is the one invocation that rewrites a stored
+//!   record, and it rewrites only the case record.
 //! - `openpapir case export --archive <root> --case <id> --to <dir> [--json]`,
 //!   a plain copy of one case out of the archive.
 //! - `openpapir case delete --archive <root> --case <id> [--purge] [--json]`,
@@ -38,7 +40,8 @@
 //!   pipe still exits `0`; any other failing write exits `4`.
 //!
 //! There is no automatic matching, no derived metadata, no receipt parsing,
-//! no import from an export, no editing of a stored record, no deletion of a
+//! no import from an export, no editing of a stored record other than the
+//! case record `case update` rewrites, no deletion of a
 //! single submission or receipt, no deletion of an archive, no
 //! signature verification, and no government delivery. The integrity check
 //! re-digests stored bytes, which is a storage-layer identity check and never
@@ -71,6 +74,7 @@
 //! delivery, or legal effect.
 
 mod associations;
+mod cases;
 mod delete;
 mod envelope;
 mod report;
@@ -109,10 +113,10 @@ enum Command {
         #[command(subcommand)]
         command: ArchiveCommand,
     },
-    /// Create, list, and show local cases.
+    /// Create, list, show, and update local cases.
     Case {
         #[command(subcommand)]
-        command: CaseCommand,
+        command: cases::CaseCommand,
     },
     /// Record what the user states they sent, against a case.
     Submission {
@@ -170,63 +174,6 @@ enum ArchiveCommand {
         /// The archive root, which must exist and be empty.
         #[arg(value_name = "ROOT")]
         root: PathBuf,
-        /// Emit one JSON object instead of human-readable text.
-        #[arg(long)]
-        json: bool,
-    },
-}
-
-#[derive(Subcommand)]
-enum CaseCommand {
-    /// Delete a case and its submissions; objects go only with `--purge`.
-    Delete(delete::Delete),
-    /// Record a new case, which is local organisation and nothing else.
-    Create {
-        /// The archive root, which is always supplied explicitly.
-        #[arg(long, value_name = "ROOT")]
-        archive: PathBuf,
-        /// The user's own title for the case, at most 200 bytes.
-        #[arg(long, value_name = "TITLE")]
-        title: String,
-        /// The user's own notes, at most 4096 bytes.
-        #[arg(long, value_name = "NOTES")]
-        notes: Option<String>,
-        /// Emit one JSON object instead of human-readable text.
-        #[arg(long)]
-        json: bool,
-    },
-    /// List every case in the archive.
-    List {
-        /// The archive root, which is always supplied explicitly.
-        #[arg(long, value_name = "ROOT")]
-        archive: PathBuf,
-        /// Emit one JSON object instead of human-readable text.
-        #[arg(long)]
-        json: bool,
-    },
-    /// Copy one case, its records, and its objects out of the archive.
-    Export {
-        /// The archive root, which is always supplied explicitly.
-        #[arg(long, value_name = "ROOT")]
-        archive: PathBuf,
-        /// The case to export, as `case create` reported it.
-        #[arg(long = "case", value_name = "CASE_ID")]
-        case_id: String,
-        /// The destination directory, empty or not yet created.
-        #[arg(long = "to", value_name = "DIR")]
-        destination: PathBuf,
-        /// Emit one JSON object instead of human-readable text.
-        #[arg(long)]
-        json: bool,
-    },
-    /// Show one case and the submissions recorded against it.
-    Show {
-        /// The archive root, which is always supplied explicitly.
-        #[arg(long, value_name = "ROOT")]
-        archive: PathBuf,
-        /// The case's own identifier, as `case create` reported it.
-        #[arg(value_name = "CASE_ID")]
-        case_id: String,
         /// Emit one JSON object instead of human-readable text.
         #[arg(long)]
         json: bool,
@@ -348,7 +295,7 @@ fn run(command: Command) -> i32 {
             report::imported,
         ),
         Command::Skill => skill::emit(),
-        Command::Case { command } => run_case(command),
+        Command::Case { command } => cases::run(command),
         Command::Submission {
             command:
                 SubmissionCommand::Add {
@@ -373,57 +320,6 @@ fn run(command: Command) -> i32 {
         ),
         Command::Receipt { command } => run_receipt(command),
         Command::Association { command } => associations::run(command),
-    }
-}
-
-/// Dispatch one `case` subcommand and return the process exit code.
-fn run_case(command: CaseCommand) -> i32 {
-    match command {
-        CaseCommand::Create {
-            archive,
-            title,
-            notes,
-            json,
-        } => emit(
-            "case.create",
-            records::case::create(&archive, &title, notes.as_deref()),
-            json,
-            report::case_created,
-        ),
-        CaseCommand::List { archive, json } => emit(
-            "case.list",
-            records::case::list(&archive),
-            json,
-            report::case_list,
-        ),
-        CaseCommand::Export {
-            archive,
-            case_id,
-            destination,
-            json,
-        } => emit(
-            "case.export",
-            openpapir_core::export_case(&archive, &case_id, &destination),
-            json,
-            report::exported,
-        ),
-        CaseCommand::Delete(arguments) => emit_with_problems(
-            "case.delete",
-            arguments.run(),
-            arguments.json,
-            report::case_deleted,
-            delete::retained,
-        ),
-        CaseCommand::Show {
-            archive,
-            case_id,
-            json,
-        } => emit(
-            "case.show",
-            records::case::show(&archive, &case_id),
-            json,
-            report::case_shown,
-        ),
     }
 }
 

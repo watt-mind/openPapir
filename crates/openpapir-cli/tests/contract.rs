@@ -29,7 +29,7 @@ fn capabilities_are_honest_and_machine_readable() {
                     "association.create", "association.list",
                     "association.retire", "archive.check",
                     "case.export", "archive.repair_permissions", "case.delete",
-                    "skill"
+                    "skill", "case.update"
                 ]
             },
             "verified": false
@@ -47,7 +47,7 @@ fn human_status_names_only_what_is_implemented() {
         "archive.init, import, case.create, case.list, case.show, submission.add, ",
         "receipt.add, receipt.list, association.create, association.list, ",
         "association.retire, archive.check, ",
-        "case.export, archive.repair_permissions, case.delete, skill"
+        "case.export, archive.repair_permissions, case.delete, skill, case.update"
     )));
     assert!(text.contains("Nothing is verified"));
 }
