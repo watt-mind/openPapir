@@ -10,6 +10,7 @@
 //! is never joined into a path and never reported, so a traversal segment in
 //! an imported name cannot escape the root and cannot reach the output.
 
+use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -210,6 +211,7 @@ pub(crate) fn store_named(
 ) -> std::result::Result<Imported, Diagnostic> {
     let planned = plan(inputs, names)?;
     let mut read_total = 0_u64;
+    let mut histories = Histories::default();
     let mut artefacts = Vec::new();
     for (index, input) in planned.iter().enumerate() {
         artefacts.push(store_one(
@@ -217,6 +219,7 @@ pub(crate) fn store_named(
             input,
             index as u64,
             &mut read_total,
+            &mut histories,
             warnings,
         )?);
     }
@@ -303,11 +306,15 @@ fn unusable_input(index: u64) -> Diagnostic {
 }
 
 /// Stream one input into the store and record its import event.
+///
+/// `histories` is the operation's own view of the import events, so that a
+/// batch of inputs costs at most one read of them rather than one per input.
 fn store_one(
     root: &Path,
     input: &Planned,
     index: u64,
     read_total: &mut u64,
+    histories: &mut Histories,
     warnings: &mut Vec<Warning>,
 ) -> std::result::Result<Artefact, Diagnostic> {
     let mut source = paths::open_no_follow(&input.path).map_err(|error| {
@@ -327,7 +334,12 @@ fn store_one(
     warnings.extend(stored.warnings);
 
     let digest = format!("{}:{}", objects::ALGORITHM, stored.digest);
-    let history = history_of(root, &digest);
+    // Only a duplicate reports a history, and only a duplicate asks for one.
+    let history = if stored.created_object {
+        History::default()
+    } else {
+        histories.of(root, &digest)
+    };
     let event = ImportEvent {
         archive_schema_version: u64::from(SUPPORTED_SCHEMA_VERSION),
         byte_length: stored.byte_length,
@@ -340,6 +352,7 @@ fn store_one(
         source: None,
     };
     warnings.extend(document::write_record(root, &event)?);
+    histories.record(&event);
     Ok(Artefact {
         digest,
         byte_length: stored.byte_length,
@@ -355,21 +368,72 @@ fn store_one(
 }
 
 /// How many import events already reference a digest, and the earliest.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 struct History {
     count: u64,
     first_imported_at: Option<String>,
 }
 
-/// Read the import-event records referencing one digest.
+impl History {
+    /// Fold one further event for the same digest into the history.
+    fn add(&mut self, imported_at: &str) {
+        self.count += 1;
+        if self
+            .first_imported_at
+            .as_ref()
+            .is_none_or(|earliest| imported_at < earliest.as_str())
+        {
+            self.first_imported_at = Some(imported_at.to_owned());
+        }
+    }
+}
+
+/// The import events one operation has to know about, keyed by digest.
+///
+/// Only a duplicate reports a history, so the records are read at most once
+/// for a whole operation and not at all when every input is new: importing a
+/// directory costs one pass over the events rather than one per file. Every
+/// event the same operation writes is folded in as it is written, so the
+/// second duplicate of one digest counts the first exactly as it did when
+/// each input re-read the directory.
+#[derive(Debug, Default)]
+struct Histories {
+    by_digest: Option<HashMap<String, History>>,
+}
+
+impl Histories {
+    /// The history of one digest, reading the stored events on first use.
+    fn of(&mut self, root: &Path, digest: &str) -> History {
+        self.by_digest
+            .get_or_insert_with(|| stored_histories(root))
+            .get(digest)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// Fold an event this operation has just written into what was read.
+    ///
+    /// Nothing is folded in when the events have not been read: the record is
+    /// already on disk, so a later read sees it once and only once.
+    fn record(&mut self, event: &ImportEvent) {
+        if let Some(by_digest) = self.by_digest.as_mut() {
+            by_digest
+                .entry(event.digest.clone())
+                .or_default()
+                .add(&event.imported_at);
+        }
+    }
+}
+
+/// Read every stored import-event record into a history per digest.
 ///
 /// A record that cannot be parsed is not counted. Reporting a malformed
 /// record is `record.malformed`, which the error contract reserves and this
 /// build does not implement.
-fn history_of(root: &Path, digest: &str) -> History {
-    let mut history = History::default();
+fn stored_histories(root: &Path) -> HashMap<String, History> {
+    let mut histories: HashMap<String, History> = HashMap::new();
     let Ok(entries) = fs::read_dir(root.join(IMPORTS_DIR)) else {
-        return history;
+        return histories;
     };
     for entry in entries.flatten() {
         let path = entry.path();
@@ -382,19 +446,12 @@ fn history_of(root: &Path, digest: &str) -> History {
         let Ok(event) = serde_json::from_str::<ImportEvent>(&text) else {
             continue;
         };
-        if event.digest != digest {
-            continue;
-        }
-        history.count += 1;
-        if history
-            .first_imported_at
-            .as_ref()
-            .is_none_or(|earliest| event.imported_at < *earliest)
-        {
-            history.first_imported_at = Some(event.imported_at);
-        }
+        histories
+            .entry(event.digest)
+            .or_default()
+            .add(&event.imported_at);
     }
-    history
+    histories
 }
 
 #[cfg(test)]
@@ -449,6 +506,56 @@ mod tests {
         assert!(first.data.artefacts[0].previous_import_count.is_none());
         let events = fs::read_dir(root.path().join(IMPORTS_DIR)).unwrap().count();
         assert_eq!(events, 2, "each import records its own event");
+    }
+
+    #[test]
+    fn duplicates_inside_one_operation_count_the_events_it_wrote_itself() {
+        let (root, inputs) = archive_with(&[
+            ("a.txt", b"same"),
+            ("b.txt", b"other"),
+            ("c.txt", b"same"),
+            ("d.txt", b"same"),
+        ]);
+        let outcome = import(
+            root.path(),
+            &[
+                inputs.path().join("a.txt"),
+                inputs.path().join("b.txt"),
+                inputs.path().join("c.txt"),
+                inputs.path().join("d.txt"),
+            ],
+        )
+        .unwrap();
+        assert_eq!(outcome.data.imported, 2);
+        assert_eq!(outcome.data.duplicates, 2);
+        let counts: Vec<Option<u64>> = outcome
+            .data
+            .artefacts
+            .iter()
+            .map(|artefact| artefact.previous_import_count)
+            .collect();
+        assert_eq!(counts, vec![None, None, Some(1), Some(2)]);
+        let first = &outcome.data.artefacts[0];
+        for later in &outcome.data.artefacts[2..] {
+            assert_eq!(later.digest, first.digest);
+            assert!(later.first_imported_at.is_some());
+        }
+        let events = fs::read_dir(root.path().join(IMPORTS_DIR)).unwrap().count();
+        assert_eq!(events, 4, "each input records its own event");
+    }
+
+    #[test]
+    fn a_history_read_once_reports_what_a_read_per_input_reported() {
+        let (root, inputs) = archive_with(&[("a.txt", b"same"), ("b.txt", b"same")]);
+        import(root.path(), &[inputs.path().join("a.txt")]).unwrap();
+        import(root.path(), &[inputs.path().join("b.txt")]).unwrap();
+        let outcome = import(root.path(), &[inputs.path().join("a.txt")]).unwrap();
+        let artefact = &outcome.data.artefacts[0];
+        let indexed = stored_histories(root.path());
+        let history = indexed.get(&artefact.digest).unwrap();
+        assert_eq!(artefact.previous_import_count, Some(2));
+        assert_eq!(history.count, 3, "the third event is stored as well");
+        assert_eq!(artefact.first_imported_at, history.first_imported_at);
     }
 
     #[test]

@@ -190,6 +190,10 @@ jobs:
           fi
           "$binary" --version
           "$binary" capabilities --json
+      # The staging and its layout check live in scripts/package-release.sh,
+      # which the CI test job calls as well, so the layout a release ships is
+      # exercised on every pull request and not only on a tag. The completion
+      # scripts and the man page it stages come from the binary built above.
       - name: Stage the archive contents
         shell: bash
         env:
@@ -198,15 +202,9 @@ jobs:
         run: |
           set -euo pipefail
           name="openpapir-${VERSION}-${TARGET}"
-          staging="staging/${name}"
-          mkdir -p "$staging" dist
-          binary="target/${TARGET}/release/openpapir"
-          if [ -f "${binary}.exe" ]; then
-            cp "${binary}.exe" "${staging}/openpapir.exe"
-          else
-            cp "$binary" "${staging}/openpapir"
-          fi
-          cp LICENSE README.md CHANGELOG.md "$staging"
+          mkdir -p "staging/${name}" dist
+          scripts/package-release.sh \
+            "target/${TARGET}/release/openpapir" "staging/${name}"
           echo "ARCHIVE_NAME=${name}" >> "$GITHUB_ENV"
       # The checksum file is written next to the archive in the format
       # `sha256sum --check` reads, and is verified here as well as in the
@@ -332,6 +330,10 @@ jobs:
             cat dist/*.sha256
             echo '```'
             echo
+            echo "What each archive holds:"
+            echo
+            scripts/package-release.sh --describe
+            echo
             if [ -s notes.md ]; then
               echo "The notes a release would carry, from the Unreleased section:"
               echo
@@ -364,15 +366,25 @@ jobs:
           pattern: openpapir-*
           merge-multiple: true
       # The release notes are the CHANGELOG section for this version, copied
-      # verbatim by the same script the verify job above runs. A version with
-      # no section, or an empty one, is a release nobody described, so the run
+      # verbatim by the same script the verify job above runs, followed by one
+      # fixed section that names what an archive holds. A version with no
+      # section, or an empty one, is a release nobody described, so the run
       # fails here rather than publishing an empty note.
-      - name: Extract the changelog section
+      #
+      # The artefact listing is printed by the packaging script itself, so the
+      # release cannot name a layout other than the one that was staged.
+      - name: Extract the changelog section and list the artefacts
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           set -euo pipefail
           python3 scripts/release-notes.py "$VERSION" > notes.md
+          {
+            echo
+            echo "### The artefacts"
+            echo
+            scripts/package-release.sh --describe
+          } >> notes.md
           cat notes.md
       # Public repositories on GitHub-hosted runners can attest a build, so
       # every archive and checksum file carries provenance.
