@@ -2,7 +2,7 @@
 
 use openpapir_core::{Case, CaseCreated, CaseList, CaseUpdated, CaseView};
 
-use super::{RECORD_DISCLAIMER, submission_lines};
+use super::{RECORD_DISCLAIMER, derived_lines, submission_lines};
 
 /// The lines describing one case, without its submissions.
 ///
@@ -93,6 +93,7 @@ pub fn case_shown(view: &CaseView) -> Vec<String> {
             lines.push(format!("names submission {submission_id}"));
         }
     }
+    lines.extend(derived_lines(&view.derived));
     lines.push(RECORD_DISCLAIMER.to_owned());
     lines
 }
@@ -175,6 +176,7 @@ mod tests {
         without_date.artefacts.clear();
         let text = case_shown(&CaseView {
             case: case(),
+            derived: Vec::new(),
             receipts: Vec::new(),
             submissions: vec![without_date],
             submission_count: 1,
@@ -195,6 +197,7 @@ mod tests {
         const ASSOCIATION_ID: &str = "1111000fffeeeeddddccccbbbbaaaa00";
         let text = case_shown(&CaseView {
             case: case(),
+            derived: Vec::new(),
             receipts: vec![openpapir_core::CaseReceipt {
                 association_id: ASSOCIATION_ID.to_owned(),
                 outcome: "candidate".to_owned(),

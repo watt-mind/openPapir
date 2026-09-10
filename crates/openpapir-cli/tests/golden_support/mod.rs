@@ -482,6 +482,15 @@ pub fn damage_one_object(world: &World) {
     permissions(&path, 0o400);
 }
 
+/// Compute the derived metadata of every stored object, so the cases that
+/// pin the additive fields have records to show.
+///
+/// The three synthetic payloads are all plain text, so the media type every
+/// record carries is `text` and the byte lengths are the pinned ones.
+pub fn derive_metadata(world: &World) {
+    world.json(&world.command(&["archive", "derive"]));
+}
+
 /// Widen one layout directory, so the permission repair has work to report.
 pub fn widen_one_directory(world: &World) {
     permissions(&world.archive.join("records/cases"), 0o750);

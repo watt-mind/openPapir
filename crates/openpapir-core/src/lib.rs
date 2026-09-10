@@ -9,9 +9,10 @@
 //! user-asserted association records, the read-only whole-archive
 //! integrity check, the read-only summary and its receipt-retrieval
 //! reminders, the export of one case or of a whole archive, the import of
-//! either export back into an archive, and the permission repair that
-//! restoring an export or a backup needs. Derived metadata and verification
-//! results are designed in `docs/archive-layout.md` and are not implemented.
+//! either export back into an archive, the permission repair that restoring
+//! an export or a backup needs, and the derived-metadata records `derive`
+//! computes on request. Verification results are designed in
+//! `docs/archive-layout.md` and are not implemented.
 //!
 //! # Status
 //!
@@ -23,16 +24,19 @@
 //! Everything else in the design stays a plan: no editing of a stored record
 //! other than the case record `case.update` rewrites, no deletion of a single
 //! submission or receipt, no deletion of an
-//! archive, no automatic matching, no derived
-//! metadata, no receipt parsing, and no verification of any kind. An export
+//! archive, no automatic matching, no receipt parsing, and no verification of
+//! any kind. Derived metadata is the media type and the byte length of a
+//! stored object, computed only when `derive` is asked for it, disposable,
+//! and never authoritative. An export
 //! copies the bytes the archive already holds and changes nothing inside it,
 //! the permission repair only narrows, and a deletion removes an object only
 //! on an explicit purge. The integrity check re-digests
 //! stored bytes, which is a storage-layer identity check and never a
 //! cryptographic verification. Every record here is the user's own local organisation:
-//! openPapir sends nothing and reads no artefact bytes, so a submission, a
-//! receipt, and an association are all user-asserted and assert no delivery,
-//! receipt by an authority, authenticity, or legal effect.
+//! openPapir sends nothing, and reads artefact bytes only to re-digest, to
+//! copy, and to name a media type, so a submission, a receipt, and an
+//! association are all user-asserted and assert no delivery, receipt by an
+//! authority, authenticity, or legal effect.
 //!
 //! # Capabilities contract
 //!
@@ -56,6 +60,7 @@
 pub mod archive;
 pub mod clock;
 pub mod deletion;
+pub mod derived;
 pub mod error;
 pub mod export;
 pub mod ident;
@@ -66,6 +71,7 @@ pub mod status;
 pub use archive::import::{Artefact, Imported, ImportedIntoCase, import, import_into_case};
 pub use archive::{Created, init, repair_permissions};
 pub use deletion::{Deleted, RemovedRecords, RetainedObjects, delete};
+pub use derived::{Derived, MediaCount, derive};
 pub use error::{Diagnostic, Failure, Outcome, Warning};
 pub use export::repair::Repaired;
 pub use export::restore::{ArchiveRestored, Restored, import_archive, import_case};
@@ -79,6 +85,7 @@ pub use records::case::{
     Case, CaseCreated, CaseList, CaseReceipt, CaseUpdated, CaseView, Filter as CaseFilter,
     Status as CaseStatus,
 };
+pub use records::derived::{DerivedFacts, DerivedMetadata};
 pub use records::receipt::{Receipt, ReceiptAdded, ReceiptList, ReceiptView};
 pub use records::submission::{ArtefactRef, FileRef, Submission, SubmissionAdded, SubmissionView};
 
@@ -113,6 +120,7 @@ const OPERATIONS: &[&str] = &[
     "manpage",
     "archive.export",
     "archive.import",
+    "archive.derive",
 ];
 
 /// The closed set of implementation stages `capabilities` may report, in
@@ -208,7 +216,8 @@ mod tests {
                 "completions",
                 "manpage",
                 "archive.export",
-                "archive.import"
+                "archive.import",
+                "archive.derive"
             ]
         );
         assert_eq!(reported.project, "openPapir");

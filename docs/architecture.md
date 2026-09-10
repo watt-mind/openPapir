@@ -18,7 +18,7 @@ The Rust edition 2024 workspace has an MSRV of 1.88 and two unpublished crates:
 
 | Crate | Current responsibility |
 | --- | --- |
-| `openpapir-core` | The local archive: marker, artefact store, atomic writes, single-writer lock, input caps, path safety, import-event records, the case, submission, receipt, and association records, the read-only whole-archive integrity check, the read-only summary and its receipt-retrieval reminders, the export of one case or of a whole archive, the import of either export back into an archive, the permission repair, and the deletion of one case with its explicit purge. |
+| `openpapir-core` | The local archive: marker, artefact store, atomic writes, single-writer lock, input caps, path safety, import-event records, the case, submission, receipt, and association records, the read-only whole-archive integrity check, the read-only summary and its receipt-retrieval reminders, the export of one case or of a whole archive, the import of either export back into an archive, the permission repair, the deletion of one case with its explicit purge, and the derived-metadata records `archive derive` computes on request. |
 | `openpapir-cli` | Argument parsing, the response envelope, and the exit-code mapping. |
 
 Only these invocations are supported. `openpapir --help`,
@@ -54,6 +54,7 @@ naming a count that would go stale.
 | `archive.repair_permissions` | `openpapir archive repair-permissions --archive <root> [--json]` |
 | `archive.export` | `openpapir archive export --archive <root> --to <dir> [--json]` |
 | `archive.import` | `openpapir archive import --archive <root> --from <dir> [--json]` |
+| `archive.derive` | `openpapir archive derive --archive <root> [--json]` |
 | `case.delete` | `openpapir case delete --archive <root> --case <case-id> [--purge] [--json]` |
 | `skill` | `openpapir skill` |
 | `completions` | `openpapir completions <bash\|zsh\|fish\|powershell\|elvish>` |
@@ -88,14 +89,15 @@ The operations `capabilities` reports are the ones enumerated in
 authoritative list. Everything else in
 [local archive layout and storage design](archive-layout.md) and
 [import error, JSON, and exit-code contract](error-contract.md) remains a
-design: no derived-metadata or verification records; no automatic matching, no
+design: no verification records; no automatic matching, no
 receipt parsing, and no editing of a stored
 record other than the case record `case.update` rewrites, no
 deletion of a single submission or receipt, deletion of an archive, or
 migration. openPapir reads artefact bytes only to re-digest a stored object
-during the integrity check, to copy one out during an export, and to store one
-back during an import, and never to form an opinion about what an artefact
-says, so an association is only ever the user's own assertion.
+during the integrity check, to copy one out during an export, to store one
+back during an import, and to read the leading bytes `archive derive` names a
+media type from, and never to form an opinion about what an artefact says, so
+an association is only ever the user's own assertion.
 
 ## The response envelope
 
@@ -168,7 +170,8 @@ operations:
       "completions",
       "manpage",
       "archive.export",
-      "archive.import"
+      "archive.import",
+      "archive.derive"
     ]
   },
   "verified": false
@@ -493,9 +496,10 @@ and no path.
 
 `openpapir case show --archive <root> <case-id>` reads one case and the
 submissions that name it. `data` holds `case`, `submissions` ordered by
-identifier, `submission_count`, and `receipts`. The human form prints the
-case's status
-and tags, and its `updated_at` once there is one. An identifier that names no
+identifier, `submission_count`, `receipts`, and `derived`, one entry per
+artefact those submissions name that has a derived-metadata record, ordered by
+digest. The human form prints the case's status and tags, and its `updated_at`
+once there is one. An identifier that names no
 case, and one
 that is not 32 lowercase hexadecimal characters, are both `record.not_found`,
 naming the kind and how it was referenced and never the value the user
@@ -549,11 +553,23 @@ openPapir matched nothing to build it.
         "stated_date": "2026-01-13"
       }
     ],
-    "submission_count": 1
+    "submission_count": 1,
+    "derived": [
+      {
+        "artefact_digest": "sha256:a002fd0595c559505437ce754971d911b703373addf2b59e425ec057d631614f",
+        "byte_length": 27,
+        "media_type": "text"
+      }
+    ]
   },
   "verified": false
 }
 ```
+
+`derived` is empty until `archive derive` has been run, and an artefact
+without a record contributes no entry. Nothing about a submission, a receipt,
+or an association follows from a media type: it is openPapir's own disposable
+computation over leading bytes.
 
 ## `case update`
 
@@ -725,7 +741,11 @@ user said.
 ## `receipt list`
 
 `openpapir receipt list --archive <root>` reads every receipt record. It takes
-no lock. `data` holds `receipts`, ordered by identifier, and `count`. An
+no lock. `data` holds `receipts`, ordered by identifier, `count`, and
+`derived`, one entry per artefact those receipts name that has a
+derived-metadata record, ordered by digest. A media type there says what the
+leading bytes look like and never that an artefact is a receipt: the receipt
+stays the user's own assertion exactly as it was. An
 archive with no receipt is not an error: `receipts` is empty, `count` is `0`,
 and the exit code is `0`. Beyond the shared refusals it emits nothing of its
 own, and `data` carries the user's own labels and the digests of stored
@@ -749,7 +769,8 @@ single line, at most 512 bytes.
 
 Every evidence entry this build writes carries `kind` `user_assertion` and
 `source` `user`, and every record carries `created_by` `user`. Automatic
-matching, derived metadata, and receipt parsing do not exist, so no other
+matching and receipt parsing do not exist, and the derived metadata that does
+exist is a media type and a byte length that nothing reads back, so no other
 value could be recorded honestly.
 
 Association records are append-only. `--supersedes` names an earlier
@@ -964,6 +985,12 @@ holds, never with their size.
 | A stored object that no import event, receipt, or submission references. | `integrity.orphan_object` |
 | A record document that cannot be read as a record of its kind. | `record.malformed` |
 | A symbolic link, or any other non-regular file, inside `objects/`. | `path.symlink` |
+
+`data` also carries `derived_records`, how many derived-metadata records the
+archive holds. A derived record is openPapir's own disposable computation
+about a stored object, so a missing one is nothing at all rather than a
+problem, one that cannot be read is not counted and is not damage either, and
+neither ever changes the exit code.
 
 `data` is the whole-archive integrity report of
 [error-contract](error-contract.md): counts and stable codes only. It never
@@ -1804,6 +1831,85 @@ On a platform without permission bits nothing is changed and every count is
 `0`. Owner-only access there is an access-control list, which the envelope
 reports as the `platform.owner_only_via_acl` warning, exactly as every other
 command reports it.
+
+## `archive derive`
+
+`openpapir archive derive --archive <root>` computes one derived-metadata
+record for every object the artefact store holds. It is the only invocation
+that writes, replaces, or removes such a record: nothing recomputes on its
+own, no background work exists, and an archive nobody has derived is a
+complete archive ([archive-layout](archive-layout.md)).
+
+It writes, so it takes the writer lock for the whole walk. Each object is
+opened once, with the platform's no-follow flag. The byte length comes from
+that handle, and at most 4 KiB are read from it to decide the media type, so
+the cost of the operation grows with the number of objects and never with
+their size. An object larger than the single-file cap, one that is not a
+regular file, and one that cannot be opened are counted as unchecked and get
+no record, exactly as the integrity check leaves such an object undigested;
+neither is asserted to be damaged.
+
+The media type is one value of a closed table, decided from the leading bytes
+by a hand-written signature list and no dependency at all.
+
+| Value | What the leading bytes are |
+| --- | --- |
+| `pdf` | `%PDF-` |
+| `png` | The PNG signature. |
+| `jpeg` | The JPEG start-of-image marker. |
+| `zip` | A zip local-file header, empty-archive record, or spanned marker. |
+| `xml` | An XML declaration, after an optional byte-order mark. |
+| `text` | UTF-8 with no control character but tab, line feed, and carriage return. |
+| `unknown` | Anything else, an empty object included. |
+
+The table stops at `zip`. A container such as an `.asice` or a `.krx` package
+is zip-family bytes, and openPapir does not tell one from another: reading a
+container to say which it is belongs to openKRX and openSzigno, and refining
+the value from the original filename's extension would put a user-supplied
+name into a stored record for no gain. A media type is a statement about
+leading bytes. It is never a verification, never evidence, and never a reason
+to treat an artefact as a receipt.
+
+Deriving again recomputes every record in place: the publish step replaces one
+whole document with another, so a reader sees the old one or the new one and
+never a partial file. A record naming an object the archive no longer holds is
+removed, because a derived record describes the store as it is now.
+
+`data` holds `objects_checked`, `objects_unchecked`, `records_written`,
+`records_removed`, `bytes_sniffed`, and `media_types`, one entry per value of
+the closed table with a `count`, including the values this archive holds none
+of, ordered by value. It is counts only: no path, no original filename, and no
+digest of any particular object reaches the output.
+
+```json
+{
+  "schema_version": 1,
+  "ok": true,
+  "command": "archive.derive",
+  "data": {
+    "bytes_sniffed": 77,
+    "media_types": [
+      { "count": 0, "media_type": "jpeg" },
+      { "count": 0, "media_type": "pdf" },
+      { "count": 0, "media_type": "png" },
+      { "count": 3, "media_type": "text" },
+      { "count": 0, "media_type": "unknown" },
+      { "count": 0, "media_type": "xml" },
+      { "count": 0, "media_type": "zip" }
+    ],
+    "objects_checked": 3,
+    "objects_unchecked": 0,
+    "records_removed": 0,
+    "records_written": 3
+  },
+  "verified": false
+}
+```
+
+Beyond the shared refusals of a writing command it emits nothing of its own.
+A purge that removes an object leaves that object's derived record behind
+until the next `archive derive` discards it, which is the one place the
+derived directory is maintained.
 
 ## `case delete`
 
@@ -2656,9 +2762,11 @@ Receipt states must remain independently expressible:
 The first two are implemented, and each asserts nothing beyond itself. The
 integrity check re-digests stored bytes, which is a storage-layer identity
 check and never the third state. An
-association is the user's own statement: openPapir reads no artefact bytes, so
-automatic matching and derived metadata remain design requirements with no
-code behind them. Verification has no code behind it at all. An association
+association is the user's own statement: openPapir forms no opinion about what
+an artefact says, so automatic matching remains a design requirement with no
+code behind it, and the derived metadata that exists is a media type and a
+byte length that no record and no command reads back. Verification has no code
+behind it at all. An association
 cannot imply authenticity, successful delivery, or legal effect. Delegated
 verification must identify the attachment or receipt covered, the verifier, and
 its trust context.

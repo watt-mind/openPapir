@@ -107,15 +107,17 @@ impl Staging {
     /// Put the staged file at `destination`, replacing the document there.
     ///
     /// This is the one publish step that may replace a file. It is
-    /// `pub(crate)` and its only caller is `records::document::replace_record`,
-    /// which is itself bound to the kinds declared rewritable, so nothing
-    /// outside this crate can replace a stored document and nothing inside it
-    /// can replace one of an append-only kind. The case record is the kind
-    /// `docs/archive-layout.md` singles out. The step is a rename rather than
-    /// the link the never-overwrite publish uses, because a rename is the
-    /// only way to put one whole document where another one is without a
-    /// moment in which the path holds neither. A reader therefore sees the
-    /// old document or the new one and never a partial file.
+    /// `pub(crate)` and has two callers: `records::document::replace_record`,
+    /// which is bound to the kinds declared rewritable, and
+    /// `records::derived::write_derived`, which replaces a derived-metadata
+    /// record because that record is disposable and referenced by nothing.
+    /// Nothing outside this crate can replace a stored document and nothing
+    /// inside it can replace one of an append-only kind. The case record is
+    /// the kind `docs/archive-layout.md` singles out. The step is a rename
+    /// rather than the link the never-overwrite publish uses, because a
+    /// rename is the only way to put one whole document where another one is
+    /// without a moment in which the path holds neither. A reader therefore
+    /// sees the old document or the new one and never a partial file.
     ///
     /// The destination is still refused when it is a symbolic link, and the
     /// rename still stays inside the archive root, so neither the no-follow

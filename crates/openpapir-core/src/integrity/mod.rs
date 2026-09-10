@@ -85,6 +85,12 @@ pub struct Problem {
 pub struct Report {
     /// How many bytes were streamed through the digest.
     pub bytes_digested: u64,
+    /// How many derived-metadata records the archive holds. A derived record
+    /// is openPapir's own disposable computation about a stored object, so a
+    /// missing one is nothing at all rather than a problem, and one that
+    /// cannot be read is not counted and is not damage either. The count says
+    /// how much of `archive derive`'s work is on disk and nothing more.
+    pub derived_records: u64,
     /// How many object entries were examined.
     pub objects_checked: u64,
     /// How many objects no import event, receipt, or submission references.
@@ -278,6 +284,7 @@ fn run(root: &Path) -> Report {
 
     Report {
         bytes_digested: store.bytes_digested,
+        derived_records: crate::records::derived::count(root),
         objects_checked: store.objects_checked,
         orphan_objects: counts.orphan,
         objects_unchecked: store.objects_unchecked,

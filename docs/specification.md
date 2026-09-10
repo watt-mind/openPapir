@@ -77,6 +77,7 @@ and man page. These invocations exist and nothing else:
 | `openpapir archive repair-permissions --archive <root> [--json]` | Narrows every path in the archive back to owner-only and reports the counts it changed. It only ever narrows. |
 | `openpapir archive export --archive <root> --to <dir> [--json]` | Copies the whole archive in the export shape: every object byte for byte, every record of every kind as JSON, one manifest, and the archive marker beside it. It changes nothing in the archive. |
 | `openpapir archive import --archive <root> --from <dir> [--json]` | Reads a directory `archive export` wrote back into an archive, restoring every case in it as one set, checked against the manifest before anything is written. |
+| `openpapir archive derive --archive <root> [--json]` | Computes one derived-metadata record per stored object: its byte length, and a media type from a closed table decided by the leading bytes. It reads at most 4 KiB of each object, recomputes only when asked, and the records are disposable and never authoritative. |
 | `openpapir case delete --archive <root> --case <case-id> [--purge] [--json]` | Deletes one case and its submissions, with the receipts and association histories tied only to them. Objects go only with `--purge`, and only when nothing that remains references them. |
 | `openpapir skill` | Writes the embedded agent skill document to stdout, byte for byte and with nothing added. It takes no file and no `--json`, touches no archive, and exits `0`. |
 | `openpapir completions <bash\|zsh\|fish\|powershell\|elvish>` | Writes one shell's completion script to stdout, generated from the command definition the parser uses. It takes no file and no `--json`, touches no archive, and exits `0`. |
@@ -98,18 +99,21 @@ to a submission, with one of the four outcomes `unassociated`, `candidate`,
 `associated`, and `contradictory`, an ordinal confidence, and append-only
 supersession.
 
-Automatic matching and derived metadata remain unimplemented, and so does
-every extractor: openPapir reads artefact bytes only to re-digest a stored
-object during the integrity check and never to form an opinion of its own, so
-every association carries `created_by` `user`. The integrity check is
+Automatic matching remains unimplemented, and so does every extractor that
+would read what an artefact says: openPapir reads artefact bytes to re-digest
+a stored object during the integrity check and to name a media type from the
+leading bytes during `archive derive`, and never to form an opinion of its
+own, so every association carries `created_by` `user`. A derived-metadata
+record is a media type and a byte length, computed only on request,
+disposable, and never authoritative. The integrity check is
 read-only: it repairs nothing, removes nothing, and a passing check is
 storage integrity rather than authenticity.
 
 Deletion is the one destructive operation, and it is explicit twice over: it
 names one case, and it removes an object only when `--purge` says so. It
 unlinks files openPapir created, reports counts and record kinds, persists no
-summary, and does not erase data from the storage medium. No derived-metadata
-or verification record exists, and there is no editing of a stored record
+summary, and does not erase data from the storage medium. No verification record
+exists, and there is no editing of a stored record
 other than the case record `case update` rewrites, no
 deletion of a single submission or receipt, no deletion of an archive, and no
 migration, receipt parsing, signature verification, or government delivery. An
@@ -128,7 +132,7 @@ it. Nothing that is still only decided changes the capabilities output.
 | Document | What it decides | What of it is still only decided |
 | --- | --- | --- |
 | [receipt evidence and local case model decisions](receipt-discovery.md) | What authoritative public sources actually state about one candidate receipt type, the smallest useful local case model, and which questions stay open. | All of it. No receipt is parsed and no finding of that note has code behind it. |
-| [local archive layout and storage design](archive-layout.md) | The storage technology, the on-disk layout, the record shapes, the deletion, permission, and atomic-write semantics of the local archive, and the encrypted backup: the backup artefact only, a standard AEAD container over a tarball of the export shape, a passphrase-derived key with a memory-hard KDF, and no key stored by openPapir. | Derived-metadata and verification records, the rebuildable `cache/` index, schema migration, and the encrypted backup, whose remaining open point is the dependency review that admits a container crate. |
+| [local archive layout and storage design](archive-layout.md) | The storage technology, the on-disk layout, the record shapes, the deletion, permission, and atomic-write semantics of the local archive, and the encrypted backup: the backup artefact only, a standard AEAD container over a tarball of the export shape, a passphrase-derived key with a memory-hard KDF, and no key stored by openPapir. | Verification records, everything a derived record could hold beyond a media type and a byte length, the rebuildable `cache/` index, schema migration, and the encrypted backup, whose remaining open point is the dependency review that admits a container crate. |
 | [import and association error, JSON, and exit-code contract](error-contract.md) | How a command extends the JSON envelope with an error object and warnings, the stable error-code catalogue, and the exit-code mapping. | The reserved codes `lock.stale`, `path.traversal`, and `write.incomplete`, and every automatic or derived evidence shape. |
 
 The archive, record, error, integrity, export, import, permission-repair, and
@@ -175,7 +179,8 @@ archive into a usable local organiser: restoring from an export, case
 lifecycle and search, the receipt-retrieval reminder, the entangled-deletion
 remedy, generative testing, a release pipeline and a Windows-target lint,
 shell completions and man pages, an end-to-end user guide, a whole-archive
-export, derived metadata on explicit request, and encrypted backup at rest.
+export, derived metadata on explicit request, which is implemented as
+`archive derive`, and encrypted backup at rest.
 Each item there is marked implemented or planned, and those markers are the
 current state of that milestone; "Implemented today" above is what the
 executable does now. Receipt parsing, KRX package import, delegated

@@ -1,0 +1,5 @@
+1 receipt(s) in this archive.
+<id> <time> sha256:<digest>
+Derived metadata for 1 artefact(s), computed by openPapir and asserting nothing about any file:
+sha256:<digest> text 23 byte(s)
+These are the user's own assertions. openPapir checked nothing about the file and reports no delivery, authenticity, or legal effect.
