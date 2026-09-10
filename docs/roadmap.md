@@ -83,10 +83,12 @@ page's last update.
   reporting a duplicate rather than overwriting it, gated on the export layout
   in [local archive layout and storage design](archive-layout.md) staying the
   written contract: implemented.
-- Case lifecycle and search (`case update` and `case list` filters) let a case
-  change the fields its record already carries and let the list narrow by
-  them, gated on those fields and their write stages being the ones
+- Case lifecycle and search (`case update`, the `case list` filters, and
+  `search`) let a case change the fields its record already carries, let the
+  list narrow by them, and let one word find any record the user typed it
+  into, gated on those fields and their write stages being the ones
   [architecture and CLI contract](architecture.md) documents: implemented.
+  `search` reads the user's own record text only, and no index is stored.
 - The receipt-retrieval reminder (`archive status`) summarises what the
   archive holds and lists the submissions that carry a user-supplied date and
   that no live association names as associated or a candidate, each with the

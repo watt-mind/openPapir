@@ -56,6 +56,10 @@ const IMPORT_CEILING: Duration = Duration::from_secs(10);
 /// Files in the timed import, which is the per-import file cap itself.
 const IMPORT_BATCH: usize = 1_000;
 
+/// A search reads every record of all four kinds rather than one kind, so it
+/// reads four times what a listing reads and is given its own ceiling.
+const SEARCH_CEILING: Duration = Duration::from_secs(10);
+
 /// The exit code of the usage bucket, which an unimplemented subcommand is.
 const USAGE_EXIT: i32 = 2;
 
@@ -106,6 +110,19 @@ fn the_linear_scans_stay_under_their_documented_ceilings() {
             "archive check",
             CHECK_CEILING,
             &["archive", "check", "--archive", &root, "--json"],
+        ),
+        // `search` reads every case, submission, receipt, and association the
+        // archive holds, so it is the widest scan a reader can ask for.
+        measure(
+            "search",
+            SEARCH_CEILING,
+            &[
+                "search",
+                "--archive",
+                &root,
+                bench_support::QUERY_WORD,
+                "--json",
+            ],
         ),
     ];
     if let Some(status) = optional(
@@ -160,6 +177,11 @@ fn the_linear_scans_stay_under_their_documented_ceilings() {
         reported_count(&measurements[1]),
         cases.div_ceil(bench_support::QUERY_ONE_IN) as u64,
         "the query matched a different share of the archive than it filed"
+    );
+    assert_eq!(
+        reported_count(&measurements[4]),
+        cases.div_ceil(bench_support::QUERY_ONE_IN) as u64,
+        "the search matched a different share of the archive than it filed"
     );
     assert_eq!(
         reported_receipts(&measurements[2]),

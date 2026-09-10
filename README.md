@@ -12,8 +12,9 @@ a whole archive against what its records claim without changing anything,
 copies one case, or a whole archive, out as plain files and reads such a copy
 back in, keeps a case record current, narrows a restored archive's permissions back
 to owner-only, deletes a case when asked, removing stored bytes only on an
-explicit `--purge`, writes the agent skill document it carries, and generates
-its own shell completions and man page. Automatic matching, receipt parsing,
+explicit `--purge`, searches the user's own record text, writes the agent
+skill document it carries, and generates its own shell completions and man
+page. Automatic matching, receipt parsing,
 KRX and `.es3` handling, editing of a stored record other than the case record
 `case update` rewrites, deleting a single submission or receipt, deleting an
 archive, signature verification, and government delivery are not implemented.
@@ -58,6 +59,7 @@ cargo run --locked -p openpapir-cli -- case delete --archive ./my-archive --case
 cargo run --locked -p openpapir-cli -- skill
 cargo run --locked -p openpapir-cli -- completions bash
 cargo run --locked -p openpapir-cli -- manpage
+cargo run --locked -p openpapir-cli -- search --archive ./my-archive "tax" --json
 ```
 
 The capabilities command reports the current implementation honestly:
@@ -97,7 +99,8 @@ The capabilities command reports the current implementation honestly:
       "manpage",
       "archive.export",
       "archive.import",
-      "archive.derive"
+      "archive.derive",
+      "search"
     ]
   },
   "verified": false
@@ -105,7 +108,7 @@ The capabilities command reports the current implementation honestly:
 ```
 
 The operation list names exactly what is implemented today, one sentence
-each. All but the last three can process input:
+each. All but `skill`, `completions`, and `manpage` can process input:
 
 - `archive init` creates an archive in an existing, empty directory, writing
   the marker first and refusing to adopt anything else.
@@ -190,6 +193,11 @@ each. All but the last three can process input:
   roff stream: the page for `openpapir` first, then one page for each
   subcommand. Both are generated from the same command definition the parser
   uses, take no file and no `--json`, and touch no archive.
+- `search` reports where a word is in the user's own record text: case titles,
+  notes, and tags, submission descriptions, receipt labels, an association's
+  own statement, and the record identifiers. It reads no stored object, no
+  original filename, and nothing derived, and a hit names the field it matched
+  rather than repeating the text.
 
 Every record is the user's own local record: openPapir sends nothing and forms
 no opinion of its own about what an artefact says, so a submission is what the
@@ -207,7 +215,7 @@ exit codes, is in [architecture and CLI contract](docs/architecture.md).
 | --- | --- |
 | Preserve original submission and receipt bytes in a local case archive. | Implemented by `import` and the write-once artefact store. |
 | Associate submissions, attachments, and receipts with explicit provenance. | Implemented for the user's own assertions; automatic matching and receipt parsing are not implemented, and the only derived metadata is the media type and the byte length `archive derive` computes on request. |
-| Expose case information through a CLI and structured JSON. | Implemented by the list, show, and export commands; search is not implemented. |
+| Expose case information through a CLI and structured JSON. | Implemented by the list, show, export, and `search` commands; `search` reads the user's own record text only. |
 | Delegate KRX container processing to [openKRX](https://github.com/watt-mind/openKRX) and `.es3` processing to [openSzigno](https://github.com/watt-mind/openSzigno). | Not implemented. Neither sibling project is a build dependency of this project, and neither parser is copied into it. |
 | Delegated authenticity verification, reported with its exact scope and trust context. | Not implemented. No cryptographic check of any kind exists here. |
 | Government submission and delivery. | Not implemented and out of scope for now. |

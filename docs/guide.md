@@ -358,7 +358,55 @@ $ openpapir case list --archive ./archive --status open
 Cases and submissions are the user's own local records. Nothing here is verified, matched, or delivered.
 ```
 
-## 10. Check the archive
+## 10. Find a record by a word you wrote
+
+`search` looks for text in your own records: case titles, notes, and tags,
+submission descriptions, receipt labels, and the reason on a withdrawn
+assertion, together with the identifiers openPapir minted. It reads no stored
+file, no imported filename, and nothing openPapir derived, so it finds only
+what you typed. It takes no lock and changes nothing.
+
+```console
+$ openpapir search --archive ./archive roof
+case fb3a8eeb2968c64b22aab6c4d1223011 notes
+case fb3a8eeb2968c64b22aab6c4d1223011 title
+submission e3f278b2b94d7c36b782a4efb33d283f description (case fb3a8eeb2968c64b22aab6c4d1223011)
+3 hit(s) in the record kind(s) read: association, case, receipt, submission.
+Search reads the user's own record text and the identifiers openPapir minted, never a stored object, an original filename, or anything derived.
+```
+
+A line names the record kind, the record's identifier, the case it belongs to
+when it belongs to one, and the field that matched. It never repeats the text
+that matched, so open the record itself with `case show`, `submission show`,
+`receipt show`, or `association show` to read it. One record that matched in
+two fields is two lines, as the case above is.
+
+`--kind` narrows what is read and may be repeated:
+
+```console
+$ openpapir search --archive ./archive storage --kind receipt
+receipt 7099e121dd744f3f2eeb855cc8480725 label
+receipt a70c8badfbd952836ba6012dcb0feb49 label
+2 hit(s) in the record kind(s) read: receipt.
+Search reads the user's own record text and the identifiers openPapir minted, never a stored object, an original filename, or anything derived.
+```
+
+The reason you gave when you withdrew an assertion is your own text too:
+
+```console
+$ openpapir search --archive ./archive different
+association 7e5fdf00ca4b528daaf06ac9be6adbab statement
+1 hit(s) in the record kind(s) read: association, case, receipt, submission.
+Search reads the user's own record text and the identifiers openPapir minted, never a stored object, an original filename, or anything derived.
+```
+
+The match ignores case on both sides, exactly as `case list --query` does, and
+the query is never echoed back. A query that matches nothing is a success with
+a count of `0` rather than a refusal. There is no index: the search reads every
+record of every kind it was asked for, so its cost grows with what the archive
+holds.
+
+## 11. Check the archive
 
 `archive check` re-digests what the store holds and compares it with what the
 records claim. It takes no lock and changes nothing.
@@ -374,7 +422,7 @@ The check read the archive and changed nothing. A digest identifies bytes only: 
 A passing check means the bytes on disk are the bytes the records name. It is
 storage integrity, never authenticity.
 
-## 11. Export one case
+## 12. Export one case
 
 An export is a plain copy outward: the original bytes named by their digest,
 readable JSON records, and a manifest. The archive is not changed, and every
@@ -401,7 +449,7 @@ records
 
 An export is readable without openPapir, which is the point of it.
 
-## 12. Import the export into a second archive
+## 13. Import the export into a second archive
 
 `case import` reads such a copy back in. The manifest is authoritative: every
 object is re-digested and every record is parsed before the archive is written
@@ -441,7 +489,7 @@ Orphan object(s): 0. Object(s) not digested: 0. Record directory(ies) not read: 
 The check read the archive and changed nothing. A digest identifies bytes only: a passing check is storage integrity, never authenticity, delivery, or legal effect.
 ```
 
-## 13. Back up the archive, then repair permissions
+## 14. Back up the archive, then repair permissions
 
 A backup is a plain copy of the archive root, taken with whatever copy tool you
 already trust. openPapir has no backup command, and no encrypted backup exists
@@ -471,7 +519,7 @@ Permissions are only ever narrowed here; nothing was widened and no content was 
 Nothing needed narrowing in this run, which is what a healthy archive looks
 like.
 
-## 14. Delete a case when it is finished
+## 15. Delete a case when it is finished
 
 Deletion is the one destructive command, and it is explicit twice over: it
 names one case, and it removes stored bytes only when `--purge` says so.
@@ -514,7 +562,7 @@ Deletion unlinked files in this archive. It does not erase data from the storage
 ```
 
 Read the closing line literally: deletion unlinks files, it does not erase data
-from the storage medium, and the backup taken in step 13 is entirely outside
+from the storage medium, and the backup taken in step 14 is entirely outside
 openPapir's reach. Export first if you want the case to survive the deletion.
 
 ```console

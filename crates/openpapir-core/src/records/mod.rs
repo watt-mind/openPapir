@@ -27,12 +27,18 @@
 //! | `role` | 64 bytes | Optional, single line |
 //! | `label` | 200 bytes | Optional, single line |
 //! | `statement` | 512 bytes | Required, single line |
+//! | `query` | 4096 bytes | Required, newlines allowed |
+//!
+//! `query` is not stored: it is the text `search` looks for, bounded by the
+//! same cap as the longest field it reads, because a query longer than that
+//! could match nothing.
 
 pub mod association;
 pub mod case;
 pub mod derived;
 pub mod document;
 pub mod receipt;
+pub mod search;
 pub mod submission;
 
 use std::fs;
@@ -64,6 +70,12 @@ pub const MAX_ROLE_BYTES: u64 = 64;
 pub const MAX_LABEL_BYTES: u64 = 200;
 /// The largest evidence statement, in bytes.
 pub const MAX_STATEMENT_BYTES: u64 = 512;
+/// The largest search query, in bytes.
+///
+/// It is the case-notes cap, which is the longest field a search reads: a
+/// query longer than that could match nothing, so the bound costs no reachable
+/// result and keeps the folded copy of the query small.
+pub const MAX_QUERY_BYTES: u64 = MAX_NOTES_BYTES;
 
 /// The digest form a record may reference.
 pub const DIGEST_PREFIX: &str = "sha256:";
@@ -217,6 +229,19 @@ pub fn checked_label(value: Option<&str>) -> Result<Option<String>, Diagnostic> 
 /// Returns `input.cap.field_length` or `usage.arguments`.
 pub fn checked_statement(value: &str) -> Result<String, Diagnostic> {
     required("statement", value, MAX_STATEMENT_BYTES, Shape::SingleLine)
+}
+
+/// Check a search query: required, newlines allowed, at most 4 KiB.
+///
+/// The query is never stored and never echoed. It is checked here so that
+/// `search` refuses an oversized one the way every other text field is
+/// refused, before the archive is opened.
+///
+/// # Errors
+///
+/// Returns `input.cap.field_length` or `usage.arguments`.
+pub fn checked_query(value: &str) -> Result<String, Diagnostic> {
+    required("query", value, MAX_QUERY_BYTES, Shape::MultiLine)
 }
 
 /// Whether a value is 64 lowercase hexadecimal characters.

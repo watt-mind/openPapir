@@ -18,7 +18,7 @@ The Rust edition 2024 workspace has an MSRV of 1.88 and two unpublished crates:
 
 | Crate | Current responsibility |
 | --- | --- |
-| `openpapir-core` | The local archive: marker, artefact store, atomic writes, single-writer lock, input caps, path safety, import-event records, the case, submission, receipt, and association records, the read-only whole-archive integrity check, the read-only summary and its receipt-retrieval reminders, the export of one case or of a whole archive, the import of either export back into an archive, the permission repair, the deletion of one case with its explicit purge, and the derived-metadata records `archive derive` computes on request. |
+| `openpapir-core` | The local archive: marker, artefact store, atomic writes, single-writer lock, input caps, path safety, import-event records, the case, submission, receipt, and association records, the read-only whole-archive integrity check, the read-only summary and its receipt-retrieval reminders, the export of one case or of a whole archive, the import of either export back into an archive, the permission repair, the deletion of one case with its explicit purge, the derived-metadata records `archive derive` computes on request, and the `search` scan over the user's own record text. |
 | `openpapir-cli` | Argument parsing, the response envelope, and the exit-code mapping. |
 
 Only these invocations are supported. `openpapir --help`,
@@ -59,6 +59,7 @@ naming a count that would go stale.
 | `skill` | `openpapir skill` |
 | `completions` | `openpapir completions <bash\|zsh\|fish\|powershell\|elvish>` |
 | `manpage` | `openpapir manpage` |
+| `search` | `openpapir search --archive <root> <text> [--kind case\|submission\|receipt\|association]... [--json]` |
 
 The sections below take each implemented command in that order, and each
 states its invocation, the shape of its `data`, the codes particular to it,
@@ -171,7 +172,8 @@ operations:
       "manpage",
       "archive.export",
       "archive.import",
-      "archive.derive"
+      "archive.derive",
+      "search"
     ]
   },
   "verified": false
@@ -2262,6 +2264,82 @@ $ openpapir manpage | grep -m1 archive-init
 openpapir\-archive\-init(1)
 ```
 
+## `search`
+
+`openpapir search --archive <root> <text> [--kind <kind>]...` reads the user's
+own records and reports where the text is. It takes no lock, exactly as a
+listing takes none: a reader sees one whole document or another and never a
+partial one. `data` holds `hits`, `count`, and `kinds`.
+
+### What is searched, and what is not
+
+A search reads the text the user typed into their own records and the
+identifiers openPapir minted for them, and nothing else.
+
+| Kind | Fields read |
+| --- | --- |
+| `association` | `id`, `statement` |
+| `case` | `id`, `notes`, `tags`, `title` |
+| `receipt` | `id`, `label` |
+| `submission` | `description`, `id` |
+
+An association's `statement` is the user's own reason for the record, which a
+retirement carries and no other association record has.
+
+Not searched, deliberately: the bytes of any stored object, the original
+filename of an imported file, any artefact digest, any timestamp openPapir
+recorded, any derived-metadata record, a submission's stated date, an artefact
+role, and the evidence statements inside an association's candidates. An
+artefact's content is never read by this command, so a hit says the user wrote
+a word in one of their own records and says nothing at all about what a file
+contains, whether anything was delivered, or whether anything is authentic.
+
+### How it matches and what it reports
+
+The comparison is the one `case list --query` makes: the query and the field
+are folded with `str::to_lowercase`, and a field matches when the folded field
+holds the folded query as a substring. There is **no index**: the search reads
+every record of every kind it was asked for, in one linear scan per kind, so
+its cost grows with what the archive holds.
+
+One hit is reported per record and matched field, so a case whose title and
+notes both hold the text is two hits, while a case whose text is on two of its
+tags is one hit on `tags`. `hits` is ordered by kind, then by identifier, then
+by field name, and `count` is how many hits were reported.
+
+| Field of a hit | Meaning |
+| --- | --- |
+| `case_id` | The case the record belongs to, present only when it belongs to one, which today is a submission. |
+| `field` | The name of the field whose text held the query, never the text itself. |
+| `id` | The record's own identifier. |
+| `kind` | `association`, `case`, `receipt`, or `submission`. |
+
+`--kind` may be repeated and narrows what is read to the kinds named; a
+repeated kind is read once, and all four are read when none is given. `kinds`
+reports what was read, ordered by name. A kind this build does not define is
+`usage.arguments` naming `kind`.
+
+A query longer than the search cap is `input.cap.field_length` naming `query`,
+and an empty or blank query is `usage.arguments` naming `query`. A query that
+matches nothing is not an error: `hits` is empty, `count` is `0`, and the exit
+code is `0`. Beyond that and the shared refusals it emits nothing of its own.
+
+The human form is one line per hit, then the count, then the sentence that
+bounds the answer:
+
+```console
+$ openpapir search --archive ./archive "roof permit"
+case 0755fe8214e8fe193e8b8f0a9d1e0233 title
+submission 0bdcc4ef11ffed4fdfd3f1d79065a667 description (case 0755fe8214e8fe193e8b8f0a9d1e0233)
+2 hit(s) in the record kind(s) read: association, case, receipt, submission.
+Search reads the user's own record text and the identifiers openPapir minted, never a stored object, an original filename, or anything derived.
+```
+
+The query text is the user's own and is never echoed back, in either output
+form, whether it matched anything or not, and neither is the text that
+matched: a hit names the field, so one record's words never appear in an
+answer about another.
+
 ## Storage guarantees
 
 | Guarantee | How it is kept |
@@ -2315,6 +2393,7 @@ environment variable, or configuration relaxes a cap.
 | Evidence statement | 512 bytes | `input.cap.field_length` |
 | Case tag | 64 bytes | `input.cap.tag_length` |
 | Case tags per record | 32 distinct | `input.cap.tag_count` |
+| Search query | 4096 bytes | `input.cap.field_length` |
 
 The caps bind `case import` and `archive import` as they bind `import`, and
 the per-operation cap is the one that binds a restore: an import reads every
@@ -2358,6 +2437,7 @@ associations, and 20000 imported objects of 256 bytes each.
 | `case list --query` | 0.10 s | 5 s |
 | `case show` of one case | 0.37 s | 5 s |
 | `archive check` | 0.80 s | 10 s |
+| `search` | 0.17 s | 10 s |
 | `archive status` | 0.32 s | 5 s |
 | `case export` of one case | 0.27 s | 5 s |
 | `case delete --purge` of one case | 0.41 s | 10 s |

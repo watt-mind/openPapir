@@ -39,7 +39,8 @@ believes to be a receipt, recording the user's own link between the two,
 withdrawing such a link when the user says it no longer stands, reading back
 one submission, receipt, or association with what relates to it,
 keeping a case's own title, notes, status, and tags current, finding a case
-again by status, tag, or a substring of its title or notes, checking storage
+again by status, tag, or a substring of its title or notes, finding any record
+again by a word the user typed into it, checking storage
 integrity, summarising what the archive holds and what is still worth looking
 for, exporting one case, importing such an export back into an archive, and
 deleting one case when the user asks for that by name.
@@ -625,6 +626,52 @@ A media type says what the first bytes look like. It never says a file is a
 receipt, is authentic, was delivered, or has any legal effect. Never report it
 as more than that, and never infer anything about a receipt from it.
 
+### 13. Find a record by a word the user wrote
+
+```sh
+openpapir search --archive ./archive "parking" --json
+openpapir search --archive ./archive "parking" --kind case --kind submission --json
+```
+
+Use this when the user remembers a word but not which case it is in. It takes
+no lock, changes nothing, and reads no artefact byte.
+
+It reads the user's own record text and the identifiers openPapir minted, and
+nothing else:
+
+| Kind | Fields read |
+| --- | --- |
+| `association` | `id`, `statement` |
+| `case` | `id`, `notes`, `tags`, `title` |
+| `receipt` | `id`, `label` |
+| `submission` | `description`, `id` |
+
+It does not read the bytes of any stored object, the original filename of an
+imported file, a digest, a timestamp, a derived-metadata record, a
+submission's stated date, an artefact role, or the evidence statements inside
+an association's candidates. A search therefore finds nothing that the user
+did not type into one of their own records.
+
+The match folds both sides to lower case and looks for the query as a
+substring, exactly as `case list --query` does. There is no index, so it reads
+every record of every kind it was asked for.
+
+`data` holds `hits[]`, `count`, and `kinds[]`. Each hit carries `kind`, `id`,
+`field`, and `case_id` when the record belongs to a case, which today is a
+submission. `hits[]` is ordered by kind, then by identifier, then by field
+name, and one record that matched in two fields is two hits. A hit names the
+field and never the matched text, so open the record with `case show`,
+`submission show`, `receipt show`, or `association show` to read it.
+
+`--kind` may be repeated and narrows what is read; all four kinds are read
+when it is not given. A kind outside the four is `usage.arguments`. The query
+is at most 4096 bytes and may not be empty. A query that matches nothing is a
+success with `count` `0`, not a refusal.
+
+Never report a hit as evidence about what a file contains, as delivery, as
+authenticity, or as legal effect. It says the user wrote a word in one of
+their own records.
+
 ## Hard limits
 
 No flag, environment variable, or configuration relaxes any of these.
@@ -644,6 +691,7 @@ No flag, environment variable, or configuration relaxes any of these.
 | Evidence statement | 512 bytes | `input.cap.field_length` |
 | Case tag | 64 bytes | `input.cap.tag_length` |
 | Case tags per record | 32 distinct | `input.cap.tag_count` |
+| Search query | 4096 bytes | `input.cap.field_length` |
 
 One writer at a time: a second writer refuses with `lock.held` rather than
 waiting, and there is no takeover. Symbolic links inside the archive are
@@ -688,6 +736,8 @@ openpapir case create --archive ROOT --title T [--notes N] [--tag TAG]... \
 openpapir case list --archive ROOT [--status open|closed] [--tag TAG]... \
   [--query TEXT] --json
 openpapir case show --archive ROOT CASE_ID --json
+openpapir search --archive ROOT TEXT \
+  [--kind association|case|receipt|submission]... --json
 openpapir case update --archive ROOT CASE_ID [--title T] \
   [--notes N | --clear-notes] [--status open|closed] [--tag TAG]... \
   [--untag TAG]... --json

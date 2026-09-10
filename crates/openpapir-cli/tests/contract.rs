@@ -32,7 +32,8 @@ fn capabilities_are_honest_and_machine_readable() {
                     "case.delete", "skill", "case.update",
                     "submission.show", "receipt.show", "association.show",
                     "completions", "manpage",
-                    "archive.export", "archive.import", "archive.derive"
+                    "archive.export", "archive.import", "archive.derive",
+                    "search"
                 ]
             },
             "verified": false
@@ -52,7 +53,7 @@ fn human_status_names_only_what_is_implemented() {
         "association.retire, archive.check, archive.status, case.export, ",
         "case.import, archive.repair_permissions, case.delete, skill, case.update, ",
         "submission.show, receipt.show, association.show, completions, manpage, ",
-        "archive.export, archive.import, archive.derive"
+        "archive.export, archive.import, archive.derive, search"
     )));
     assert!(text.contains("Nothing is verified"));
 }

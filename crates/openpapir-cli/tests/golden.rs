@@ -50,6 +50,7 @@ fn cases() -> Vec<Case> {
     cases.extend(transfer_cases());
     cases.extend(record_cases());
     cases.extend(association_cases());
+    cases.extend(search_cases());
     cases
 }
 
@@ -397,6 +398,27 @@ fn record_cases() -> Vec<Case> {
             },
         },
     ]
+}
+
+/// The case that pins a search over the user's own record text.
+///
+/// The world's own text holds the query in one field of each kind once the
+/// live association has been retired, because a statement is what a
+/// retirement carries and no other association record has one. The pinned
+/// output is therefore one hit of every kind, in the order the contract
+/// promises, and the query itself appears nowhere in it.
+fn search_cases() -> Vec<Case> {
+    vec![Case {
+        name: "search",
+        stage: Stage::Associated,
+        second_submission: false,
+        prepare: |world| world.retire_live_association(),
+        arguments: |world| {
+            let mut arguments = world.command(&["search"]);
+            arguments.push("the".to_owned());
+            arguments
+        },
+    }]
 }
 
 /// The cases that pin every association outcome and the whole history.
