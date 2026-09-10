@@ -46,14 +46,16 @@ fn ready(_: &World) {}
 
 fn cases() -> Vec<Case> {
     let mut cases = archive_cases();
+    cases.extend(transfer_cases());
     cases.extend(record_cases());
     cases.extend(association_cases());
     cases
 }
 
 /// The cases that exercise the archive itself: creation, import, the check,
-/// the export, the permission repair, and the two commands that need no
-/// archive at all.
+/// the summary, the permission repair, the deletion, and the two commands
+/// that need no archive at all. The copy outward and back is
+/// [`transfer_cases`].
 fn archive_cases() -> Vec<Case> {
     vec![
         Case {
@@ -178,6 +180,34 @@ fn archive_cases() -> Vec<Case> {
             second_submission: false,
             prepare: ready,
             arguments: |world| world.delete_arguments(true),
+        },
+    ]
+}
+
+/// The cases that copy one case out of the archive and read it back in.
+fn transfer_cases() -> Vec<Case> {
+    vec![
+        Case {
+            name: "case.import",
+            stage: Stage::Associated,
+            second_submission: false,
+            prepare: golden_support::export_and_purge,
+            arguments: |world| {
+                let mut arguments = world.command(&["case", "import"]);
+                arguments.extend(["--from".to_owned(), world.export_destination()]);
+                arguments
+            },
+        },
+        Case {
+            name: "case.import.manifest-missing",
+            stage: Stage::Associated,
+            second_submission: false,
+            prepare: golden_support::write_empty_source,
+            arguments: |world| {
+                let mut arguments = world.command(&["case", "import"]);
+                arguments.extend(["--from".to_owned(), golden_support::empty_source(world)]);
+                arguments
+            },
         },
         Case {
             name: "case.export",

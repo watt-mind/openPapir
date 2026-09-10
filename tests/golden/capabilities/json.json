@@ -16,6 +16,7 @@
       "archive.check",
       "archive.status",
       "case.export",
+      "case.import",
       "archive.repair_permissions",
       "case.delete",
       "skill",

@@ -380,7 +380,11 @@ fn malformed_marker() -> Diagnostic {
 }
 
 /// Refuse a schema version this build does not support.
-fn check_schema_version(version: u32) -> std::result::Result<(), Diagnostic> {
+///
+/// It is reached with the version an export manifest declares as well as
+/// with the one the archive marker holds, so an export written by a newer
+/// build is refused by the same rule as an archive written by one.
+pub(crate) fn check_schema_version(version: u32) -> std::result::Result<(), Diagnostic> {
     if version > SUPPORTED_SCHEMA_VERSION {
         return Err(Diagnostic::new(
             codes::ARCHIVE_SCHEMA_NEWER,

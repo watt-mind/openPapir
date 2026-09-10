@@ -101,6 +101,8 @@ never observes what the JSON run wrote.
 | `case.delete` | `case delete` without `--purge`, which touches no object |
 | `case.delete.purge` | `case delete --purge`, which unlinks the objects nothing left references |
 | `case.export` | `case export --to` a destination the export creates |
+| `case.import` | `case import --from` an export of the same case, taken before a purging deletion |
+| `case.import.manifest-missing` | `case import --from` a directory that holds no manifest |
 | `archive.repair-permissions` | `archive repair-permissions` after one layout directory was widened |
 
 Every archive is built from constants in
@@ -123,7 +125,7 @@ real reading is obvious on sight.
 | `<id>` | A run of exactly 32 lowercase hexadecimal characters on a word boundary: an archive, case, submission, receipt, association, or import-event identifier, which is 128 random bits. |
 | `<digest>` | A run of exactly 64 lowercase hexadecimal characters on a word boundary, so `sha256:<digest>` is what a stored artefact reads as. |
 | `<time>` | An instant of the shape `YYYY-MM-DDTHH:MM:SSZ`, the only shape openPapir records. |
-| `<root>` | The temporary directory the case was built in, which appears only in the human output of `case export`, because that line repeats the `--to` argument the user typed. |
+| `<root>` | The temporary directory the case was built in, which appears only in the human output of `case export` and `case import`, because those lines repeat the `--to` or `--from` argument the user typed. |
 
 Nothing else is normalised. Byte counts, cap values, every count in a report,
 the user's own titles, notes, descriptions, labels, statements, and stated

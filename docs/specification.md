@@ -44,16 +44,17 @@ provenance of every association recorded, without uploading anything.
 The executable creates a local archive, imports files into it, organises what
 it holds into cases and submissions, records receipts and the user's own
 assertions about them, checks the whole archive against what its records
-claim, summarises what it holds and what is still worth looking for, copies one
-case out of the archive, narrows a restored archive's
-permissions back to owner-only, deletes a case on request, and writes the
-agent skill document it carries. These invocations exist and nothing else:
+claim, summarises what it holds and what is still worth looking for, copies
+one case out of the archive and reads such a copy back in, narrows a restored
+archive's permissions back to owner-only, deletes a case on request, and
+writes the agent skill document it carries. These invocations exist and
+nothing else:
 
 | Invocation | Result |
 | --- | --- |
 | `openpapir --help` | Usage text from the argument parser. |
 | `openpapir --version` | The crate version. |
-| `openpapir capabilities [--json]` | The project, its stage, and the eighteen implemented operations. |
+| `openpapir capabilities [--json]` | The project, its stage, and the nineteen implemented operations. |
 | `openpapir archive init <root> [--json]` | Creates an archive in an existing, empty directory: the marker first, then the owner-only layout. |
 | `openpapir import --archive <root> <file>... [--json]` | Stores each file's original bytes in the content-addressed artefact store and records one import event per input. |
 | `openpapir case create --archive <root> --title <t> [--notes <n>] [--tag <t>]... [--status open\|closed] [--json]` | Records one case, the user's own folder of related correspondence, with its status and its tags. |
@@ -69,6 +70,7 @@ agent skill document it carries. These invocations exist and nothing else:
 | `openpapir archive check --archive <root> [--json]` | Re-digests every stored object and reports, in counts only, what disagrees with the records. It takes no lock and changes nothing. |
 | `openpapir archive status --archive <root> [--as-of <yyyy-mm-dd>] [--json]` | Summarises what the archive holds and lists the submissions to look for a submission receipt in the delivery storage for, inside the 30-day window the operator describes. It takes no lock and changes nothing. |
 | `openpapir case export --archive <root> --case <case-id> --to <dir> [--json]` | Copies one case's objects byte for byte, writes its records as JSON, and writes a manifest, into a destination outside the archive. It changes nothing in the archive. |
+| `openpapir case import --archive <root> --from <dir> [--json]` | Reads a directory `case export` wrote back into an archive: the objects through the artefact store and the records under their original identifiers, checked against the manifest before anything is written. |
 | `openpapir archive repair-permissions --archive <root> [--json]` | Narrows every path in the archive back to owner-only and reports the counts it changed. It only ever narrows. |
 | `openpapir case delete --archive <root> --case <case-id> [--purge] [--json]` | Deletes one case and its submissions, with the receipts and association histories tied only to them. Objects go only with `--purge`, and only when nothing that remains references them. |
 | `openpapir skill` | Writes the embedded agent skill document to stdout, byte for byte and with nothing added. It takes no file and no `--json`, touches no archive, and exits `0`. |
@@ -104,10 +106,10 @@ or verification record exists, and there is no editing of a stored record
 other than the case record `case update` rewrites, no
 deletion of a single submission or receipt, no deletion of an archive, and no
 migration, receipt parsing, signature verification, or government delivery. An
-export is a plain copy outward: it converts nothing, and importing an export
-back into an archive is not implemented. A backup stays a plain copy of the
-archive root, and the permission repair is the documented way to make a
-restored copy usable again.
+export is a plain copy outward and an import the same copy back inward: both
+convert nothing, and an import is checked against the export's manifest before
+it writes anything. A backup stays a plain copy of the archive root, and the
+permission repair is the documented way to make a restored copy usable again.
 
 ## Decided designs, awaiting implementation
 
@@ -119,10 +121,10 @@ it. Nothing that is still only decided changes the capabilities output.
 | Document | What it decides | What of it is still only decided |
 | --- | --- | --- |
 | [receipt evidence and local case model decisions](receipt-discovery.md) | What authoritative public sources actually state about one candidate receipt type, the smallest useful local case model, and which questions stay open. | All of it. No receipt is parsed and no finding of that note has code behind it. |
-| [local archive layout and storage design](archive-layout.md) | The storage technology, the on-disk layout, the record shapes, the deletion, permission, and atomic-write semantics of the local archive, and the encrypted backup: the backup artefact only, a standard AEAD container over a tarball of the export shape, a passphrase-derived key with a memory-hard KDF, and no key stored by openPapir. | Derived-metadata and verification records, the rebuildable `cache/` index, import from an export, schema migration, and the encrypted backup, whose remaining open point is the dependency review that admits a container crate. |
+| [local archive layout and storage design](archive-layout.md) | The storage technology, the on-disk layout, the record shapes, the deletion, permission, and atomic-write semantics of the local archive, and the encrypted backup: the backup artefact only, a standard AEAD container over a tarball of the export shape, a passphrase-derived key with a memory-hard KDF, and no key stored by openPapir. | Derived-metadata and verification records, the rebuildable `cache/` index, export of a whole archive, schema migration, and the encrypted backup, whose remaining open point is the dependency review that admits a container crate. |
 | [import and association error, JSON, and exit-code contract](error-contract.md) | How a command extends the JSON envelope with an error object and warnings, the stable error-code catalogue, and the exit-code mapping. | The reserved codes `lock.stale`, `path.traversal`, and `write.incomplete`, and every automatic or derived evidence shape. |
 
-The archive, record, error, integrity, export, permission-repair, and
+The archive, record, error, integrity, export, import, permission-repair, and
 deletion operations listed above are the parts of the last two documents
 that are now implemented. A record shape or a code named there and not in
 [architecture and CLI contract](architecture.md) is a proposal, not a promised

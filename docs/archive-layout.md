@@ -23,8 +23,8 @@ decision below is about one. Where architecture and this document disagree,
 architecture is authoritative and this page is a defect.
 
 Derived-metadata records, verification results, the rebuildable `cache/`
-index, import from an export, export of a whole archive, schema migration, and
-encrypted backup at rest are **not implemented** and stay a design. `verified`
+index, export of a whole archive, schema migration, and encrypted backup at
+rest are **not implemented** and stay a design. `verified`
 is `false` in every envelope ([architecture](architecture.md)).
 
 It is follow-up 3 of
@@ -415,8 +415,8 @@ statement, and the deletion below then treats what it withdrew as history.
 
 ## Export and backup
 
-Export is implemented as `case export`, and
-[architecture](architecture.md) is authoritative for its contract. What
+Export is implemented as `case export` and its import back as `case import`,
+and [architecture](architecture.md) is authoritative for both contracts. What
 follows is the design, reconciled with what was built.
 
 Export writes a directory holding the original bytes of each exported
@@ -445,8 +445,20 @@ restorable without openPapir: the files are the files, the records are
 readable JSON. Re-digesting is a storage-layer identity check and never a
 cryptographic verification.
 
-Exporting a whole archive, and importing an export back into an archive, are
-not implemented.
+Importing an export back into an archive is implemented as `case import`. It
+is the same plain copy inward: the manifest is authoritative, every object it
+lists is re-digested from the export's own bytes and every record it lists is
+read and parsed before the archive is written to at all, and the record set is
+then published under the writer lock all at once or not at all. Every record
+keeps the identifier it had, so a restored case is the case that was exported;
+an identifier a different record already holds is a refusal, because openPapir
+edits no stored record. An object or a record the archive already holds is not
+an error and is not written again, so importing one export twice leaves the
+same archive. Each object the import stores gets one new import event with
+`source` `export`, and the exported import event is restored beside it, so the
+history of the user's own import survives the round trip.
+
+Exporting a whole archive is not implemented.
 
 A backup is a copy of the whole archive root taken while no openPapir process
 holds the lock; `cache/` may be omitted. Ordinary copy tooling routinely widens

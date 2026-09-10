@@ -1,0 +1,38 @@
+{
+  "command": "case.import",
+  "data": {
+    "bytes_stored": 50,
+    "case_id": "<id>",
+    "events_recorded": 2,
+    "object_count": 2,
+    "objects_present": 0,
+    "objects_stored": 2,
+    "records": [
+      {
+        "count": 1,
+        "kind": "case"
+      },
+      {
+        "count": 1,
+        "kind": "submission"
+      },
+      {
+        "count": 1,
+        "kind": "receipt"
+      },
+      {
+        "count": 1,
+        "kind": "association"
+      },
+      {
+        "count": 2,
+        "kind": "import_event"
+      }
+    ],
+    "records_present": 0,
+    "records_written": 6
+  },
+  "ok": true,
+  "schema_version": 1,
+  "verified": false
+}

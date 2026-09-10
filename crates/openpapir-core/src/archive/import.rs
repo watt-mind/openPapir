@@ -56,6 +56,15 @@ pub struct Imported {
 /// The value an import-event record carries in `record_kind`.
 pub const EVENT_KIND: &str = "import_event";
 
+/// The `source` an import event carries when a restored export introduced
+/// the object rather than a file the user named on the command line.
+///
+/// The field is absent on every event `import` writes, which is what the
+/// user's own import has always looked like, so an archive written by an
+/// earlier build reads unchanged and an event without the field means the
+/// user imported a local file (`docs/archive-layout.md`).
+pub const SOURCE_EXPORT: &str = "export";
+
 /// One import event record, stored as `records/imports/<id>.json`.
 ///
 /// The record is public so that another record kind can name the import event
@@ -79,6 +88,10 @@ pub struct ImportEvent {
     pub original_filename: String,
     /// The record kind, always `import_event`.
     pub record_kind: String,
+    /// Where the bytes came from, present only when they came from an
+    /// export. An absent field is the user's own import of a local file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
 }
 
 impl Record for ImportEvent {
@@ -249,6 +262,7 @@ fn store_one(
         imported_at: clock::now_rfc3339(),
         original_filename: input.original_filename.clone(),
         record_kind: EVENT_KIND.to_owned(),
+        source: None,
     };
     warnings.extend(document::write_record(root, &event)?);
     Ok(Artefact {

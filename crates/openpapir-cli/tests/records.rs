@@ -871,6 +871,7 @@ fn capabilities_report_exactly_the_implemented_operations() {
             "archive.check",
             "archive.status",
             "case.export",
+            "case.import",
             "archive.repair_permissions",
             "case.delete",
             "skill",
