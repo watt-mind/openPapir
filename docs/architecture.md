@@ -654,6 +654,12 @@ refusal is the additive `record.inconsistent`, whose `details` carry
 | `already_superseded` | The record `association retire` names is superseded already. |
 | `import_event_digest_mismatch` | A named import event records another artefact (`receipt.add`). |
 
+One further rule of the same code, `supersedes_cycle`, is enforced by
+[`case delete`](#case-delete) rather than by a write. It names stored
+association records that supersede each other in a cycle, which no command
+here can produce, so it belongs to the records an archive already holds rather
+than to the fields a user supplies.
+
 `submission_id` is the confirmed submission and equals the single candidate
 when the outcome is `associated`. It is `null` for `unassociated`,
 `candidate`, and `contradictory`. A receipt, a candidate submission, or a
@@ -1342,6 +1348,31 @@ user has said the assertion no longer stands. `retained_count` counts the live
 records standing in the way, which are the ones a retirement can name, and
 names none of them.
 
+A **superseded** record naming another case's submission is the other side of
+the same rule, and it goes rather than refusing. The chain's live record is
+what the user asserts today; when it names no submission that remains, nothing
+live objects to the deletion, so the whole chain goes with the case, the
+superseded record about the other case included. That case keeps its own
+submission and its own record. Refusing instead would let history the user
+already replaced block a deletion, and removing the superseded record alone
+would leave the newer one naming a record the archive no longer holds. The
+chain is therefore the unit in both directions
+([archive-layout](archive-layout.md)).
+
+A chain with no live record at all is a `supersedes` cycle, which no openPapir
+command writes: `association retire` refuses a record something already
+supersedes, and `association create` refuses a `--supersedes` outside the
+receipt. A cycle therefore reaches an archive only by hand. Both rules above
+read the chain's live record, and a cycle has none, so a cycle naming a
+departing submission and a remaining one would otherwise be read as history
+nobody asserts and removed whole. A deletion that would otherwise have removed
+one is refused with `record.inconsistent` and rule `supersedes_cycle`, before
+anything is touched, carrying the kind and the rule and never an identifier or
+a count. A cycle this deletion would not have touched is left alone: the scan
+reads the whole archive, so refusing on a cycle anywhere would describe the
+archive rather than the command the user ran, and finding one wherever it sits
+is `archive check`'s work.
+
 The record pass is **all or nothing per case**. Before a single document is
 unlinked, every record directory the deletion would remove an entry from is
 probed: it is opened without following a link, and the mode of the opened
@@ -1821,7 +1852,10 @@ reaches `data`, `message`, `details`, or stderr, and no other user-supplied
 path is echoed anywhere. A receipt label and an evidence statement are the user's
 own text: they appear in `data` and in human output, which report the user's
 own record back to them, and never in a `message`, in `details`, or in any
-refusal. Which input failed is answered by `input_index`, never by
+refusal. The `statement` an `association retire` stores from `--reason` is the
+user's own text too, and it appears in `data` alone: the human form of a
+retirement does not print it back, and no message, warning, or count repeats
+it. Which input failed is answered by `input_index`, never by
 a name. The original filename is stored as an attribute of the import event
 record only.
 

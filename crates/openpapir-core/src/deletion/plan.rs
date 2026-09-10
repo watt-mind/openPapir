@@ -20,7 +20,7 @@ use crate::records::case::Case;
 use crate::records::document;
 use crate::records::receipt::Receipt;
 use crate::records::submission::Submission;
-use crate::records::{DIGEST_PREFIX, is_digest};
+use crate::records::{DIGEST_PREFIX, inconsistent, is_digest};
 
 /// The record kinds a deletion reports, ordered by name.
 pub const KINDS: [&str; 5] = [
@@ -108,8 +108,10 @@ pub fn build(root: &Path, case_id: &str, purge: bool) -> Result<Plan, Diagnostic
         .filter(|submission| submission.case_id == case.id)
         .map(|submission| submission.id.as_str())
         .collect();
-    let going_associations = doomed_associations(&associations, &going);
-    refuse_entangled(&associations, &going)?;
+    let supersession = Supersession::read(&associations, &going);
+    supersession.refuse_cycle()?;
+    supersession.refuse_entangled(&associations)?;
+    let going_associations = supersession.doomed(&associations);
     let going_receipts = doomed_receipts(&receipts, &associations, &going_associations);
 
     let mut plan = Plan {
@@ -142,52 +144,6 @@ pub fn build(root: &Path, case_id: &str, purge: bool) -> Result<Plan, Diagnostic
     Ok(plan)
 }
 
-/// Refuse a deletion that would leave a surviving record naming a removed one.
-///
-/// An association may name submissions in more than one case. While the user
-/// still asserts it, one of those submissions going and another remaining
-/// leaves the record naming a submission the archive no longer holds: exactly
-/// the dangling reference the integrity check reports.
-///
-/// openPapir cannot edit a stored record, so it cannot drop the departing
-/// candidate and keep the rest. Removing the assertion instead would delete
-/// the user's own statement about a case they did not ask to delete. The
-/// deletion is therefore refused, before anything is touched, and the user is
-/// told how many records stand in the way, of what kind, and what to do about
-/// it: `association retire` withdraws the assertion, and the deletion then
-/// takes the withdrawn history with the case. Nothing is lost, and the
-/// refusal is the only one of the three outcomes that can be undone.
-///
-/// The count is of live records, the ones a retirement can name, so it counts
-/// what the user has to act on rather than the history behind it.
-///
-/// # Errors
-///
-/// Returns `delete.record_entangled`, carrying the kind and the count and
-/// never an identifier.
-fn refuse_entangled(
-    associations: &[Association],
-    going: &BTreeSet<&str>,
-) -> Result<(), Diagnostic> {
-    let chains = Chains::of(associations);
-    let states = chains.states(associations, going);
-    let entangled = associations
-        .iter()
-        .filter(|association| chains.live.contains(association.id.as_str()))
-        .filter(|association| states[&chains.chain[association.id.as_str()]].entangled())
-        .count() as u64;
-    if entangled == 0 {
-        return Ok(());
-    }
-    Err(Diagnostic::new(
-        codes::DELETE_RECORD_ENTANGLED,
-        "A record this deletion must keep names a submission it would remove. Retire it first.",
-        Details::new()
-            .text("record_kind", "association")
-            .int("retained_count", entangled),
-    ))
-}
-
 /// Every submission an association names, confirmed or as a candidate.
 fn named(association: &Association) -> impl Iterator<Item = &str> {
     association.submission_id.as_deref().into_iter().chain(
@@ -206,6 +162,9 @@ struct State {
     /// Whether the chain's live record still names a submission that remains.
     /// A superseded record naming one does not count: the user withdrew it.
     asserted: bool,
+    /// Whether the chain has a live record at all. A chain without one is a
+    /// `supersedes` cycle, which no openPapir command can write.
+    live: bool,
 }
 
 impl State {
@@ -215,8 +174,16 @@ impl State {
     }
 
     /// Whether the chain is the entanglement the deletion refuses.
+    ///
+    /// `asserted` is read from the chain's live record alone, so an entangled
+    /// chain always has one and never overlaps [`State::cyclic`].
     const fn entangled(self) -> bool {
         self.departing && self.asserted
+    }
+
+    /// Whether the chain is the cycle the deletion refuses.
+    const fn cyclic(self) -> bool {
+        self.departing && !self.live
     }
 }
 
@@ -294,11 +261,13 @@ impl<'a> Chains<'a> {
         let mut states: BTreeMap<usize, State> = BTreeMap::new();
         for association in associations {
             let id = association.id.as_str();
+            let live = self.live.contains(id);
             let state = states.entry(self.chain[id]).or_default();
+            state.live |= live;
             for submission in named(association) {
                 if going.contains(submission) {
                     state.departing = true;
-                } else if self.live.contains(id) {
+                } else if live {
                     state.asserted = true;
                 }
             }
@@ -307,32 +276,132 @@ impl<'a> Chains<'a> {
     }
 }
 
-/// The associations that reference no submission this deletion leaves behind.
-///
-/// The unit is the supersession chain, not the single record, because a
-/// record that supersedes another cannot go without it: removing the older
-/// record alone would leave the newer one naming a record the archive no
-/// longer holds, which the integrity check reports as a dangling reference.
-///
-/// A chain goes when one of its records names a departing submission and its
-/// live record names none that remains. That is the ordinary case, where
-/// every candidate the chain ever named belongs to the case being deleted,
-/// and it is also what a retirement produces: the live record of a retired
-/// chain asserts nothing at all, so the history behind it goes with the case
-/// it was about. A chain whose live record still names a submission that
-/// remains is refused instead, and a chain naming no departing submission is
-/// no business of this deletion and stays.
-fn doomed_associations<'a>(
-    associations: &'a [Association],
-    going: &BTreeSet<&str>,
-) -> BTreeSet<&'a str> {
-    let chains = Chains::of(associations);
-    let states = chains.states(associations, going);
-    associations
-        .iter()
-        .map(|association| association.id.as_str())
-        .filter(|id| states[&chains.chain[id]].doomed())
-        .collect()
+/// The supersession chains of one archive, read once and asked three
+/// questions: is a chain a cycle, is it the entanglement the deletion
+/// refuses, and does it go with the case.
+struct Supersession<'a> {
+    /// The chains the association records form.
+    chains: Chains<'a>,
+    /// What each chain means to this deletion, by chain.
+    states: BTreeMap<usize, State>,
+}
+
+impl<'a> Supersession<'a> {
+    /// Read the chains and decide what each means to a deletion of `going`.
+    fn read(associations: &'a [Association], going: &BTreeSet<&str>) -> Self {
+        let chains = Chains::of(associations);
+        let states = chains.states(associations, going);
+        Self { chains, states }
+    }
+
+    /// What the chain a record lies in means to this deletion.
+    fn state(&self, id: &str) -> State {
+        self.states[&self.chains.chain[id]]
+    }
+
+    /// Refuse a deletion whose history contains a `supersedes` cycle.
+    ///
+    /// A cycle has no live record, because every record in it is superseded
+    /// by another, so there is nothing that says what the user asserts today.
+    /// The entanglement rule reads exactly that record, so it can never fire
+    /// for a cycle: a cycle naming both a departing submission and one that
+    /// remains would otherwise be taken as history nobody asserts and removed
+    /// whole, silently taking with it a record about a case the user did not
+    /// ask to delete.
+    ///
+    /// No openPapir command can write a cycle: `association retire` refuses a
+    /// record another one supersedes already, and `association create`
+    /// refuses a `--supersedes` outside the receipt. A cycle therefore only
+    /// exists in a hand-edited archive, and a deletion that cannot tell which
+    /// record is the live one must not guess. It is reported as what it is,
+    /// an integrity anomaly of the stored records, and refused before
+    /// anything is touched, leaving the archive exactly as it was.
+    ///
+    /// Only a cycle this deletion would otherwise have removed is refused. The
+    /// scan reads the whole archive, so refusing on any cycle anywhere would
+    /// describe the archive rather than the command the user ran; finding one
+    /// wherever it sits is `archive check`'s work.
+    ///
+    /// # Errors
+    ///
+    /// Returns `record.inconsistent` with rule `supersedes_cycle`, carrying
+    /// the kind and the rule and never an identifier or a count.
+    fn refuse_cycle(&self) -> Result<(), Diagnostic> {
+        if self.states.values().any(|state| state.cyclic()) {
+            return Err(inconsistent("association", "supersedes_cycle"));
+        }
+        Ok(())
+    }
+
+    /// Refuse a deletion that would leave a surviving record naming a removed
+    /// one.
+    ///
+    /// An association may name submissions in more than one case. While the
+    /// user still asserts it, one of those submissions going and another
+    /// remaining leaves the record naming a submission the archive no longer
+    /// holds: exactly the dangling reference the integrity check reports.
+    ///
+    /// openPapir cannot edit a stored record, so it cannot drop the departing
+    /// candidate and keep the rest. Removing the assertion instead would
+    /// delete the user's own statement about a case they did not ask to
+    /// delete. The deletion is therefore refused, before anything is touched,
+    /// and the user is told how many records stand in the way, of what kind,
+    /// and what to do about it: `association retire` withdraws the assertion,
+    /// and the deletion then takes the withdrawn history with the case.
+    /// Nothing is lost, and the refusal is the only one of the three outcomes
+    /// that can be undone.
+    ///
+    /// The count is of live records, the ones a retirement can name, so it
+    /// counts what the user has to act on rather than the history behind it.
+    ///
+    /// # Errors
+    ///
+    /// Returns `delete.record_entangled`, carrying the kind and the count and
+    /// never an identifier.
+    fn refuse_entangled(&self, associations: &'a [Association]) -> Result<(), Diagnostic> {
+        let entangled = associations
+            .iter()
+            .filter(|association| self.chains.live.contains(association.id.as_str()))
+            .filter(|association| self.state(association.id.as_str()).entangled())
+            .count() as u64;
+        if entangled == 0 {
+            return Ok(());
+        }
+        Err(Diagnostic::new(
+            codes::DELETE_RECORD_ENTANGLED,
+            "A record this deletion must keep names a submission it would remove. Retire it first.",
+            Details::new()
+                .text("record_kind", "association")
+                .int("retained_count", entangled),
+        ))
+    }
+
+    /// The associations that reference no submission this deletion leaves
+    /// behind.
+    ///
+    /// The unit is the supersession chain, not the single record, because a
+    /// record that supersedes another cannot go without it: removing the
+    /// older record alone would leave the newer one naming a record the
+    /// archive no longer holds, which the integrity check reports as a
+    /// dangling reference.
+    ///
+    /// A chain goes when one of its records names a departing submission and
+    /// its live record names none that remains. That is the ordinary case,
+    /// where every candidate the chain ever named belongs to the case being
+    /// deleted, and it is also what a retirement produces: the live record of
+    /// a retired chain asserts nothing at all, so the history behind it goes
+    /// with the case it was about, the record naming another case's
+    /// submission included. A chain whose live record still names a
+    /// submission that remains is refused instead, a chain with no live
+    /// record at all is refused as a cycle, and a chain naming no departing
+    /// submission is no business of this deletion and stays.
+    fn doomed(&self, associations: &'a [Association]) -> BTreeSet<&'a str> {
+        associations
+            .iter()
+            .map(|association| association.id.as_str())
+            .filter(|id| self.state(id).doomed())
+            .collect()
+    }
 }
 
 /// The receipts that reference no submission or case this deletion leaves.

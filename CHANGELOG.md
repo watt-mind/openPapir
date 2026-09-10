@@ -620,6 +620,17 @@ envelope.
 
 ### Fixed
 
+- `case delete` refuses a `supersedes` cycle among the stored association
+  records with `record.inconsistent` and the new rule `supersedes_cycle`
+  instead of removing it. A cycle has no live record, so the entanglement rule
+  that reads one can never fire for it, and a cycle naming both a submission
+  of the departing case and one of a remaining case was taken as history
+  nobody asserts and removed whole. No openPapir command writes a cycle, so
+  one reaches an archive only by hand, and a deletion that cannot tell which
+  record is the live one must not guess. Nothing is touched, the refusal
+  carries the kind and the rule and never an identifier, and a cycle the
+  deletion would not have removed is left to `archive check`. Live-record
+  behaviour is unchanged.
 - `case delete`'s `record.malformed` warning now reports both counts it is
   built from. The warning is raised only where an unresolvable reference held
   a candidate object of this deletion back, and its message says "for this
