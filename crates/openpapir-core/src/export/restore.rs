@@ -95,26 +95,62 @@ pub struct Restored {
 /// procedure.
 pub fn import_case(root: &Path, source: &Path) -> Result<Restored> {
     let mut warnings = Vec::new();
-    match run(root, source, &mut warnings) {
-        Ok(data) => Ok(Outcome { data, warnings }),
+    let supplied = source.to_string_lossy().into_owned();
+    match run(root, source, manifest::Scope::Case, &mut warnings) {
+        Ok((manifest, moved)) => Ok(Outcome {
+            data: Restored {
+                bytes_stored: moved.bytes_stored,
+                // The case scope is what makes the identifier present: a
+                // manifest without one is refused before anything is read.
+                case_id: manifest.case_id.unwrap_or_default(),
+                events_recorded: moved.events_recorded,
+                object_count: moved.object_count,
+                objects_present: moved.objects_present,
+                objects_stored: moved.objects_stored,
+                records: manifest.counts,
+                records_present: moved.records_present,
+                records_written: moved.records_written,
+                source: supplied,
+            },
+            warnings,
+        }),
         Err(error) => Err(Failure::with_warnings(error, warnings)),
     }
 }
 
+/// What one import moved, whichever of the two exports it read.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct Moved {
+    bytes_stored: u64,
+    events_recorded: u64,
+    object_count: u64,
+    objects_present: u64,
+    objects_stored: u64,
+    records_present: u64,
+    records_written: u64,
+}
+
+/// Import one export of the named scope, all of it or none of it.
+///
+/// The passes are the same for both scopes, and only what the manifest is
+/// allowed to say differs. A whole-archive import is therefore all or nothing
+/// over the whole export rather than case by case: the record set is probed
+/// as one set under the writer lock, which is what keeps the record-conflict
+/// rule the one rule it already is.
 fn run(
     root: &Path,
     source: &Path,
+    scope: manifest::Scope,
     warnings: &mut Vec<Warning>,
-) -> std::result::Result<Restored, Diagnostic> {
+) -> std::result::Result<(manifest::Manifest, Moved), Diagnostic> {
     let mut archive = Archive::open(root)?;
     warnings.extend(archive.take_warnings());
     // The resolved path is what is read; the argument the user typed is what
     // the human form echoes back, unchanged and unresolved.
-    let supplied = source.to_string_lossy().into_owned();
     let source = prepare(archive.root(), source)?;
     // Everything the export claims is read and checked here, before the lock
     // is taken and before a single byte is written into the archive.
-    let manifest = manifest::read(&source)?;
+    let manifest = manifest::read(&source, scope)?;
     let held = records::read_all(&source, &manifest)?;
     objects::verify(&source, &manifest)?;
 
@@ -133,23 +169,87 @@ fn run(
         Err(error) => {
             // The records this import had already published and the objects
             // it had just created are removed, so the archive holds the whole
-            // case or nothing of it.
+            // export or nothing of it.
             publish::discard(archive.root(), &stored);
             return Err(error);
         }
     };
-    Ok(Restored {
+    let moved = Moved {
         bytes_stored: stored.bytes_stored(),
-        case_id: manifest.case_id,
         events_recorded: published.events,
         object_count: manifest.objects.len() as u64,
         objects_present: stored.present(),
         objects_stored: stored.created(),
-        records: manifest.counts,
         records_present: plan.present,
         records_written: published.records,
-        source: supplied,
-    })
+    };
+    Ok((manifest, moved))
+}
+
+/// What one import of a whole-archive export reports.
+///
+/// It is the case import's report with the one case replaced by a count of
+/// them, because a whole archive names no single case. The source is not
+/// serialised, for the reason [`Restored`] does not serialise its own.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ArchiveRestored {
+    /// How many bytes of newly stored objects this import read.
+    pub bytes_stored: u64,
+    /// How many case records the export holds.
+    pub case_count: u64,
+    /// How many import events this import recorded, one per stored object.
+    pub events_recorded: u64,
+    /// How many objects the manifest lists.
+    pub object_count: u64,
+    /// How many of those the archive already held.
+    pub objects_present: u64,
+    /// How many of those this import stored.
+    pub objects_stored: u64,
+    /// One entry per record kind the manifest lists, including the empty
+    /// ones, in the fixed order of the kinds.
+    pub records: Vec<KindCount>,
+    /// How many records the archive already held, byte for byte.
+    pub records_present: u64,
+    /// How many of the export's own records this import wrote.
+    pub records_written: u64,
+    /// The source exactly as the user supplied it, never serialised.
+    #[serde(skip)]
+    pub source: String,
+}
+
+/// Import an `archive export` directory into the archive at `root`.
+///
+/// The whole export is restored as one set, or none of it is. A record
+/// identifier the target archive holds for a different record refuses the
+/// import before anything is written, exactly as it does for one case, so the
+/// record-conflict rule is the same rule at a larger scope.
+///
+/// # Errors
+///
+/// Returns the refusals of [`import_case`]. A directory `case export` wrote
+/// is `export.manifest_malformed` here, because it describes one case rather
+/// than a whole archive.
+pub fn import_archive(root: &Path, source: &Path) -> Result<ArchiveRestored> {
+    let mut warnings = Vec::new();
+    let supplied = source.to_string_lossy().into_owned();
+    match run(root, source, manifest::Scope::Archive, &mut warnings) {
+        Ok((manifest, moved)) => Ok(Outcome {
+            data: ArchiveRestored {
+                bytes_stored: moved.bytes_stored,
+                case_count: manifest.case_count,
+                events_recorded: moved.events_recorded,
+                object_count: moved.object_count,
+                objects_present: moved.objects_present,
+                objects_stored: moved.objects_stored,
+                records: manifest.counts,
+                records_present: moved.records_present,
+                records_written: moved.records_written,
+                source: supplied,
+            },
+            warnings,
+        }),
+        Err(error) => Err(Failure::with_warnings(error, warnings)),
+    }
 }
 
 /// Check the source directory itself, before anything in it is opened.

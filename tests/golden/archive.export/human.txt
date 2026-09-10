@@ -1,0 +1,9 @@
+Exported 1 case(s) to <root>/export.
+Copied 3 object(s), 77 byte(s), and wrote 8 record(s).
+case 1
+submission 1
+receipt 1
+association 2
+import_event 3
+The archive marker travelled with the copy, so the schema version is in the export.
+The archive was not changed. Every copy was re-digested: a digest identifies bytes only, never authenticity, delivery, or legal effect.

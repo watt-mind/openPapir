@@ -508,6 +508,19 @@ pub fn export_and_purge(world: &World) {
     world.json(&world.delete_arguments(true));
 }
 
+/// Export the whole archive and delete the one case with a purge, so the
+/// archive is ready for the import that restores every case in it.
+///
+/// It is the whole-archive round trip: the copy outward holds every object
+/// and every record, and the import back puts the same bytes and the same
+/// records under their original identifiers.
+pub fn export_whole_and_purge(world: &World) {
+    let mut arguments = world.command(&["archive", "export"]);
+    arguments.extend(["--to".to_owned(), world.export_destination()]);
+    world.json(&arguments);
+    world.json(&world.delete_arguments(true));
+}
+
 /// Create a directory that holds no export at all.
 pub fn write_empty_source(world: &World) {
     fs::create_dir(world.root().join("empty")).expect("create the empty source");

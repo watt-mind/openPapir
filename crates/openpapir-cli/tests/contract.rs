@@ -31,7 +31,8 @@ fn capabilities_are_honest_and_machine_readable() {
                     "case.export", "case.import", "archive.repair_permissions",
                     "case.delete", "skill", "case.update",
                     "submission.show", "receipt.show", "association.show",
-                    "completions", "manpage"
+                    "completions", "manpage",
+                    "archive.export", "archive.import"
                 ]
             },
             "verified": false

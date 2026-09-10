@@ -310,7 +310,8 @@ mod tests {
 
     fn manifest_of(rows: Vec<RecordRow>) -> Manifest {
         Manifest {
-            case_id: CASE.to_owned(),
+            case_count: 1,
+            case_id: Some(CASE.to_owned()),
             counts: Vec::new(),
             objects: Vec::new(),
             records: rows,

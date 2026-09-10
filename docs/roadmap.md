@@ -50,8 +50,9 @@ assign it to a case, and list or export that case. The local half of this is
 done: `import`, `case create`, `case list`, `case show`, `submission add`,
 `archive check`, `case export`, `archive repair-permissions`, and
 `case delete` exist, with resource limits, interrupted writes, duplicate
-input, and cross-platform paths covered, and `case import` reads an export
-back into an archive. What remains is importing a supported synthetic KRX
+input, and cross-platform paths covered, and `case import` and
+`archive import` read an export back into an archive.
+What remains is importing a supported synthetic KRX
 package through a versioned openKRX contract rather than a duplicated
 parser.
 
@@ -116,10 +117,11 @@ page's last update.
 - An end-to-end user guide walks one archive from the first import through
   association and export, gated on every operation it walks through being
   implemented: planned.
-- A whole-archive export writes every case, submission, receipt, and
-  association in one pass, with the same preserved originals as `case export`,
-  gated on `case import` existing so that the result can be read back, which
-  it now does: planned.
+- A whole-archive export (`archive export`) writes every case, submission,
+  receipt, association, and import event in one pass, with the same preserved
+  originals as `case export` and the archive marker beside the manifest, and
+  `archive import` reads it back as one set, gated on `case import` existing
+  so that the result could be read back at all: implemented.
 - Derived metadata on explicit request records the file type and the size of a
   stored object and nothing else, never parsing a receipt, gated on the
   derived-metadata design in

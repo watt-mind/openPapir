@@ -1,0 +1,34 @@
+{
+  "command": "archive.export",
+  "data": {
+    "bytes_copied": 77,
+    "case_count": 1,
+    "object_count": 3,
+    "record_count": 8,
+    "records": [
+      {
+        "count": 1,
+        "kind": "case"
+      },
+      {
+        "count": 1,
+        "kind": "submission"
+      },
+      {
+        "count": 1,
+        "kind": "receipt"
+      },
+      {
+        "count": 2,
+        "kind": "association"
+      },
+      {
+        "count": 3,
+        "kind": "import_event"
+      }
+    ]
+  },
+  "ok": true,
+  "schema_version": 1,
+  "verified": false
+}
