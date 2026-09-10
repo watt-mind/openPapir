@@ -192,6 +192,22 @@ Read `artefacts[].digest`: it is the handle every later command uses. The
 original filename is stored as an attribute of the import event and appears
 in no output.
 
+Prefer the one-step form when the user is recording something they sent. It
+imports and records in one command, under one writer lock, so no digest has
+to be carried between two calls:
+
+```sh
+openpapir import --archive ./archive ./form.pdf ./annex.pdf \
+  --case <case-id> --description "Posted the completed form." \
+  --date 2026-01-13 --json
+```
+
+`--case` needs `--description`; without it the run is `usage.arguments` and
+exits `2`. Every imported file is referenced with the role `attachment`, and
+`data` holds everything plain import reports plus `submission`. Use
+`submission add --file` instead when a file needs a role of its own. Use
+plain `import` only when there is no case to file the bytes under yet.
+
 ### 3. Record a case
 
 ```sh
@@ -264,15 +280,34 @@ with `argument` `update` and exit `2`; nothing is written.
 ```sh
 openpapir submission add --archive ./archive --case <case-id> \
   --description "Posted the completed form." --date 2026-01-13 \
+  --file './form.pdf:cover letter' --file ./annex.pdf --json
+```
+
+Prefer `--file`: it imports the file and references it in the same record,
+under one writer lock, so no digest has to be carried between two calls. It
+is repeatable, takes `<path>` or `<path>:<role>`, and gives a file with no
+role of its own the role `attachment`. The role is the text after the last
+colon, so a path holding a colon keeps it as long as what follows carries a
+path separator. `data.imported` then holds what plain import reports for the
+files this call stored, and is absent when no `--file` was given.
+
+Use `--artefact` for bytes the archive already holds:
+
+```sh
+openpapir submission add --archive ./archive --case <case-id> \
+  --description "Posted the completed form." --date 2026-01-13 \
   --artefact 'sha256:<digest>:cover letter' --json
 ```
 
 `--artefact` is repeatable and is `sha256:<64 hex>` or
-`sha256:<64 hex>:<role>`. `--date` is `YYYY-MM-DD`, is stored verbatim, and
-is never compared, interpreted, or read as a delivery or receipt date.
-`data.submission` holds `case_id`, `description`, optional `stated_date`, and
-`artefacts[]` of `{digest, role?}`. A digest that names no stored object is
-`record.not_found` with `record_kind` `artefact`.
+`sha256:<64 hex>:<role>`, and the two flags may be combined: the artefacts
+are referenced first, then the files. `--date` is `YYYY-MM-DD`, is stored
+verbatim, and is never compared, interpreted, or read as a delivery or
+receipt date. `data.submission` holds `case_id`, `description`, optional
+`stated_date`, and `artefacts[]` of `{digest, role?}`. A digest that names no
+stored object is `record.not_found` with `record_kind` `artefact`. A file
+that cannot be read is `usage.arguments`, and no submission record is written
+when an import is refused.
 
 ```sh
 openpapir submission show --archive ./archive <submission-id> --json
@@ -606,7 +641,8 @@ openpapir archive init ROOT --json
 openpapir archive check --archive ROOT --json
 openpapir archive status --archive ROOT [--as-of YYYY-MM-DD] --json
 openpapir archive repair-permissions --archive ROOT --json
-openpapir import --archive ROOT FILE... --json
+openpapir import --archive ROOT FILE... [--case CASE_ID --description D \
+  [--date YYYY-MM-DD]] --json
 openpapir case create --archive ROOT --title T [--notes N] [--tag TAG]... \
   [--status open|closed] --json
 openpapir case list --archive ROOT [--status open|closed] [--tag TAG]... \
@@ -621,7 +657,8 @@ openpapir archive export --archive ROOT --to DIR --json
 openpapir archive import --archive ROOT --from DIR --json
 openpapir case delete --archive ROOT --case CASE_ID [--purge] --json
 openpapir submission add --archive ROOT --case CASE_ID --description D \
-  [--date YYYY-MM-DD] [--artefact 'sha256:HEX[:ROLE]']... --json
+  [--date YYYY-MM-DD] [--artefact 'sha256:HEX[:ROLE]']... \
+  [--file 'PATH[:ROLE]']... --json
 openpapir submission show --archive ROOT SUBMISSION_ID --json
 openpapir receipt add --archive ROOT --artefact sha256:HEX \
   [--import-event ID] [--label L] --json

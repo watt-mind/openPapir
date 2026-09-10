@@ -1152,3 +1152,184 @@ fn the_human_form_of_a_shown_submission_carries_no_path_and_claims_nothing() {
     assert!(text.contains(&format!("names submission {submission}")));
     assert!(!text.contains(path(root.path())), "no path is printed");
 }
+
+/// A second synthetic payload, so a one-step form can store bytes the
+/// archive does not hold yet.
+const ANNEX: &[u8] = b"synthetic annex\n";
+
+/// Write one synthetic input under `root` and return its path.
+fn input(root: &Path, name: &str, payload: &[u8]) -> std::path::PathBuf {
+    let file = root.join(name);
+    fs::write(&file, payload).expect("write a synthetic input");
+    file
+}
+
+#[test]
+fn a_submission_imports_its_own_files_and_references_them() {
+    let root = archive();
+    let case_id = create_case(root.path(), "Tax matter");
+    let inputs = tempfile::tempdir().expect("create a temporary directory");
+    let annex = input(inputs.path(), "annex.txt", ANNEX);
+    let plain = input(inputs.path(), "plain.txt", b"synthetic plain\n");
+    let named = format!("{}:annex", path(&annex));
+    let with_role = format!("{PAYLOAD_DIGEST}:cover letter");
+    let output = run(&[
+        "submission",
+        "add",
+        "--archive",
+        path(root.path()),
+        "--case",
+        &case_id,
+        "--description",
+        "Posted the completed form.",
+        "--artefact",
+        &with_role,
+        "--file",
+        &named,
+        "--file",
+        path(&plain),
+        "--json",
+    ]);
+    let envelope = stdout_json(&output);
+    assert_envelope(&envelope, "submission.add", true);
+    assert_eq!(output.status.code(), Some(0));
+
+    let artefacts = envelope["data"]["submission"]["artefacts"]
+        .as_array()
+        .expect("the record lists its references");
+    assert_eq!(artefacts.len(), 3, "the artefact first, then the two files");
+    assert_eq!(artefacts[0]["digest"], PAYLOAD_DIGEST);
+    assert_eq!(artefacts[0]["role"], "cover letter");
+    assert_eq!(artefacts[1]["role"], "annex");
+    assert_eq!(
+        artefacts[2]["role"], "attachment",
+        "a file with no role of its own takes the default"
+    );
+    let imported = &envelope["data"]["imported"];
+    assert_eq!(imported["imported"], 2);
+    assert_eq!(imported["duplicates"], 0);
+    assert_eq!(
+        imported["artefacts"][0]["digest"], artefacts[1]["digest"],
+        "the import events name the artefacts the record references"
+    );
+
+    let rendered = serde_json::to_string(&envelope).expect("the envelope re-renders");
+    assert!(
+        !rendered.contains("annex.txt"),
+        "no filename reaches output"
+    );
+    assert!(!rendered.contains(path(inputs.path())), "no path either");
+}
+
+#[test]
+fn a_file_already_stored_is_recorded_and_is_not_an_error() {
+    let root = archive();
+    let case_id = create_case(root.path(), "Tax matter");
+    let inputs = tempfile::tempdir().expect("create a temporary directory");
+    let same = input(inputs.path(), "same.txt", PAYLOAD);
+    let output = run(&[
+        "submission",
+        "add",
+        "--archive",
+        path(root.path()),
+        "--case",
+        &case_id,
+        "--description",
+        "Sent the same bytes again.",
+        "--file",
+        path(&same),
+        "--json",
+    ]);
+    let envelope = stdout_json(&output);
+    assert_envelope(&envelope, "submission.add", true);
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(envelope["data"]["imported"]["imported"], 0);
+    assert_eq!(envelope["data"]["imported"]["duplicates"], 1);
+    assert_eq!(
+        envelope["data"]["submission"]["artefacts"][0]["digest"],
+        PAYLOAD_DIGEST
+    );
+
+    let output = run(&[
+        "submission",
+        "add",
+        "--archive",
+        path(root.path()),
+        "--case",
+        &case_id,
+        "--description",
+        "Sent the same bytes again.",
+        "--file",
+        path(&same),
+    ]);
+    let text = String::from_utf8(output.stdout).expect("stdout is UTF-8");
+    assert!(text.contains("Files imported with this submission: 1; 1 already present."));
+    assert!(!text.contains("same.txt"), "no filename is printed");
+}
+
+#[test]
+fn a_refused_file_leaves_no_submission_record_behind() {
+    let root = archive();
+    let case_id = create_case(root.path(), "Tax matter");
+    let inputs = tempfile::tempdir().expect("create a temporary directory");
+    let absent = inputs.path().join("absent.txt");
+    let output = run(&[
+        "submission",
+        "add",
+        "--archive",
+        path(root.path()),
+        "--case",
+        &case_id,
+        "--description",
+        "Posted the completed form.",
+        "--file",
+        path(&absent),
+        "--json",
+    ]);
+    assert_refusal(&output, "submission.add", "usage.arguments", 2, &["absent"]);
+    let shown = stdout_json(&run(&[
+        "case",
+        "show",
+        "--archive",
+        path(root.path()),
+        &case_id,
+        "--json",
+    ]));
+    assert_eq!(
+        shown["data"]["submission_count"], 0,
+        "an import refusal aborts before the record is written"
+    );
+}
+
+#[test]
+fn a_file_role_over_its_cap_is_refused_before_anything_is_imported() {
+    let root = archive();
+    let case_id = create_case(root.path(), "Tax matter");
+    let inputs = tempfile::tempdir().expect("create a temporary directory");
+    let annex = input(inputs.path(), "annex.txt", ANNEX);
+    let named = format!("{}:{}", path(&annex), "r".repeat(65));
+    let output = run(&[
+        "submission",
+        "add",
+        "--archive",
+        path(root.path()),
+        "--case",
+        &case_id,
+        "--description",
+        "Posted the completed form.",
+        "--file",
+        &named,
+        "--json",
+    ]);
+    assert_refusal(
+        &output,
+        "submission.add",
+        "input.cap.field_length",
+        3,
+        &["annex"],
+    );
+    let listing = fs::read_dir(root.path().join("records/imports"))
+        .expect("read the import events")
+        .count();
+    assert_eq!(listing, 1, "nothing was imported by the refused run");
+}

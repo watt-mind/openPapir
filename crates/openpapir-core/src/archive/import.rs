@@ -22,6 +22,7 @@ use crate::clock;
 use crate::error::{Details, Diagnostic, Failure, Outcome, Result, Warning, codes};
 use crate::ident;
 use crate::records::document::{self, Record};
+use crate::records::submission::{self, FileRef, Submission};
 
 /// One stored artefact, as reported to the caller.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -43,7 +44,7 @@ pub struct Artefact {
 }
 
 /// What one import operation reports.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct Imported {
     /// How many inputs created an object.
     pub imported: u64,
@@ -51,6 +52,20 @@ pub struct Imported {
     pub duplicates: u64,
     /// One entry per input, in the order the inputs were given.
     pub artefacts: Vec<Artefact>,
+}
+
+/// What one import that also records a submission reports.
+///
+/// The import's own fields stay where a caller of plain `import` already
+/// finds them, and the submission the same invocation recorded is the one
+/// field added to them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ImportedIntoCase {
+    /// Everything plain `import` reports, at the same place in the object.
+    #[serde(flatten)]
+    pub imported: Imported,
+    /// The submission recorded in the same invocation, naming every import.
+    pub submission: Submission,
 }
 
 /// The value an import-event record carries in `record_kind`.
@@ -133,18 +148,72 @@ fn run(
     inputs: &[PathBuf],
     warnings: &mut Vec<Warning>,
 ) -> std::result::Result<Imported, Diagnostic> {
-    limits::check_file_count(inputs.len() as u64)?;
-    let names = argument_names(inputs)?;
+    let names = checked_names(inputs)?;
     let mut archive = Archive::open(root)?;
     warnings.extend(archive.take_warnings());
     let _lock = WriterLock::acquire(archive.root())?;
-    let planned = plan(inputs, names)?;
+    store_named(archive.root(), inputs, names, warnings)
+}
 
+/// Import local files into an archive and record one submission naming them.
+///
+/// It is `submission add --file` from the other side: the same writer lock,
+/// the same import, and the same record. Every imported artefact is
+/// referenced with the default role, because this form takes no role of its
+/// own.
+///
+/// # Errors
+///
+/// Returns any refusal of `import` or of `submission add`.
+pub fn import_into_case(
+    root: &Path,
+    inputs: &[PathBuf],
+    case_id: &str,
+    description: &str,
+    stated_date: Option<&str>,
+) -> Result<ImportedIntoCase> {
+    let files: Vec<FileRef> = inputs
+        .iter()
+        .map(|path| FileRef {
+            path: path.clone(),
+            role: None,
+        })
+        .collect();
+    let outcome = submission::add_with_files(root, case_id, description, stated_date, &[], &files)?;
+    Ok(Outcome {
+        data: ImportedIntoCase {
+            imported: outcome.data.imported.unwrap_or_default(),
+            submission: outcome.data.submission,
+        },
+        warnings: outcome.warnings,
+    })
+}
+
+/// Check the caps that need only the command line, before an archive opens.
+///
+/// The result is the original filename of each input, in input order, which
+/// is what the plan below needs and the only thing read from the paths here.
+pub(crate) fn checked_names(inputs: &[PathBuf]) -> std::result::Result<Vec<String>, Diagnostic> {
+    limits::check_file_count(inputs.len() as u64)?;
+    argument_names(inputs)
+}
+
+/// Store every input into an archive whose writer lock the caller holds.
+///
+/// `names` is what [`checked_names`] returned for the same inputs, so the
+/// caller can refuse an unusable command line before it opens anything.
+pub(crate) fn store_named(
+    root: &Path,
+    inputs: &[PathBuf],
+    names: Vec<String>,
+    warnings: &mut Vec<Warning>,
+) -> std::result::Result<Imported, Diagnostic> {
+    let planned = plan(inputs, names)?;
     let mut read_total = 0_u64;
     let mut artefacts = Vec::new();
     for (index, input) in planned.iter().enumerate() {
         artefacts.push(store_one(
-            archive.root(),
+            root,
             input,
             index as u64,
             &mut read_total,

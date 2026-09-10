@@ -18,6 +18,10 @@ const ALPHA: &[u8] = b"synthetic submission alpha\n";
 const BETA: &[u8] = b"synthetic receipt beta\n";
 const GAMMA: &[u8] = b"synthetic attachment gamma\n";
 
+/// A fourth payload, written only for the cases that import a file the
+/// archive does not hold yet.
+const DELTA: &[u8] = b"synthetic annex delta\n";
+
 /// The bytes one stored object is replaced with to damage an archive.
 ///
 /// They are exactly as long as [`ALPHA`], so the archive check reports a
@@ -519,6 +523,24 @@ pub fn export_whole_and_purge(world: &World) {
     arguments.extend(["--to".to_owned(), world.export_destination()]);
     world.json(&arguments);
     world.json(&world.delete_arguments(true));
+}
+
+/// Write one more synthetic input, which no stage has imported.
+///
+/// The one-step forms are worth pinning on bytes the archive does not hold,
+/// so the golden shows a file being stored rather than a duplicate.
+pub fn write_extra_input(world: &World) {
+    fs::write(extra_input(world), DELTA).expect("write the extra synthetic input");
+}
+
+/// Name the input [`write_extra_input`] wrote.
+#[must_use]
+pub fn extra_input(world: &World) -> String {
+    world
+        .root()
+        .join("inputs/delta.txt")
+        .to_string_lossy()
+        .into_owned()
 }
 
 /// Create a directory that holds no export at all.

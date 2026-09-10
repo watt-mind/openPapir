@@ -11,10 +11,11 @@
 //! The digest is a storage-layer identity only: it says the bytes are present
 //! in this archive, and nothing about authenticity, origin, or legal effect.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::archive::import::{self, Imported};
 use crate::archive::lock::WriterLock;
 use crate::archive::{Archive, SUPPORTED_SCHEMA_VERSION};
 use crate::clock;
@@ -30,6 +31,23 @@ use crate::records::{
 
 /// The value a submission record carries in `record_kind`.
 pub const KIND: &str = "submission";
+
+/// The role a file imported by the submission itself is referenced with when
+/// the user named none.
+pub const DEFAULT_FILE_ROLE: &str = "attachment";
+
+/// One local file to import and reference in the same invocation.
+///
+/// The path is the user's own and never reaches any output. The role is
+/// checked against the same cap as an `--artefact` role, and defaults to
+/// [`DEFAULT_FILE_ROLE`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileRef {
+    /// The file to import.
+    pub path: PathBuf,
+    /// The user's own short label, absent when none was supplied.
+    pub role: Option<String>,
+}
 
 /// One artefact reference: the stored bytes and the label the user gave them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -81,6 +99,9 @@ impl Record for Submission {
 pub struct SubmissionAdded {
     /// The submission as it was stored.
     pub submission: Submission,
+    /// What the same invocation imported, absent when it imported nothing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub imported: Option<Imported>,
 }
 
 /// What showing one submission reports.
@@ -117,6 +138,30 @@ pub fn add(
     stated_date: Option<&str>,
     artefacts: &[String],
 ) -> Result<SubmissionAdded> {
+    add_with_files(root, case_id, description, stated_date, artefacts, &[])
+}
+
+/// Record a submission against a case, importing `files` in the same step.
+///
+/// Each file is imported under the writer lock this call already holds, and
+/// its digest is referenced after every `--artefact` reference, in the order
+/// the files were given. Bytes already stored are not an error: the object is
+/// left untouched and a second import event is recorded, exactly as `import`
+/// does it. An import that is refused leaves no submission record behind,
+/// because the record is written only once every file is stored.
+///
+/// # Errors
+///
+/// Returns the refusals of [`add`] and those of
+/// [`crate::archive::import::import`].
+pub fn add_with_files(
+    root: &Path,
+    case_id: &str,
+    description: &str,
+    stated_date: Option<&str>,
+    artefacts: &[String],
+    files: &[FileRef],
+) -> Result<SubmissionAdded> {
     let mut warnings = Vec::new();
     match add_record(
         root,
@@ -124,10 +169,14 @@ pub fn add(
         description,
         stated_date,
         artefacts,
+        files,
         &mut warnings,
     ) {
-        Ok(submission) => Ok(Outcome {
-            data: SubmissionAdded { submission },
+        Ok((submission, imported)) => Ok(Outcome {
+            data: SubmissionAdded {
+                submission,
+                imported,
+            },
             warnings,
         }),
         Err(error) => Err(Failure::with_warnings(error, warnings)),
@@ -140,11 +189,15 @@ fn add_record(
     description: &str,
     stated_date: Option<&str>,
     artefacts: &[String],
+    files: &[FileRef],
     warnings: &mut Vec<Warning>,
-) -> std::result::Result<Submission, Diagnostic> {
+) -> std::result::Result<(Submission, Option<Imported>), Diagnostic> {
     let description = checked_description(description)?;
     let stated_date = checked_stated_date(stated_date)?;
-    let references = parse_references(artefacts)?;
+    let mut references = parse_references(artefacts)?;
+    let roles = checked_roles(files)?;
+    let paths: Vec<PathBuf> = files.iter().map(|file| file.path.clone()).collect();
+    let names = import::checked_names(&paths)?;
 
     let mut archive = Archive::open(root)?;
     warnings.extend(archive.take_warnings());
@@ -153,6 +206,18 @@ fn add_record(
     for reference in &references {
         refuse_absent_object(archive.root(), &reference.digest)?;
     }
+    let imported = if files.is_empty() {
+        None
+    } else {
+        let imported = import::store_named(archive.root(), &paths, names, warnings)?;
+        for (artefact, role) in imported.artefacts.iter().zip(roles) {
+            references.push(ArtefactRef {
+                digest: artefact.digest.clone(),
+                role: Some(role),
+            });
+        }
+        Some(imported)
+    };
     let submission = Submission {
         archive_schema_version: SUPPORTED_SCHEMA_VERSION,
         artefacts: references,
@@ -164,7 +229,18 @@ fn add_record(
         stated_date,
     };
     warnings.extend(document::write_record(archive.root(), &submission)?);
-    Ok(submission)
+    Ok((submission, imported))
+}
+
+/// The role each file is referenced with, checked against the role cap
+/// before the archive is opened.
+fn checked_roles(files: &[FileRef]) -> std::result::Result<Vec<String>, Diagnostic> {
+    files
+        .iter()
+        .map(|file| {
+            Ok(checked_role(file.role.as_deref())?.unwrap_or_else(|| DEFAULT_FILE_ROLE.to_owned()))
+        })
+        .collect()
 }
 
 /// Parse `<digest>[:<role>]` for each reference, checking shape and caps.

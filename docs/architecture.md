@@ -33,12 +33,12 @@ naming a count that would go stale.
 | Operation | Invocation |
 | --- | --- |
 | `archive.init` | `openpapir archive init <root> [--json]` |
-| `import` | `openpapir import --archive <root> <file>... [--json]` |
+| `import` | `openpapir import --archive <root> <file>... [--case <case-id> --description <d> [--date <yyyy-mm-dd>]] [--json]` |
 | `case.create` | `openpapir case create --archive <root> --title <t> [--notes <n>] [--tag <t>]... [--status open\|closed] [--json]` |
 | `case.list` | `openpapir case list --archive <root> [--status <s>] [--tag <t>]... [--query <text>] [--json]` |
 | `case.show` | `openpapir case show --archive <root> <case-id> [--json]` |
 | `case.update` | `openpapir case update --archive <root> <case-id> [--title <t>] [--notes <n>\|--clear-notes] [--status open\|closed] [--tag <t>]... [--untag <t>]... [--json]` |
-| `submission.add` | `openpapir submission add --archive <root> --case <case-id> --description <d> [--date <yyyy-mm-dd>] [--artefact <digest>[:<role>]]... [--json]` |
+| `submission.add` | `openpapir submission add --archive <root> --case <case-id> --description <d> [--date <yyyy-mm-dd>] [--artefact <digest>[:<role>]]... [--file <path>[:<role>]]... [--json]` |
 | `receipt.add` | `openpapir receipt add --archive <root> --artefact <digest> [--import-event <id>] [--label <l>] [--json]` |
 | `receipt.list` | `openpapir receipt list --archive <root> [--json]` |
 | `association.create` | `openpapir association create --archive <root> --receipt <receipt-id> --outcome <outcome> [--candidate <submission-id>:<confidence>:<statement>]... [--supersedes <association-id>] [--json]` |
@@ -267,6 +267,68 @@ content-addressed artefact store and records one import event per input.
 
 A duplicate adds `previous_import_count` and `first_imported_at` to the
 artefact entry and still exits `0`.
+
+### `import --case`, the one-step form
+
+`--case <case-id> --description <d> [--date <yyyy-mm-dd>]` imports the same
+files and records one submission naming every one of them, under the one
+writer lock the import already takes. It is
+[`submission add --file`](#submission-add) seen from the other side, and it
+records the same thing:
+
+- Every imported artefact is referenced with the role `attachment`, because
+  this form takes no role of its own. `submission add --file` is the form that
+  names a role per file.
+- `--case` without `--description` is `usage.arguments`, and so is
+  `--description` or `--date` without `--case`. A submission is the user's own
+  statement of what they sent, and there is nothing to record without one.
+- An import that is refused writes no submission record. The files are stored
+  first and the record is written last, so a refusal leaves the artefact store
+  as import alone would leave it and no record naming a file that is not
+  there.
+- `data` keeps every field plain `import` reports, in the same place, and adds
+  `submission`, whose shape is the submission entry shown under
+  [`case show`](#case-show). No new operation exists: `capabilities` still
+  reports `import` and `submission.add`.
+
+```json
+{
+  "schema_version": 1,
+  "ok": true,
+  "command": "import",
+  "data": {
+    "imported": 1,
+    "duplicates": 0,
+    "artefacts": [
+      {
+        "digest": "sha256:a002fd0595c559505437ce754971d911b703373addf2b59e425ec057d631614f",
+        "byte_length": 16,
+        "import_event": "95cab2db3374dc619f89e5cf2494039e",
+        "created_object": true
+      }
+    ],
+    "submission": {
+      "archive_schema_version": 1,
+      "artefacts": [
+        {
+          "digest": "sha256:a002fd0595c559505437ce754971d911b703373addf2b59e425ec057d631614f",
+          "role": "attachment"
+        }
+      ],
+      "case_id": "6b73d041fb6bed26be75545fabfd45bc",
+      "created_at": "2026-01-14T09:12:33Z",
+      "description": "Posted the completed form.",
+      "id": "fedcba9876543210fedcba9876543210",
+      "record_kind": "submission"
+    }
+  },
+  "verified": false
+}
+```
+
+The human form prints the import's own lines and then the record's, so a
+reader of either separate command recognises this one. It names a count of
+files and the identifiers openPapir minted, and never a filename.
 
 Beyond the shared refusals, import can emit `input.cap.file_size`,
 `input.cap.import_bytes`, `input.cap.import_files`,
@@ -587,6 +649,31 @@ and artefact roles, plus the digests of stored objects, and never a path. An
 empty or oversized `--description`, `--artefact` role, or `--date` that is not
 a calendar date is `usage.arguments` or `input.cap.field_length`, naming the
 argument and never its value.
+
+### `submission add --file`, the one-step form
+
+`--file <path>` imports the file and references its digest in the same
+record, under the one writer lock the command already takes, so the digest
+never has to be copied between two commands. It is repeatable and may be
+combined with `--artefact`.
+
+- `--file <path>:<role>` names the role. Without one the reference takes the
+  role `attachment`. The role is the text after the last colon, and only when
+  that text is not empty and holds no `/` or `\`, so a colon inside a
+  directory name or a Windows drive letter stays part of the path.
+- The references are the `--artefact` values in the order they were given,
+  then the `--file` digests in the order they were given.
+- Bytes the archive already holds are not an error. The object is left
+  untouched and a second import event is recorded, exactly as
+  [`import`](#import) does it.
+- An import that is refused writes no submission record, with every refusal
+  `import` can raise, and every cap on a role checked before the archive is
+  opened at all.
+- `data` gains `imported`, which holds what plain `import` reports for the
+  files this invocation stored, and is absent when no `--file` was given.
+- The human form adds one line naming how many files were imported and how
+  many were already present. A filename is the user's own and reaches no
+  output, in this form as in every other.
 
 ## `receipt add`
 

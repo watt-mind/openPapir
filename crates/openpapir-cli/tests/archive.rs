@@ -1050,3 +1050,134 @@ fn capabilities_report_exactly_the_implemented_operations() {
     );
     assert_eq!(output.status.code(), Some(0));
 }
+
+/// Create a case in the archive at `root` and return its identifier.
+fn create_case(root: &Path) -> String {
+    let envelope = stdout_json(&run(&[
+        "case",
+        "create",
+        "--archive",
+        path(root),
+        "--title",
+        "Tax matter",
+        "--json",
+    ]));
+    envelope["data"]["case"]["id"]
+        .as_str()
+        .expect("a minted identifier")
+        .to_owned()
+}
+
+#[test]
+fn an_import_into_a_case_records_one_submission_naming_every_file() {
+    let (root, inputs) = archive();
+    let case_id = create_case(root.path());
+    let first = write_input(inputs.path(), "first.txt", PAYLOAD);
+    let second = write_input(inputs.path(), "second.txt", b"synthetic annex\n");
+    let output = run(&[
+        "import",
+        "--archive",
+        path(root.path()),
+        path(&first),
+        path(&second),
+        "--case",
+        &case_id,
+        "--description",
+        "Posted the completed form.",
+        "--date",
+        "2026-01-13",
+        "--json",
+    ]);
+    let envelope = stdout_json(&output);
+    assert_envelope(&envelope, "import", true);
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(envelope["data"]["imported"], 2);
+    assert_eq!(envelope["data"]["duplicates"], 0);
+    assert_eq!(
+        envelope["data"]["artefacts"][0]["digest"], PAYLOAD_DIGEST,
+        "the import reports what plain import reports, where it reports it"
+    );
+    let submission = &envelope["data"]["submission"];
+    assert_eq!(submission["case_id"], case_id);
+    assert_eq!(submission["description"], "Posted the completed form.");
+    assert_eq!(submission["stated_date"], "2026-01-13");
+    let artefacts = submission["artefacts"].as_array().expect("the references");
+    assert_eq!(artefacts.len(), 2, "every imported file is named");
+    assert_eq!(artefacts[0]["digest"], PAYLOAD_DIGEST);
+    assert_eq!(artefacts[0]["role"], "attachment");
+
+    let rendered = String::from_utf8(output.stdout).expect("stdout is UTF-8");
+    assert!(
+        !rendered.contains("first.txt"),
+        "no filename reaches output"
+    );
+    assert!(!rendered.contains(path(inputs.path())), "no path either");
+}
+
+#[test]
+fn a_case_without_a_description_is_a_usage_refusal() {
+    let (root, inputs) = archive();
+    let case_id = create_case(root.path());
+    let file = write_input(inputs.path(), "note.txt", PAYLOAD);
+    let output = run(&[
+        "import",
+        "--archive",
+        path(root.path()),
+        path(&file),
+        "--case",
+        &case_id,
+        "--json",
+    ]);
+    assert_refusal(&output, "import", "usage.arguments", 2, &["note.txt"]);
+    let events = fs::read_dir(root.path().join("records/imports"))
+        .expect("read the import events")
+        .count();
+    assert_eq!(events, 0, "the command line is refused before any work");
+}
+
+#[test]
+fn an_import_without_a_case_still_reports_exactly_what_it_always_did() {
+    let (root, inputs) = archive();
+    let file = write_input(inputs.path(), "note.txt", PAYLOAD);
+    let envelope = stdout_json(&run(&[
+        "import",
+        "--archive",
+        path(root.path()),
+        path(&file),
+        "--json",
+    ]));
+    assert_envelope(&envelope, "import", true);
+    let data = envelope["data"].as_object().expect("data is an object");
+    let mut keys: Vec<&str> = data.keys().map(String::as_str).collect();
+    keys.sort_unstable();
+    assert_eq!(
+        keys,
+        ["artefacts", "duplicates", "imported"],
+        "the plain form gains no field"
+    );
+}
+
+#[test]
+fn a_human_import_into_a_case_names_the_record_and_no_filename() {
+    let (root, inputs) = archive();
+    let case_id = create_case(root.path());
+    let file = write_input(inputs.path(), "note.txt", PAYLOAD);
+    let output = run(&[
+        "import",
+        "--archive",
+        path(root.path()),
+        path(&file),
+        "--case",
+        &case_id,
+        "--description",
+        "Posted the completed form.",
+    ]);
+    assert_eq!(output.status.code(), Some(0));
+    let text = String::from_utf8(output.stdout).expect("stdout is UTF-8");
+    assert!(text.contains("Stored 1 artefact(s); 0 already present."));
+    assert!(text.contains(&case_id));
+    assert!(text.contains("Description: Posted the completed form."));
+    assert!(text.contains("Nothing here is verified, matched, or delivered."));
+    assert!(!text.contains("note.txt"), "no filename is printed");
+    assert!(!text.contains(path(inputs.path())), "no path is printed");
+}

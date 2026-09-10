@@ -4,7 +4,7 @@
 
 use openpapir_core::{
     Association, AssociationCreated, AssociationHistory, AssociationView, Receipt, ReceiptAdded,
-    ReceiptList, ReceiptView, SubmissionAdded, SubmissionView,
+    ReceiptList, ReceiptView, Submission, SubmissionView,
 };
 
 use super::{RECORD_DISCLAIMER, submission_lines};
@@ -125,11 +125,11 @@ pub fn association_history(history: &AssociationHistory) -> Vec<String> {
     lines
 }
 
-/// The lines `submission add` prints when it succeeds.
+/// The lines `submission add` prints for the record it wrote.
 #[must_use]
-pub fn submission_added(added: &SubmissionAdded) -> Vec<String> {
-    let mut lines = vec![format!("Case {}.", added.submission.case_id)];
-    lines.extend(submission_lines(&added.submission));
+pub fn submission_added(submission: &Submission) -> Vec<String> {
+    let mut lines = vec![format!("Case {}.", submission.case_id)];
+    lines.extend(submission_lines(submission));
     lines.push(RECORD_DISCLAIMER.to_owned());
     lines
 }
@@ -347,10 +347,7 @@ mod tests {
 
     #[test]
     fn human_submission_output_never_calls_a_stated_date_a_delivery() {
-        let text = submission_added(&SubmissionAdded {
-            submission: submission(),
-        })
-        .join("\n");
+        let text = submission_added(&submission()).join("\n");
         assert!(text.contains(SUBMISSION_ID));
         assert!(text.contains("Description: Posted the completed form."));
         assert!(text.contains("Date stated by the user: 2026-01-13."));

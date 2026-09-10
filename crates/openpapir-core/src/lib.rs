@@ -63,7 +63,7 @@ pub mod integrity;
 pub mod records;
 pub mod status;
 
-pub use archive::import::{Artefact, Imported, import};
+pub use archive::import::{Artefact, Imported, ImportedIntoCase, import, import_into_case};
 pub use archive::{Created, init, repair_permissions};
 pub use deletion::{Deleted, RemovedRecords, RetainedObjects, delete};
 pub use error::{Diagnostic, Failure, Outcome, Warning};
@@ -80,7 +80,7 @@ pub use records::case::{
     Status as CaseStatus,
 };
 pub use records::receipt::{Receipt, ReceiptAdded, ReceiptList, ReceiptView};
-pub use records::submission::{ArtefactRef, Submission, SubmissionAdded, SubmissionView};
+pub use records::submission::{ArtefactRef, FileRef, Submission, SubmissionAdded, SubmissionView};
 
 use serde::Serialize;
 use std::fmt;
