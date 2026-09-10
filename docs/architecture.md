@@ -44,6 +44,9 @@ naming a count that would go stale.
 | `association.create` | `openpapir association create --archive <root> --receipt <receipt-id> --outcome <outcome> [--candidate <submission-id>:<confidence>:<statement>]... [--supersedes <association-id>] [--json]` |
 | `association.list` | `openpapir association list --archive <root> --receipt <receipt-id> [--json]` |
 | `association.retire` | `openpapir association retire --archive <root> <association-id> [--reason <text>] [--json]` |
+| `submission.show` | `openpapir submission show --archive <root> <submission-id> [--json]` |
+| `receipt.show` | `openpapir receipt show --archive <root> <receipt-id> [--json]` |
+| `association.show` | `openpapir association show --archive <root> <association-id> [--json]` |
 | `archive.check` | `openpapir archive check --archive <root> [--json]` |
 | `archive.status` | `openpapir archive status --archive <root> [--as-of <yyyy-mm-dd>] [--json]` |
 | `case.export` | `openpapir case export --archive <root> --case <case-id> --to <dir> [--json]` |
@@ -153,7 +156,10 @@ operations:
       "archive.repair_permissions",
       "case.delete",
       "skill",
-      "case.update"
+      "case.update",
+      "submission.show",
+      "receipt.show",
+      "association.show"
     ]
   },
   "verified": false
@@ -416,13 +422,28 @@ and no path.
 
 `openpapir case show --archive <root> <case-id>` reads one case and the
 submissions that name it. `data` holds `case`, `submissions` ordered by
-identifier, and `submission_count`. The human form prints the case's status
+identifier, `submission_count`, and `receipts`. The human form prints the
+case's status
 and tags, and its `updated_at` once there is one. An identifier that names no
 case, and one
 that is not 32 lowercase hexadecimal characters, are both `record.not_found`,
 naming the kind and how it was referenced and never the value the user
 supplied. `data` is the user's own records read back to them, and carries no
 path.
+
+`receipts` is every receipt whose live association names a submission of this
+case, ordered by receipt identifier and then by association identifier. Each
+entry holds `receipt`, the record as it is stored, `association_id`,
+`outcome`, and `submission_ids`, the submissions of this case that one
+association names. Only the live head of each supersession chain is read, as
+[`archive status`](#archive-status) reads one: a superseded record stays
+stored and [`association list`](#association-list) still shows it, but it is
+what the user asserted then rather than now, so withdrawing an assertion takes
+the receipt out of this section without removing anything. A case with no
+submission, and one no live association names, both hold an empty array rather
+than an absent key. The entry is the user's own assertion read back: it states
+no delivery, receipt by an authority, authenticity, or legal effect, and
+openPapir matched nothing to build it.
 
 ```json
 {
@@ -439,6 +460,7 @@ path.
       "tags": [],
       "title": "Tax matter"
     },
+    "receipts": [],
     "submissions": [
       {
         "archive_schema_version": 1,
@@ -751,6 +773,64 @@ writer lock, like every other write.
 
 Retiring is what unblocks a `case delete` refused with
 `delete.record_entangled`; see [`case delete`](#case-delete).
+
+## `submission show`
+
+`openpapir submission show --archive <root> <submission-id>` reads one
+submission and every association naming it. It takes no lock, exactly as
+`case show` takes none. `data` holds `submission`, the record as it is
+stored, `associations`, and `association_count`.
+
+An association names a submission when the submission is one of its
+`candidates` or is the `submission_id` an `associated` outcome confirms.
+Every such record is reported whatever its outcome and whether or not another
+record supersedes it. The order is the live heads first and the superseded
+records after them, each group newest first as `association list` orders one,
+so what the user asserts today reads before what they asserted before it.
+Nothing is collapsed and nothing is filtered.
+
+An identifier that names no submission, and one that is not 32 lowercase
+hexadecimal characters, are both `record.not_found`, naming the kind and how
+it was referenced and never the value the user supplied. Beyond that and the
+shared refusals it emits nothing of its own. `data` carries the user's own
+records and openPapir's own identifiers, and no path.
+
+## `receipt show`
+
+`openpapir receipt show --archive <root> <receipt-id>` reads one receipt and
+its whole association history. It takes no lock. `data` holds `receipt`, the
+record as it is stored, `associations`, and `association_count`.
+
+The history is the one [`association list`](#association-list) reports for
+the same receipt, in the same order: newest first, superseded records
+included, each entry carrying its own `supersedes`. Nothing is collapsed,
+filtered, or presented as a single best guess.
+
+An identifier that names no receipt is `record.not_found`, naming the kind and
+how it was referenced and never the value the user supplied. Beyond that and
+the shared refusals it emits nothing of its own. `data` carries the user's own
+records and openPapir's own identifiers, and no path.
+
+## `association show`
+
+`openpapir association show --archive <root> <association-id>` reads one
+association and the supersession chain it belongs to. It takes no lock. `data`
+holds `association`, the record as it is stored, `live`, `chain`, and
+`chain_length`.
+
+`chain` is every record reachable from this one along `supersedes`, in both
+directions: what it supersedes, transitively, and what supersedes it, with the
+record itself among them. The order is the one `association list` uses, newest
+first. `chain_length` is how many records the chain holds, and `live` is
+`true` exactly when no stored record supersedes this one, which is what makes
+it the assertion that stands today rather than history behind a newer record.
+The walk keeps a visited set, so a hand-edited archive holding a cycle yields
+a finite chain instead of looping.
+
+An identifier that names no association is `record.not_found`, naming the kind
+and how it was referenced and never the value the user supplied. Beyond that
+and the shared refusals it emits nothing of its own. `data` carries the user's
+own statements and openPapir's own identifiers, and no path.
 
 ## `archive check`
 

@@ -21,7 +21,7 @@
 //! candidate, so the history reads as what the user asserted and then that
 //! they withdrew it. Nothing is edited and nothing is removed.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -152,6 +152,25 @@ pub struct AssociationHistory {
     pub count: u64,
     /// The receipt the history belongs to.
     pub receipt_id: String,
+}
+
+/// What showing one association reports.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AssociationView {
+    /// The association as it is stored.
+    pub association: Association,
+    /// The supersession chain the association belongs to: the association
+    /// itself, every record it supersedes, and every record that supersedes
+    /// it, newest first as `association list` orders a history. Nothing is
+    /// collapsed or filtered, so a chain reads as everything the user has
+    /// asserted about this receipt along this line of records.
+    pub chain: Vec<Association>,
+    /// How many records the chain holds, the association included.
+    pub chain_length: u64,
+    /// Whether the association is the live head of its chain, meaning no
+    /// stored record supersedes it. A superseded record is history: it says
+    /// what the user asserted then, not what they assert today.
+    pub live: bool,
 }
 
 /// Record what the user asserts about a receipt.
@@ -457,11 +476,41 @@ fn list_history(
     let mut archive = Archive::open(root)?;
     warnings.extend(archive.take_warnings());
     let receipt = document::read_record::<Receipt>(archive.root(), receipt_id, "receipt_id")?;
-    let mut associations: Vec<Association> = document::list_records::<Association>(archive.root())?
+    let associations = history_of(archive.root(), &receipt.id)?;
+    Ok(AssociationHistory {
+        count: associations.len() as u64,
+        associations,
+        receipt_id: receipt.id,
+    })
+}
+
+/// Every stored association for one receipt, newest first.
+///
+/// The receipt identifier is the one a record already carries, so nothing is
+/// resolved here: the caller has read the receipt, or the association whose
+/// receipt this is, and this is the listing that belongs to it.
+pub(crate) fn history_of(
+    root: &Path,
+    receipt_id: &str,
+) -> std::result::Result<Vec<Association>, Diagnostic> {
+    let mut associations: Vec<Association> = document::list_records::<Association>(root)?
         .into_iter()
-        .filter(|association| association.receipt_id == receipt.id)
+        .filter(|association| association.receipt_id == receipt_id)
         .collect();
-    let depths = supersession_depths(&associations);
+    sort_newest_first(&mut associations);
+    Ok(associations)
+}
+
+/// Order associations newest first, exactly as `association list` reports one
+/// receipt's history.
+///
+/// Newest first means by `created_at`, then by how many records a record
+/// supersedes, then by identifier, all descending. The middle key matters
+/// because openPapir records whole seconds: two records written in the same
+/// second would otherwise order arbitrarily, and a record that supersedes
+/// another is by construction the later of the two.
+pub(crate) fn sort_newest_first(associations: &mut [Association]) {
+    let depths = supersession_depths(associations);
     associations.sort_by(|left, right| {
         (&right.created_at, depths[&right.id], &right.id).cmp(&(
             &left.created_at,
@@ -469,11 +518,97 @@ fn list_history(
             &left.id,
         ))
     });
-    Ok(AssociationHistory {
-        count: associations.len() as u64,
-        associations,
-        receipt_id: receipt.id,
+}
+
+/// Whether no record in `associations` supersedes the one with this identifier.
+///
+/// A live head is what the user asserts today. Everything behind it stays
+/// exactly as it was written and is still listed, which is what makes a
+/// withdrawal inspectable rather than a deletion.
+pub(crate) fn is_live(associations: &[Association], id: &str) -> bool {
+    !associations
+        .iter()
+        .any(|association| association.supersedes.as_deref() == Some(id))
+}
+
+/// Whether one association names this submission, as a candidate or as the
+/// confirmed submission of an `associated` outcome.
+pub(crate) fn names_submission(association: &Association, submission_id: &str) -> bool {
+    association.submission_id.as_deref() == Some(submission_id)
+        || association
+            .candidates
+            .iter()
+            .any(|candidate| candidate.submission_id == submission_id)
+}
+
+/// Show one association with the supersession chain it belongs to.
+///
+/// The chain is everything reachable from the association along `supersedes`,
+/// in both directions: what it supersedes, transitively, and what supersedes
+/// it. The walk keeps a visited set, so a hand-edited archive holding a cycle
+/// yields a finite chain instead of looping. Reading takes no writer lock,
+/// because every record file is written whole.
+///
+/// # Errors
+///
+/// Returns `record.not_found` when the identifier names no association,
+/// `record.malformed` for an unreadable document, and any archive refusal.
+pub fn show(root: &Path, association_id: &str) -> Result<AssociationView> {
+    let mut warnings = Vec::new();
+    match show_record(root, association_id, &mut warnings) {
+        Ok(view) => Ok(Outcome {
+            data: view,
+            warnings,
+        }),
+        Err(error) => Err(Failure::with_warnings(error, warnings)),
+    }
+}
+
+fn show_record(
+    root: &Path,
+    association_id: &str,
+    warnings: &mut Vec<Warning>,
+) -> std::result::Result<AssociationView, Diagnostic> {
+    let mut archive = Archive::open(root)?;
+    warnings.extend(archive.take_warnings());
+    let association =
+        document::read_record::<Association>(archive.root(), association_id, "association_id")?;
+    let history = history_of(archive.root(), &association.receipt_id)?;
+    let chain = chain_of(&history, &association.id);
+    Ok(AssociationView {
+        chain_length: chain.len() as u64,
+        live: is_live(&history, &association.id),
+        association,
+        chain,
     })
+}
+
+/// The records connected to `id` through `supersedes`, in `history`'s order.
+///
+/// A record may in principle be superseded by more than one other, so the
+/// walk follows every edge rather than a single line, and the visited set
+/// bounds it by the number of records the receipt holds.
+fn chain_of(history: &[Association], id: &str) -> Vec<Association> {
+    let mut reached: BTreeSet<&str> = BTreeSet::new();
+    let mut pending = vec![id];
+    while let Some(current) = pending.pop() {
+        if !reached.insert(current) {
+            continue;
+        }
+        for association in history {
+            if association.id == current {
+                pending.extend(association.supersedes.as_deref());
+            }
+            if association.supersedes.as_deref() == Some(current) {
+                pending.push(&association.id);
+            }
+        }
+    }
+    history
+        .iter()
+        .filter(|association| reached.contains(association.id.as_str()))
+        .cloned()
+        .collect()
 }
 
 #[cfg(test)]

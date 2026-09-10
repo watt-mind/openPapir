@@ -21,8 +21,8 @@ pub use archive::created;
 pub use cases::{case_created, case_list, case_shown, case_updated};
 pub use deletion::case_deleted;
 pub use records::{
-    association_created, association_history, association_retired, receipt_added, receipt_list,
-    submission_added,
+    association_created, association_history, association_retired, association_shown,
+    receipt_added, receipt_list, receipt_shown, submission_added, submission_shown,
 };
 pub use status::integrity;
 pub use transfer::{exported, imported, repaired};

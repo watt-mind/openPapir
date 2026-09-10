@@ -21,6 +21,7 @@
 //! reasoning are recorded in `docs/archive-layout.md` and
 //! `docs/architecture.md`.
 
+use std::collections::BTreeSet;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -30,7 +31,9 @@ use crate::archive::{Archive, SUPPORTED_SCHEMA_VERSION, limits};
 use crate::clock;
 use crate::error::{Details, Diagnostic, Failure, Outcome, Result, Warning, codes};
 use crate::ident;
+use crate::records::association::{self, Association};
 use crate::records::document::{self, Record, Rewritable};
+use crate::records::receipt::Receipt;
 use crate::records::submission::Submission;
 use crate::records::{CASES_DIR, checked_notes, checked_title};
 
@@ -162,11 +165,36 @@ pub struct CaseList {
     pub count: u64,
 }
 
+/// One receipt a live association ties to a submission of the case.
+///
+/// The entry is the user's own assertion read back to them. It says nothing
+/// about delivery, receipt by an authority, authenticity, or legal effect,
+/// and openPapir matched nothing to build it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CaseReceipt {
+    /// The live association that names the submissions below.
+    pub association_id: String,
+    /// The outcome that live association records, one of the four.
+    pub outcome: String,
+    /// The receipt itself, as stored.
+    pub receipt: Receipt,
+    /// The submissions of this case the association names, ordered by
+    /// identifier. A `contradictory` outcome names more than one.
+    pub submission_ids: Vec<String>,
+}
+
 /// What showing one case reports.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CaseView {
     /// The case itself.
     pub case: Case,
+    /// Every receipt whose live association names a submission of this case,
+    /// with the outcome that association records, ordered by receipt
+    /// identifier and then by association identifier. Only the live head of
+    /// each supersession chain is read: a superseded record is history, still
+    /// stored and still listed by `association list`, but no longer what the
+    /// user asserts today.
+    pub receipts: Vec<CaseReceipt>,
     /// The submissions recorded against it, ordered by identifier.
     pub submissions: Vec<Submission>,
     /// How many submissions the case holds.
@@ -564,11 +592,59 @@ fn show_record(
         .into_iter()
         .filter(|submission| submission.case_id == case.id)
         .collect();
+    let receipts = case_receipts(archive.root(), &submissions)?;
     Ok(CaseView {
         case,
+        receipts,
         submission_count: submissions.len() as u64,
         submissions,
     })
+}
+
+/// The receipts whose live association names one of these submissions.
+///
+/// Only the live head of each supersession chain is read, exactly as the
+/// archive summary reads one: a superseded record stays stored and stays
+/// listed, but it says what the user asserted then rather than now. A
+/// receipt whose live association names no submission of the case is left
+/// out, and one entry is reported per live association, however many
+/// submissions of the case that one association names.
+fn case_receipts(
+    root: &Path,
+    submissions: &[Submission],
+) -> std::result::Result<Vec<CaseReceipt>, Diagnostic> {
+    let mine: BTreeSet<&str> = submissions
+        .iter()
+        .map(|submission| submission.id.as_str())
+        .collect();
+    if mine.is_empty() {
+        return Ok(Vec::new());
+    }
+    let associations = document::list_records::<Association>(root)?;
+    let mut found = Vec::new();
+    for receipt in document::list_records::<Receipt>(root)? {
+        for live in associations
+            .iter()
+            .filter(|association| association.receipt_id == receipt.id)
+            .filter(|association| association::is_live(&associations, &association.id))
+        {
+            let named: Vec<String> = mine
+                .iter()
+                .filter(|id| association::names_submission(live, id))
+                .map(|id| (*id).to_owned())
+                .collect();
+            if named.is_empty() {
+                continue;
+            }
+            found.push(CaseReceipt {
+                association_id: live.id.clone(),
+                outcome: live.outcome.clone(),
+                receipt: receipt.clone(),
+                submission_ids: named,
+            });
+        }
+    }
+    Ok(found)
 }
 
 #[cfg(test)]

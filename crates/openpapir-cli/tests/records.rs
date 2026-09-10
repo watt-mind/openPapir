@@ -875,7 +875,276 @@ fn capabilities_report_exactly_the_implemented_operations() {
             "archive.repair_permissions",
             "case.delete",
             "skill",
-            "case.update"
+            "case.update",
+            "submission.show",
+            "receipt.show",
+            "association.show"
         ])
     );
+}
+
+/// Record one submission against a case and return its identifier.
+fn add_submission(root: &Path, case_id: &str, description: &str) -> String {
+    let output = run(&[
+        "submission",
+        "add",
+        "--archive",
+        path(root),
+        "--case",
+        case_id,
+        "--description",
+        description,
+        "--json",
+    ]);
+    let envelope = stdout_json(&output);
+    assert_envelope(&envelope, "submission.add", true);
+    envelope["data"]["submission"]["id"]
+        .as_str()
+        .expect("a minted identifier")
+        .to_owned()
+}
+
+/// Record a receipt over the imported artefact and return its identifier.
+fn add_receipt(root: &Path) -> String {
+    let output = run(&[
+        "receipt",
+        "add",
+        "--archive",
+        path(root),
+        "--artefact",
+        PAYLOAD_DIGEST,
+        "--json",
+    ]);
+    let envelope = stdout_json(&output);
+    assert_envelope(&envelope, "receipt.add", true);
+    envelope["data"]["receipt"]["id"]
+        .as_str()
+        .expect("a minted identifier")
+        .to_owned()
+}
+
+/// Record one association and return its identifier.
+fn add_association(
+    root: &Path,
+    receipt_id: &str,
+    outcome: &str,
+    candidates: &[String],
+    supersedes: Option<&str>,
+) -> String {
+    let mut arguments = vec![
+        "association".to_owned(),
+        "create".to_owned(),
+        "--archive".to_owned(),
+        path(root).to_owned(),
+        "--receipt".to_owned(),
+        receipt_id.to_owned(),
+        "--outcome".to_owned(),
+        outcome.to_owned(),
+        "--json".to_owned(),
+    ];
+    for entry in candidates {
+        arguments.push("--candidate".to_owned());
+        arguments.push(entry.clone());
+    }
+    if let Some(supersedes) = supersedes {
+        arguments.push("--supersedes".to_owned());
+        arguments.push(supersedes.to_owned());
+    }
+    let borrowed: Vec<&str> = arguments.iter().map(String::as_str).collect();
+    let envelope = stdout_json(&run(&borrowed));
+    assert_envelope(&envelope, "association.create", true);
+    envelope["data"]["association"]["id"]
+        .as_str()
+        .expect("a minted identifier")
+        .to_owned()
+}
+
+/// `submission show` reports the record as stored and every association
+/// naming it, the live head before the record it superseded.
+#[test]
+fn a_shown_submission_lists_the_associations_naming_it_live_first() {
+    let root = archive();
+    let case_id = create_case(root.path(), "Tax matter");
+    let submission = add_submission(root.path(), &case_id, "Posted the completed form.");
+    let other = add_submission(root.path(), &case_id, "Sent the supporting evidence.");
+    let receipt = add_receipt(root.path());
+    let superseded = add_association(
+        root.path(),
+        &receipt,
+        "candidate",
+        &[format!("{submission}:moderate:The reference matches.")],
+        None,
+    );
+    let live = add_association(
+        root.path(),
+        &receipt,
+        "associated",
+        &[format!("{submission}:strong:The case number is the same.")],
+        Some(&superseded),
+    );
+
+    let envelope = stdout_json(&run(&[
+        "submission",
+        "show",
+        "--archive",
+        path(root.path()),
+        &submission,
+        "--json",
+    ]));
+    assert_envelope(&envelope, "submission.show", true);
+    assert_eq!(envelope["data"]["submission"]["id"], submission);
+    assert_eq!(envelope["data"]["submission"]["case_id"], case_id);
+    assert_eq!(envelope["data"]["association_count"], 2);
+    let associations = envelope["data"]["associations"].as_array().unwrap();
+    assert_eq!(associations[0]["id"], live, "the live head reads first");
+    assert_eq!(associations[1]["id"], superseded, "history after it");
+
+    let none = stdout_json(&run(&[
+        "submission",
+        "show",
+        "--archive",
+        path(root.path()),
+        &other,
+        "--json",
+    ]));
+    assert_eq!(none["data"]["association_count"], 0);
+    assert!(none["data"]["associations"].as_array().unwrap().is_empty());
+}
+
+/// An identifier that names no submission is `record.not_found`, and the
+/// refusal echoes neither the value nor a path.
+#[test]
+fn an_unknown_submission_is_refused_without_echoing_the_identifier() {
+    let root = archive();
+    for supplied in [ABSENT_ID, "not-an-identifier", "../../etc/passwd"] {
+        let output = run(&[
+            "submission",
+            "show",
+            "--archive",
+            path(root.path()),
+            supplied,
+            "--json",
+        ]);
+        assert_refusal(
+            &output,
+            "submission.show",
+            "record.not_found",
+            4,
+            &["not-an-identifier", "passwd"],
+        );
+        let envelope = stdout_json(&output);
+        assert_eq!(envelope["error"]["details"]["record_kind"], "submission");
+        assert_eq!(
+            envelope["error"]["details"]["reference_kind"],
+            "submission_id"
+        );
+    }
+}
+
+/// `case show` gains the receipts a live association ties to one of the
+/// case's submissions, with the outcome the user recorded.
+#[test]
+fn a_shown_case_names_the_receipts_its_live_associations_name() {
+    let root = archive();
+    let case_id = create_case(root.path(), "Tax matter");
+    let submission = add_submission(root.path(), &case_id, "Posted the completed form.");
+    let receipt = add_receipt(root.path());
+    let association = add_association(
+        root.path(),
+        &receipt,
+        "associated",
+        &[format!("{submission}:strong:The case number is the same.")],
+        None,
+    );
+
+    let envelope = stdout_json(&run(&[
+        "case",
+        "show",
+        "--archive",
+        path(root.path()),
+        &case_id,
+        "--json",
+    ]));
+    assert_envelope(&envelope, "case.show", true);
+    let receipts = envelope["data"]["receipts"].as_array().expect("a section");
+    assert_eq!(receipts.len(), 1);
+    assert_eq!(receipts[0]["receipt"]["id"], receipt);
+    assert_eq!(receipts[0]["outcome"], "associated");
+    assert_eq!(receipts[0]["association_id"], association);
+    assert_eq!(receipts[0]["submission_ids"][0], submission);
+
+    // Retiring the assertion withdraws it, so the live head names nothing and
+    // the receipt leaves the section. Both records stay stored.
+    let retired = run(&[
+        "association",
+        "retire",
+        "--archive",
+        path(root.path()),
+        &association,
+        "--json",
+    ]);
+    assert!(retired.status.success());
+    let envelope = stdout_json(&run(&[
+        "case",
+        "show",
+        "--archive",
+        path(root.path()),
+        &case_id,
+        "--json",
+    ]));
+    assert!(
+        envelope["data"]["receipts"].as_array().unwrap().is_empty(),
+        "only the live head of a chain is read"
+    );
+    let history = stdout_json(&run(&[
+        "association",
+        "list",
+        "--archive",
+        path(root.path()),
+        "--receipt",
+        &receipt,
+        "--json",
+    ]));
+    assert_eq!(history["data"]["count"], 2, "nothing was edited or removed");
+}
+
+/// The human form of the three new commands carries no path and claims
+/// nothing about delivery, authenticity, or legal effect.
+#[test]
+fn the_human_form_of_a_shown_submission_carries_no_path_and_claims_nothing() {
+    let root = archive();
+    let case_id = create_case(root.path(), "Tax matter");
+    let submission = add_submission(root.path(), &case_id, "Posted the completed form.");
+    let receipt = add_receipt(root.path());
+    add_association(
+        root.path(),
+        &receipt,
+        "candidate",
+        &[format!("{submission}:moderate:The reference matches.")],
+        None,
+    );
+
+    let output = run(&[
+        "submission",
+        "show",
+        "--archive",
+        path(root.path()),
+        &submission,
+    ]);
+    assert!(output.status.success());
+    let text = String::from_utf8(output.stdout).expect("stdout is UTF-8");
+    assert!(text.contains("Associations naming this submission: 1, live first."));
+    assert!(text.contains("Outcome: candidate"));
+    assert!(!text.contains(path(root.path())), "no path is printed");
+    let lower = text.to_lowercase();
+    for word in ["delivered", "accepted", "official", "legally effective"] {
+        assert!(!lower.contains(word), "no wording implies an authority");
+    }
+
+    let output = run(&["case", "show", "--archive", path(root.path()), &case_id]);
+    assert!(output.status.success());
+    let text = String::from_utf8(output.stdout).expect("stdout is UTF-8");
+    assert!(text.contains("Receipts a live association names: 1."));
+    assert!(text.contains(&format!("names submission {submission}")));
+    assert!(!text.contains(path(root.path())), "no path is printed");
 }

@@ -1,0 +1,74 @@
+{
+  "command": "submission.show",
+  "data": {
+    "association_count": 2,
+    "associations": [
+      {
+        "archive_schema_version": 1,
+        "candidates": [
+          {
+            "confidence": "strong",
+            "evidence": [
+              {
+                "kind": "user_assertion",
+                "source": "user",
+                "statement": "The case number is the same."
+              }
+            ],
+            "submission_id": "<id>"
+          }
+        ],
+        "created_at": "<time>",
+        "created_by": "user",
+        "id": "<id>",
+        "outcome": "candidate",
+        "receipt_id": "<id>",
+        "record_kind": "association",
+        "submission_id": null,
+        "supersedes": "<id>"
+      },
+      {
+        "archive_schema_version": 1,
+        "candidates": [
+          {
+            "confidence": "moderate",
+            "evidence": [
+              {
+                "kind": "user_assertion",
+                "source": "user",
+                "statement": "The reference matches the submission."
+              }
+            ],
+            "submission_id": "<id>"
+          }
+        ],
+        "created_at": "<time>",
+        "created_by": "user",
+        "id": "<id>",
+        "outcome": "candidate",
+        "receipt_id": "<id>",
+        "record_kind": "association",
+        "submission_id": null,
+        "supersedes": "<id>"
+      }
+    ],
+    "submission": {
+      "archive_schema_version": 1,
+      "artefacts": [
+        {
+          "digest": "sha256:<digest>",
+          "role": "cover letter"
+        }
+      ],
+      "case_id": "<id>",
+      "created_at": "<time>",
+      "description": "Posted the completed form.",
+      "id": "<id>",
+      "record_kind": "submission",
+      "stated_date": "2026-01-13"
+    }
+  },
+  "ok": true,
+  "schema_version": 1,
+  "verified": false
+}

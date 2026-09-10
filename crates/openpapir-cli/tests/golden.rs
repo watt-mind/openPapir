@@ -277,6 +277,39 @@ fn record_cases() -> Vec<Case> {
             prepare: ready,
             arguments: |world| world.command(&["receipt", "list"]),
         },
+        Case {
+            name: "submission.show",
+            stage: Stage::Associated,
+            second_submission: false,
+            prepare: golden_support::supersede_the_live_association,
+            arguments: |world| {
+                let mut arguments = world.command(&["submission", "show"]);
+                arguments.push(world.submission_ids[0].clone());
+                arguments
+            },
+        },
+        Case {
+            name: "receipt.show",
+            stage: Stage::Associated,
+            second_submission: false,
+            prepare: ready,
+            arguments: |world| {
+                let mut arguments = world.command(&["receipt", "show"]);
+                arguments.push(world.receipt_id.clone());
+                arguments
+            },
+        },
+        Case {
+            name: "association.show",
+            stage: Stage::Associated,
+            second_submission: false,
+            prepare: ready,
+            arguments: |world| {
+                let mut arguments = world.command(&["association", "show"]);
+                arguments.push(world.association_ids[0].clone());
+                arguments
+            },
+        },
     ]
 }
 

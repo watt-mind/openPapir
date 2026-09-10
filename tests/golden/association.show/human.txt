@@ -1,0 +1,23 @@
+Association <id>, recorded <time> by user.
+Receipt: <id>
+Outcome: unassociated
+Confirmed submission: none
+Supersedes: nothing
+Candidates: 0.
+Live head of its chain: no.
+Records in the chain: 2, newest first.
+Association <id>, recorded <time> by user.
+Receipt: <id>
+Outcome: candidate
+Confirmed submission: none
+Supersedes: <id>
+Candidates: 1.
+<id> confidence moderate
+user_assertion from user: The reference matches the submission.
+Association <id>, recorded <time> by user.
+Receipt: <id>
+Outcome: unassociated
+Confirmed submission: none
+Supersedes: nothing
+Candidates: 0.
+These are the user's own assertions. openPapir checked nothing about the file and reports no delivery, authenticity, or legal effect.
