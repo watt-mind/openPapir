@@ -139,7 +139,10 @@ step by hand.
 
 Before it writes anything, the script refuses a staging path that is a
 symbolic link and one that is a directory already holding files, so a staging
-run never writes through a link and never mixes into an earlier archive.
+run never writes through a link and never mixes into an earlier archive. The
+sentence `--describe` prints is folded to at most 76 columns as it is written,
+so it reads at one width wherever it is pasted however far the tables it names
+grow.
 
 The CI test job calls the same script on the release binary it already builds,
 on each of Linux, macOS, and Windows, so the layout is exercised on every pull
@@ -147,9 +150,10 @@ request without a tag and without an archive. That job then diffs the staged
 tree against `--describe --paths`, so a file staged but not described, or
 described but not staged, fails the pull request. It stages into `staging/`
 under the checkout root, which `.gitignore` lists, so running the same step
-locally leaves no untracked tree. The draft release and the dry-run summary
-print what `--describe` says, so a release cannot name a layout other than the
-one that was staged.
+locally leaves no untracked tree. The step removes that directory before it
+stages, so a second run is not refused as a staging that already holds files.
+The draft release and the dry-run summary print what `--describe` says, so a
+release cannot name a layout other than the one that was staged.
 
 The build job keeps its uploaded artefact for one day, because the same run's
 verify and draft release jobs are its only consumers, and the layout a pull

@@ -244,6 +244,27 @@ pub fn checked_query(value: &str) -> Result<String, Diagnostic> {
     required("query", value, MAX_QUERY_BYTES, Shape::MultiLine)
 }
 
+/// Fold one text for a comparison that disregards case.
+///
+/// `case list --query` and `search` make the same comparison, so both fold
+/// through this one function rather than each calling `str::to_lowercase`
+/// where it happens to need it. The fold is the whole of the comparison: it
+/// is Unicode-aware, and it strips no accent, collapses no whitespace, and
+/// normalises nothing else, so a query matches the text the user typed and
+/// not a variant of it.
+pub(crate) fn fold(value: &str) -> String {
+    value.to_lowercase()
+}
+
+/// Whether one field's text holds an already folded query.
+///
+/// `folded_query` is what [`fold`] returned for the query. A query is folded
+/// once, before a scan begins, and the field is folded here as it is read, so
+/// each side of the comparison is folded exactly once.
+pub(crate) fn folded_contains(value: &str, folded_query: &str) -> bool {
+    fold(value).contains(folded_query)
+}
+
 /// Whether a value is 64 lowercase hexadecimal characters.
 #[must_use]
 pub fn is_digest(value: &str) -> bool {

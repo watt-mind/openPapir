@@ -26,7 +26,7 @@
 //! The case count is bounded because every case is a process; `PROPTEST_CASES`
 //! raises it locally, and `docs/testing.md` says how.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::fs;
 use std::path::Path;
@@ -174,13 +174,36 @@ fn command_line() -> impl Strategy<Value = Vec<String>> {
 /// already.
 fn known_names() -> &'static BTreeSet<String> {
     static NAMES: OnceLock<BTreeSet<String>> = OnceLock::new();
-    NAMES.get_or_init(|| {
-        let directory = tempfile::tempdir().expect("a temporary working directory");
-        let output = run(directory.path(), &["manpage".to_owned()]);
-        assert!(output.status.success(), "the man page is written");
-        let manpage = String::from_utf8(output.stdout).expect("a generated man page is UTF-8");
-        argument_names(&manpage)
+    NAMES.get_or_init(|| argument_names(manpage()))
+}
+
+/// The whole man page stream, written once for the suite.
+fn manpage() -> &'static str {
+    static MANPAGE: OnceLock<String> = OnceLock::new();
+    MANPAGE.get_or_init(|| generated(&["manpage".to_owned()], "a generated man page"))
+}
+
+/// The bash completion script, written once for the suite.
+///
+/// It is generated from the same command definition, by a generator that
+/// renders every subcommand and every flag whether or not it is marked
+/// hidden, so it is the second opinion the derivation guard compares against.
+fn completions() -> &'static str {
+    static COMPLETIONS: OnceLock<String> = OnceLock::new();
+    COMPLETIONS.get_or_init(|| {
+        generated(
+            &["completions".to_owned(), "bash".to_owned()],
+            "a generated completion script",
+        )
     })
+}
+
+/// Run one document-writing command and return what it wrote.
+fn generated(arguments: &[String], document: &str) -> String {
+    let directory = tempfile::tempdir().expect("a temporary working directory");
+    let output = run(directory.path(), arguments);
+    assert!(output.status.success(), "{document} is written");
+    String::from_utf8(output.stdout).unwrap_or_else(|_| panic!("{document} is UTF-8"))
 }
 
 /// The argument names a rendered man page stream declares.
@@ -209,21 +232,17 @@ fn argument_names(manpage: &str) -> BTreeSet<String> {
 ///
 /// A man page writes an argument as `\fB\-\-archive\fR \fI<ROOT>\fR` or
 /// `[\fIFILE\fR]`, so the roff font escapes and the escaped dashes are undone
-/// first. The token is then trimmed twice: once with exactly the characters
-/// the binary trims from the name it is willing to echo, so a bracketed
-/// value name such as `DIGEST[:ROLE]` keeps its closing bracket the way the
-/// walker keeps it, and once more with the brackets and commas the man page
-/// adds around an optional positional or between a short and a long flag.
-/// Both forms are known; the walker reports one of them.
+/// first. The token is then trimmed twice: once with the characters the binary
+/// trims from the name it is willing to echo, plus the comma the man page
+/// writes between a short and a long flag, so a bracketed value name such as
+/// `DIGEST[:ROLE]` keeps its closing bracket the way the walker keeps it while
+/// `\fB\-h\fR,` still reduces to `h` rather than to `h,`; and once more with
+/// the brackets the man page adds around an optional positional. Both forms
+/// are known; the walker reports one of them.
 fn bare_names(token: &str) -> [String; 2] {
-    let plain = token
-        .replace("\\fB", "")
-        .replace("\\fI", "")
-        .replace("\\fR", "")
-        .replace("\\-", "-")
-        .to_lowercase();
+    let plain = plain(token);
     let walker = plain
-        .trim_matches(|character: char| matches!(character, '-' | '<' | '>' | '.' | '='))
+        .trim_matches(|character: char| matches!(character, '-' | '<' | '>' | '.' | '=' | ','))
         .to_owned();
     let wide = plain
         .trim_matches(|character: char| {
@@ -231,6 +250,126 @@ fn bare_names(token: &str) -> [String; 2] {
         })
         .to_owned();
     [walker, wide]
+}
+
+/// One rendered token with the roff font escapes and escaped dashes undone.
+fn plain(token: &str) -> String {
+    token
+        .replace("\\fB", "")
+        .replace("\\fI", "")
+        .replace("\\fR", "")
+        .replace("\\-", "-")
+        .to_lowercase()
+}
+
+/// The separator the completion script writes between command words.
+///
+/// `openpapir archive init` is one `openpapir__subcmd__archive__subcmd__init`
+/// there, and `openpapir-archive-init` in the man page, so one replacement
+/// turns a declared command into the name its page is filed under.
+const COMPLETION_SEPARATOR: &str = "__subcmd__";
+
+/// Every command the completion script declares, keyed by the name a page for
+/// it is filed under, with the long flags declared for each.
+///
+/// The script holds one `case` block per command, labelled with that command,
+/// and the block sets `opts` to every flag and subcommand name the command
+/// takes. A command is entered into the map by its own label, as the label is
+/// read, so a command declares itself whether or not a later line in its block
+/// turns out to name a flag: a block whose `opts` were missed would otherwise
+/// leave the command out of the comparison altogether.
+fn declared_commands(completions: &str) -> BTreeMap<String, BTreeSet<String>> {
+    let mut declared: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    let mut current = String::new();
+    for line in completions.lines() {
+        let line = line.trim();
+        if let Some(label) = line.strip_suffix(')')
+            && label.starts_with("openpapir")
+            && !label.contains(',')
+        {
+            current = label.replace(COMPLETION_SEPARATOR, "-");
+            declared.entry(current.clone()).or_default();
+        } else if let Some(list) = line
+            .strip_prefix("opts=\"")
+            .and_then(|list| list.strip_suffix('"'))
+            && let Some(flags) = declared.get_mut(&current)
+        {
+            flags.extend(long_flags(list.split_whitespace()));
+        }
+    }
+    declared
+}
+
+/// Whether `name` is one of the pages clap's own `help` command mirrors.
+///
+/// clap gives every command a `help` subcommand, and gives that one a mirror
+/// of every command below its parent, so the completion script declares
+/// `openpapir-help`, `openpapir-archive-help`, `openpapir-help-case-create`
+/// and `openpapir-archive-help-check` while the man page renders a page for
+/// none of them. A mirror is therefore left out of the comparison, and it has
+/// to be shown to be one rather than assumed from the word alone: a hidden
+/// subcommand a later change names `help-topics` would carry the word too, and
+/// exempting it would hide exactly what this guard is for.
+///
+/// A name qualifies only when it can be derived from commands that are
+/// themselves declared: at the first `help` in the path, the part before it
+/// has to be a declared command, and the part after it has to be empty, or
+/// `help` again, or name a declared command under that same parent. A hidden
+/// `openpapir help-topics` fails on the last of those, because the tree holds
+/// no `openpapir topics`.
+fn is_help_mirror(name: &str, declared: &BTreeMap<String, BTreeSet<String>>) -> bool {
+    let words: Vec<&str> = name.split('-').collect();
+    let Some(at) = words.iter().position(|word| *word == "help") else {
+        return false;
+    };
+    let parent = words[..at].join("-");
+    if !declared.contains_key(&parent) {
+        return false;
+    }
+    let rest = words[at + 1..].join("-");
+    rest.is_empty() || rest == "help" || declared.contains_key(&format!("{parent}-{rest}"))
+}
+
+/// Every page the man page stream renders, keyed by its own name, with the
+/// long flags each page's `OPTIONS` section declares.
+fn rendered_pages(manpage: &str) -> BTreeMap<String, BTreeSet<String>> {
+    let mut pages: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    let mut page = String::new();
+    let mut in_options = false;
+    let mut after_tag = false;
+    for line in manpage.lines() {
+        if let Some(title) = line.strip_prefix(".TH ") {
+            page = title
+                .split_whitespace()
+                .next()
+                .unwrap_or_default()
+                .to_owned();
+            pages.entry(page.clone()).or_default();
+            in_options = false;
+            after_tag = false;
+        } else if let Some(section) = line.strip_prefix(".SH ") {
+            in_options = section.trim() == "OPTIONS";
+            after_tag = false;
+        } else if line.trim() == ".TP" {
+            after_tag = true;
+        } else if std::mem::take(&mut after_tag) && in_options {
+            let flags = long_flags(line.split_whitespace());
+            pages.entry(page.clone()).or_default().extend(flags);
+        }
+    }
+    pages
+}
+
+/// The long flags a run of rendered or declared tokens names.
+///
+/// A positional, a value name, and a short flag are left out: a long flag is
+/// the one form both the man page and the completion script spell the same
+/// way once the roff escapes and the separating comma are gone.
+fn long_flags<'a, I: Iterator<Item = &'a str>>(tokens: I) -> BTreeSet<String> {
+    tokens
+        .map(|token| plain(token).trim_end_matches(',').to_owned())
+        .filter(|token| token.len() > 2 && token.starts_with("--"))
+        .collect()
 }
 
 /// Whether the command line asked for the JSON form.
@@ -369,6 +508,80 @@ mod regression {
         assert!(
             !names.iter().any(|name| name.starts_with("openpapir")),
             "only arguments are read, never the subcommands a page lists"
+        );
+    }
+
+    /// The man page renders every command and every argument the definition
+    /// declares, so nothing this suite reads its names from can be hidden.
+    ///
+    /// The derivation skips what is marked hidden twice over: `manpage.rs`
+    /// leaves out a hidden subcommand, and `clap_mangen` leaves out a hidden
+    /// argument. A command or a flag marked that way would still be accepted
+    /// at the command line and would appear in no page, so the walk that
+    /// `known_names` reads would not know a name the usage walker can report
+    /// and this suite would call a real name an undefined one.
+    ///
+    /// The shell completions are the second opinion: they are generated from
+    /// the same definition by a generator that renders every subcommand and
+    /// every long flag whether or not it is hidden. Every command they
+    /// declare is required to have a page of its own, and every long flag
+    /// they declare for it is required to be in that page.
+    ///
+    /// Two differences between the two are the generators' own and are not
+    /// hidden anything. `help` is clap's own command, and the completions
+    /// declare it and one mirror of it under every command while the man page
+    /// renders no page for any of them, so a mirror is left out of the
+    /// comparison; `is_help_mirror` requires a name to be derivable from
+    /// commands that are themselves declared before it is left out, so a
+    /// hidden subcommand that merely carries the word, `help-topics` for one,
+    /// is compared like any other. `--version` is added to every page by the
+    /// derivation itself, so that a page read on its own names the build it
+    /// came from, and it is the one flag a page may carry that the definition
+    /// does not declare there.
+    #[test]
+    fn the_command_tree_declares_no_hidden_argument_or_subcommand() {
+        let declared = declared_commands(completions());
+        let rendered = rendered_pages(manpage());
+        assert!(
+            declared.len() > SUBCOMMANDS.len(),
+            "the completion script declares the whole command tree"
+        );
+
+        let mut compared = 0;
+        for (name, flags) in &declared {
+            if is_help_mirror(name, &declared) {
+                continue;
+            }
+            let page = rendered
+                .get(name)
+                .unwrap_or_else(|| panic!("the man page stream holds a page for {name}"));
+            let hidden: Vec<&String> = flags.difference(page).collect();
+            assert!(
+                hidden.is_empty(),
+                "{name} declares an argument no page renders: {hidden:?}"
+            );
+            let added: Vec<&String> = page
+                .difference(flags)
+                .filter(|flag| *flag != "--version")
+                .collect();
+            assert!(
+                added.is_empty(),
+                "the page for {name} renders an argument the definition does \
+                 not declare there: {added:?}"
+            );
+            compared += 1;
+        }
+
+        for name in rendered.keys() {
+            assert!(
+                declared.contains_key(name),
+                "{name} has a page but is not a command the definition declares"
+            );
+        }
+        assert_eq!(
+            compared,
+            rendered.len(),
+            "every page was compared against the command that owns it"
         );
     }
 
