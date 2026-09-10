@@ -237,6 +237,8 @@ Hungarian output would go through.
 
 ## Documentation
 
+The [end-to-end guide](docs/guide.md) walks one matter from `archive init` to
+`case delete` on a synthetic example, with the real output of every command.
 The [specification index](docs/specification.md) is the single entry point to
 the project's scope, what is implemented today, which designs are decided but
 not built, and which contracts are still blocked. The

@@ -51,6 +51,19 @@ envelope.
   with no leftover staging file, and it takes `case list` listings while
   another process publishes and asserts every one of them is a whole set of
   whole records. No behaviour changes.
+- `docs/guide.md`, an end-to-end walkthrough of one matter on a synthetic
+  example, from `archive init` through import, the case and submission
+  records, the receipt-retrieval reminder `archive status` prints, the receipt
+  and association records and their supersession and retirement, the archive
+  check, export, import into a second archive, a plain-copy backup and the
+  permission repair, to `case delete` with and without `--purge`. Every block
+  of output was captured from the binary rather than written by hand, every
+  statement about the service is numbered and attributed to a source in
+  `docs/receipt-discovery.md` as descriptive or normative, and the guide states
+  plainly that openPapir sends nothing and verifies nothing cryptographically.
+  It closes with where to read the JSON envelope for scripting and a short
+  section for agents pointing at `openpapir skill`. Linked from README and
+  `docs/index.md`. No behaviour changed.
 - `openpapir case import --archive <root> --from <dir> [--json]`, operation
   `case.import`, reads a directory `case export` wrote back into an archive.
   The manifest is authoritative: every object it lists is re-digested from the
