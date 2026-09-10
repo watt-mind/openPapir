@@ -1,0 +1,15 @@
+Case <id>, recorded <time>.
+Title: Tax matter
+Notes: First contact with the office.
+Status: open
+Tags: none
+Submissions recorded: 1.
+Submission <id>, recorded <time>.
+Description: Posted the completed form.
+Date stated by the user: 2026-01-13. openPapir does not interpret it.
+Artefacts referenced: 1.
+sha256:<digest> as cover letter
+Receipts a live association names: 0.
+Derived metadata for 1 artefact(s), computed by openPapir and asserting nothing about any file:
+sha256:<digest> text 27 byte(s)
+Cases and submissions are the user's own local records. Nothing here is verified, matched, or delivered.

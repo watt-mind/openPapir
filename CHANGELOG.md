@@ -16,9 +16,10 @@ the Documentation section of [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Unreleased
 
-Automatic matching, derived metadata, extractors, receipt parsing, KRX and
-`.es3` handling, verification results, and government delivery stay
-unimplemented, and no output or field claims delivery, receipt by an
+Automatic matching, receipt parsing, KRX and `.es3` handling, verification
+results, and government delivery stay unimplemented, and the only derived
+metadata is the media type and the byte length `archive derive` computes on
+request, and no output or field claims delivery, receipt by an
 authority, authenticity, or legal effect. `verified` is `false` in every
 envelope.
 
@@ -93,6 +94,31 @@ envelope.
   so that the record-conflict rule stays one rule; each import reads its own
   `export_scope` and refuses the other's directory with
   `export.manifest_malformed`.
+- `openpapir archive derive --archive <root> [--json]`, operation
+  `archive.derive`, computes one derived-metadata record for every stored
+  object, at `records/derived/<digest>.json`, carrying the object's byte
+  length and a `media_type` from a closed table of `pdf`, `png`, `jpeg`,
+  `zip`, `xml`, `text`, and `unknown`, decided by a hand-written signature
+  list over the object's first 4 KiB and no new dependency. It takes the
+  writer lock, opens each object once with the no-follow flag, leaves an
+  object over the single-file cap unread and without a record, replaces every
+  record it recomputes in place, and removes a record naming an object the
+  archive no longer holds. `data` reports `objects_checked`,
+  `objects_unchecked`, `records_written`, `records_removed`, `bytes_sniffed`,
+  and one `media_types` entry per value of the table, counts only. Nothing
+  recomputes on its own, nothing needs a derived record, and a media type
+  states what leading bytes look like and never authenticity, delivery, or
+  legal effect.
+- `case show` and `receipt list` carry an additive `derived` array with the
+  `artefact_digest`, `media_type`, and `byte_length` of each artefact they
+  name that has a derived-metadata record, and nothing for one that does not.
+  The human form prints the same facts as a closing block, and prints no block
+  when nothing has been derived. Nothing infers anything about a receipt from
+  a media type.
+- `archive check` reports `derived_records`, how many derived-metadata records
+  the archive holds. A missing record is nothing at all rather than a problem,
+  an unreadable one is not counted and is not damage, and neither changes the
+  exit code.
 - An ignored benchmark, `crates/openpapir-cli/tests/bench.rs`, times the
   linear scans on a synthetic archive of 10000 cases, 10000 submissions,
   10000 receipts, 10000 associations, and 20000 imported objects, and asserts

@@ -26,7 +26,7 @@ pub use records::{
 pub use status::integrity;
 pub use transfer::{archive_exported, archive_restored, exported, imported, repaired, restored};
 
-use openpapir_core::Submission;
+use openpapir_core::{DerivedFacts, Submission};
 
 /// The closing line every record command prints.
 ///
@@ -34,6 +34,31 @@ use openpapir_core::Submission;
 /// sends nothing, so a submission is the user's own statement about what they
 /// sent, and no line above it may be read otherwise.
 const RECORD_DISCLAIMER: &str = "Cases and submissions are the user's own local records. Nothing here is verified, matched, or delivered.";
+
+/// The lines describing what has been derived about the artefacts a listing
+/// names, or no line at all when nothing has been derived about any of them.
+///
+/// A derived record is openPapir's own disposable computation about stored
+/// bytes, so an artefact without one is simply absent from the block, and an
+/// archive nobody has run `archive derive` against prints no block. The lines
+/// carry the digest openPapir minted, a value of the closed media-type table,
+/// and a byte count, and nothing else.
+fn derived_lines(derived: &[DerivedFacts]) -> Vec<String> {
+    if derived.is_empty() {
+        return Vec::new();
+    }
+    let mut lines = vec![format!(
+        "Derived metadata for {} artefact(s), computed by openPapir and asserting nothing about any file:",
+        derived.len()
+    )];
+    for facts in derived {
+        lines.push(format!(
+            "{} {} {} byte(s)",
+            facts.artefact_digest, facts.media_type, facts.byte_length
+        ));
+    }
+    lines
+}
 
 /// The lines describing one submission and its artefact references.
 fn submission_lines(submission: &Submission) -> Vec<String> {

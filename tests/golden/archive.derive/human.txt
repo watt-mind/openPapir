@@ -1,0 +1,4 @@
+Examined 3 stored object(s); 0 not read; 77 byte(s) read to name a type.
+Derived record(s) written: 3. Stale record(s) removed: 0.
+By media type: jpeg 0, pdf 0, png 0, text 3, unknown 0, xml 0, zip 0.
+A media type names what the first bytes look like. It is openPapir's own disposable computation, and it reports no authenticity, no delivery, and no legal effect.

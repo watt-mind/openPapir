@@ -46,6 +46,7 @@ fn ready(_: &World) {}
 
 fn cases() -> Vec<Case> {
     let mut cases = archive_cases();
+    cases.extend(derived_cases());
     cases.extend(transfer_cases());
     cases.extend(record_cases());
     cases.extend(association_cases());
@@ -203,6 +204,18 @@ fn archive_cases() -> Vec<Case> {
     ]
 }
 
+/// The case that computes the derived-metadata records. The commands that
+/// show them sit with the record cases.
+fn derived_cases() -> Vec<Case> {
+    vec![Case {
+        name: "archive.derive",
+        stage: Stage::Associated,
+        second_submission: false,
+        prepare: ready,
+        arguments: |world| world.command(&["archive", "derive"]),
+    }]
+}
+
 /// The cases that copy an archive, or one case of it, outward and back in.
 fn transfer_cases() -> Vec<Case> {
     vec![
@@ -298,6 +311,17 @@ fn record_cases() -> Vec<Case> {
             },
         },
         Case {
+            name: "case.show.derived",
+            stage: Stage::Submitted,
+            second_submission: false,
+            prepare: golden_support::derive_metadata,
+            arguments: |world| {
+                let mut arguments = world.command(&["case", "show"]);
+                arguments.push(world.case_id.clone());
+                arguments
+            },
+        },
+        Case {
             name: "submission.add",
             stage: Stage::Cased,
             second_submission: false,
@@ -330,6 +354,13 @@ fn record_cases() -> Vec<Case> {
             stage: Stage::Receipted,
             second_submission: false,
             prepare: ready,
+            arguments: |world| world.command(&["receipt", "list"]),
+        },
+        Case {
+            name: "receipt.list.derived",
+            stage: Stage::Receipted,
+            second_submission: false,
+            prepare: golden_support::derive_metadata,
             arguments: |world| world.command(&["receipt", "list"]),
         },
         Case {

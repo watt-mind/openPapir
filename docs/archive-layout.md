@@ -22,7 +22,7 @@ implemented contract and the only place that lists the operations
 decision below is about one. Where architecture and this document disagree,
 architecture is authoritative and this page is a defect.
 
-Derived-metadata records, verification results, the rebuildable `cache/`
+Verification results, the rebuildable `cache/`
 index, schema migration, and encrypted backup at
 rest are **not implemented** and stay a design. `verified`
 is `false` in every envelope ([architecture](architecture.md)).
@@ -120,15 +120,15 @@ creates one implicitly as a side effect of another operation.
         receipts/<id>.json
         imports/<id>.json
         associations/<id>.json
-        derived/<id>.json          designed, not created
+        derived/<digest>.json      derived metadata, on request only
         verifications/<id>.json    designed, not created
     cache/                  disposable, rebuildable, never authoritative
 ```
 
-`records/derived/` and `records/verifications/` are part of this design and
-are not created by any build: derived metadata and verification results have
-no code behind them. Everything else in the tree is created by
-`archive init`.
+`records/verifications/` is part of this design and is not created by any
+build: verification results have no code behind them. Everything else in the
+tree, `records/derived/` included, is created by `archive init`, and only
+`archive derive` ever puts a file in the derived directory.
 
 `papir-archive.json` is the marker and the first file written when an archive
 is created. It records the archive schema version, the archive's own opaque
@@ -220,12 +220,74 @@ original filename as supplied by the user's filesystem (an attribute only,
 never used to derive a path), and whether this import created the object or
 found it already present.
 
-**Derived metadata** (designed, **not implemented**): anything computed from
-an artefact: detected type,
-extracted text, parsed fields. Fields: identifier, artefact digest, extractor
-name and version, computation timestamp, and the derived payload. Derived
-records are disposable by definition: deleting all of them and recomputing must
-never alter an original or a user-entered record.
+**Derived metadata**: anything openPapir computed from an artefact rather
+than read from the user. The design covers detected type, extracted text, and
+parsed fields; what is **implemented** is the first of those and only the
+first, as `archive derive`. The rest stays a design, because extracting text
+or parsing fields needs the format gap closed.
+
+One record per stored object, at `records/derived/<digest>.json`. It is keyed
+by the artefact digest rather than by a minted identifier, unlike every other
+record here, and deliberately: there is exactly one derived record per object,
+recomputing must replace the one that is there rather than leave a second
+beside it, and a digest is a name openPapir derived from the bytes rather than
+one the user supplied. Fields: the archive schema version, the artefact
+digest, the byte length, the computation timestamp, the extractor name and
+version, and the derived payload, which today is `media_type` alone.
+
+`media_type` is one value of a **closed table**, decided from the leading
+bytes by a hand-written signature list and no dependency:
+
+| Value | What the leading bytes are |
+| --- | --- |
+| `pdf` | `%PDF-` |
+| `png` | The PNG signature. |
+| `jpeg` | The JPEG start-of-image marker. |
+| `zip` | A zip local-file header, empty-archive record, or spanned marker. |
+| `xml` | An XML declaration, after an optional byte-order mark. |
+| `text` | UTF-8 with no control character but tab, line feed, and carriage return. |
+| `unknown` | Anything else, an empty object included. |
+
+The table is closed so that a listing cannot grow a vocabulary a consumer
+never agreed to, and it stops at `zip` on purpose. A container such as an
+`.asice` or a `.krx` package is zip-family bytes; openPapir records `zip` for
+it and refines the value no further. Reading a container to say which
+zip-family format it is belongs to openKRX and openSzigno, and deciding it
+from the original filename's extension instead would put a user-supplied name
+into a stored record and would still be a guess. So the value is refined only
+where the bytes already say `zip`, and openPapir does not do that refining.
+
+**A derived record is disposable and never authoritative.** Deleting all of
+them and computing them again alters no original and no user-entered record.
+Nothing in the archive references one, no command refuses because one is
+missing, and no conclusion about a receipt, a submission, or an association
+follows from a media type: it is a statement about leading bytes and never
+authenticity, delivery, or legal effect. `case show` and `receipt list` show
+the media type and the byte length of an artefact that has a record and say
+nothing at all about one that does not. A document in the derived directory
+that cannot be read as a derived record is therefore not `record.malformed`:
+it is a disposable computation that failed to read, so it counts as no record
+and the next derivation writes it again.
+
+**Recomputation is explicit and nothing else.** `archive derive` is the only
+thing that writes, replaces, or removes a derived record. It takes the writer
+lock, opens each object once with the no-follow flag, takes the byte length
+from that handle, and reads at most 4 KiB of it to decide the media type, so
+its cost grows with the number of objects and never with their size. An object
+over the single-file cap is left without a record rather than read, exactly as
+the integrity check leaves it undigested. A record naming an object the
+archive no longer holds is removed, because the record describes the store as
+it is now; a purge that removes an object therefore leaves that object's
+derived record behind until the next derivation discards it.
+
+**`archive check` counts derived records and judges none of them.** A missing
+record is nothing at all rather than a problem, and an unreadable one is not
+counted and is not damage either. Neither changes the exit code, because
+nothing in the archive depends on a derived record existing.
+
+An export carries no derived record. An export is the case's evidence, and a
+disposable computation is not evidence; an archive that imports one runs
+`archive derive` if it wants the facts locally.
 
 **Association record**: described in its own section below.
 
@@ -792,10 +854,13 @@ The discovery note left seven open questions
    no automatic collapse. The user-facing resolution flow is deferred to the
    association implementation issue; it is a workflow question, not a storage
    one.
-4. **Recomputing derived metadata on extractor upgrade: resolved.** Never
-   automatic. Derived records carry the extractor name and version; one from an
-   older extractor is reported as stale and recomputed only on explicit
-   request. That keeps listings reproducible and avoids background work.
+4. **Recomputing derived metadata on extractor upgrade: resolved, and
+   implemented.** Never automatic. Derived records carry the extractor name
+   and version; recomputation is `archive derive` and nothing else. That keeps
+   listings reproducible and avoids background work. As implemented, a
+   derivation recomputes every record it walks rather than only the ones an
+   older extractor wrote, which costs one bounded read per object and spares
+   the archive a staleness rule it would have to keep true.
 5. **Retention of import events and association history: resolved.** History
    is deletable, and openPapir keeps no immutable log of the user's own
    correspondence. As implemented, deleting a case removes the association
