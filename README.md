@@ -223,5 +223,10 @@ unpublished, use Rust edition 2024, and are licensed under [MIT](LICENSE).
 Pull requests target `develop`; `master` is reserved for stable releases.
 See [contributing](CONTRIBUTING.md), whose Documentation section states how
 the documents are kept correct, and [security](SECURITY.md). The
-[roadmap](docs/roadmap.md) records bounded discovery work before
-implementation begins.
+[roadmap](docs/roadmap.md) records the bounded discovery work each format
+decision waits on, and its fifth milestone, the local organiser, records the
+order of the remaining local work: restoring from an export, case lifecycle
+and search, the receipt-retrieval reminder, the entangled-deletion remedy,
+generative testing, a release pipeline, completions and man pages, a user
+guide, a whole-archive export, derived metadata on explicit request, and
+encrypted backup at rest.

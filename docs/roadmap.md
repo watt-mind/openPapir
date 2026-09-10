@@ -66,12 +66,73 @@ matched, and cryptographically verified states separate. Signature
 verification is a separate integration milestone; no matching result asserts
 authenticity, legal effect, or delivery by itself.
 
+## 5. The local organiser
+
+Make openPapir the reference local organiser for e-Papír correspondence
+inside the evidence rules of the milestones above: no invented format, no
+integration with the service, and no claim about delivery, authenticity, or
+legal effect. The items below are in the order they are meant to happen, and
+each names the gate that has to hold before it starts and its state as of this
+page's last update.
+
+- Restoring from an export (`case import`) reads a directory written by
+  `case export` back into an archive, preserving the original bytes and
+  reporting a duplicate rather than overwriting it, gated on the export layout
+  in [local archive layout and storage design](archive-layout.md) staying the
+  written contract: planned.
+- Case lifecycle and search (`case update` and `case list` filters) let a case
+  change the fields its record already carries and let the list narrow by
+  them, gated on those fields and their write stages being the ones
+  [architecture and CLI contract](architecture.md) documents: planned.
+- The receipt-retrieval reminder (`archive status`) reports how long ago each
+  recorded receipt was dated so that the operator can decide for themselves
+  what to retrieve from their delivery storage, gated on the operator's own
+  descriptive statement that the storage retains incoming documents for
+  30 days ([receipt evidence and local case model
+  decisions](receipt-discovery.md), source E1, retrieved 2026-09-09), which
+  the tool would restate as that operator's description while reading no
+  mailbox and asserting no deadline of its own: planned.
+- The entangled-deletion remedy (`association retire`) marks an association
+  withdrawn instead of removing it, so that separating a receipt from a case
+  leaves the earlier record readable, gated on the record and deletion
+  contracts in [architecture and CLI contract](architecture.md): planned.
+- Generative testing drives the archive operations with generated inputs to
+  reach the orderings and limits the example-based tests in
+  [testing and fixture policy](testing.md) do not, gated on nothing outside
+  the workspace: planned.
+- A release pipeline and a Windows-target lint publish a checked build and
+  keep the cross-platform path and permission rules honest on the target that
+  differs most, gated on [releasing](releasing.md) recording the release
+  position that this work changes: planned.
+- Shell completions and man pages ship the command surface in the forms a
+  shell and a terminal already read, gated on the command set being settled
+  enough that the generated files do not contradict the binary: planned.
+- An end-to-end user guide walks one archive from the first import through
+  association and export, gated on every operation it walks through being
+  implemented: planned.
+- A whole-archive export writes every case, submission, receipt, and
+  association in one pass, with the same preserved originals as `case export`,
+  gated on `case import` existing so that the result can be read back:
+  planned.
+- Derived metadata on explicit request records the file type and the size of a
+  stored object and nothing else, never parsing a receipt, gated on the
+  derived-metadata design in
+  [local archive layout and storage design](archive-layout.md) and on the
+  request being explicit rather than implied by an import: planned.
+- Encrypted backup at rest protects a copy of the archive kept outside it,
+  gated on a key-handling decision that no document has made yet: planned.
+
 ## Later, subject to evidence
 
-Search, additional receipt types, delegated `.es3` verification, and a user
-interface may follow demonstrated needs. Government submission, authentication,
-and background processing each require independent discovery and acceptance
-criteria. None is implied by these milestones.
+Receipt parsing and the derived evidence built on it, KRX package import,
+delegated `.es3` verification, and any integration with the e-Papír service
+stay behind their blockers: the format gap recorded in
+[receipt evidence and local case model decisions](receipt-discovery.md), the
+openKRX profile and reader discovery of milestone 1, and the absence of a
+documented verification or submission contract. Additional receipt types, a
+user interface, authentication, and background processing each require
+independent discovery and acceptance criteria and may follow demonstrated
+needs. None is implied by these milestones.
 
 ## Work orchestration
 
