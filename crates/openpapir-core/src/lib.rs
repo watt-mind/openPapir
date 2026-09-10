@@ -7,18 +7,19 @@
 //! procedure, the single-writer lock, the input caps, the import-event
 //! records that import writes, the case, submission, receipt, and
 //! user-asserted association records, the read-only whole-archive
-//! integrity check, the export of one case, and the permission repair that
+//! integrity check, the read-only summary and its receipt-retrieval
+//! reminders, the export of one case, and the permission repair that
 //! restoring an export or a backup needs. Derived metadata and verification
 //! results are designed in `docs/archive-layout.md` and are not implemented.
 //!
 //! # Status
 //!
-//! Seventeen operations are implemented, `archive.init`, `import`,
+//! Eighteen operations are implemented, `archive.init`, `import`,
 //! `case.create`, `case.list`, `case.show`, `submission.add`, `receipt.add`,
 //! `receipt.list`, `association.create`, `association.list`,
-//! `association.retire`, `archive.check`, `case.export`,
+//! `association.retire`, `archive.check`, `archive.status`, `case.export`,
 //! `archive.repair_permissions`, `case.delete`, `skill`, and `case.update`,
-//! and they are the seventeen
+//! and they are the eighteen
 //! [`capabilities`] reports. `skill` is the one that touches no archive: it
 //! belongs to the CLI, which writes the agent skill document it carries, and
 //! is reported here so that a machine caller learns of it from the same list
@@ -64,6 +65,7 @@ pub mod export;
 pub mod ident;
 pub mod integrity;
 pub mod records;
+pub mod status;
 
 pub use archive::import::{Artefact, Imported, import};
 pub use archive::{Created, init, repair_permissions};
@@ -98,6 +100,7 @@ const OPERATIONS: &[&str] = &[
     "association.list",
     "association.retire",
     "archive.check",
+    "archive.status",
     "case.export",
     "archive.repair_permissions",
     "case.delete",
@@ -185,6 +188,7 @@ mod tests {
                 "association.list",
                 "association.retire",
                 "archive.check",
+                "archive.status",
                 "case.export",
                 "archive.repair_permissions",
                 "case.delete",

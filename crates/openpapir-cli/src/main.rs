@@ -16,6 +16,9 @@
 //! - `openpapir archive init <root> [--json]`, archive creation.
 //! - `openpapir archive check --archive <root> [--json]`, the read-only
 //!   whole-archive integrity check.
+//! - `openpapir archive status --archive <root> [--as-of <yyyy-mm-dd>]
+//!   [--json]`, the read-only summary of what the archive holds and which
+//!   submission receipts are still worth fetching from the delivery storage.
 //! - `openpapir archive repair-permissions --archive <root> [--json]`, the
 //!   only action besides `archive init` that narrows permissions.
 //! - `openpapir import --archive <root> <file>... [--json]`, artefact import.
@@ -79,6 +82,7 @@ mod delete;
 mod envelope;
 mod report;
 mod skill;
+mod status;
 mod usage;
 
 use std::path::PathBuf;
@@ -160,6 +164,8 @@ enum ArchiveCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Summarise the archive and the receipts still worth fetching.
+    Status(status::Status),
     /// Narrow every path in the archive back to owner-only.
     RepairPermissions {
         /// The archive root, which is always supplied explicitly.
@@ -275,6 +281,14 @@ fn run(command: Command) -> i32 {
             json,
             report::integrity,
             integrity_problem,
+        ),
+        Command::Archive {
+            command: ArchiveCommand::Status(arguments),
+        } => emit(
+            "archive.status",
+            arguments.run(),
+            arguments.json,
+            status::lines,
         ),
         Command::Archive {
             command: ArchiveCommand::RepairPermissions { archive, json },

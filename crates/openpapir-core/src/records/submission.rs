@@ -209,7 +209,11 @@ pub fn checked_stated_date(value: Option<&str>) -> std::result::Result<Option<St
 }
 
 /// Whether a value is a plausible `YYYY-MM-DD` calendar date.
-fn is_calendar_date(value: &str) -> bool {
+///
+/// This is the one date shape openPapir accepts anywhere, so a command that
+/// takes a date checks it here rather than inventing a second rule.
+#[must_use]
+pub fn is_calendar_date(value: &str) -> bool {
     let bytes = value.as_bytes();
     if bytes.len() != 10 || bytes[4] != b'-' || bytes[7] != b'-' {
         return false;

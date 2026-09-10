@@ -1032,6 +1032,7 @@ fn capabilities_report_exactly_the_implemented_operations() {
             "association.list",
             "association.retire",
             "archive.check",
+            "archive.status",
             "case.export",
             "archive.repair_permissions",
             "case.delete",
