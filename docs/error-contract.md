@@ -284,13 +284,15 @@ and enforced again while streaming ([archive-layout](archive-layout.md)); a
 mid-stream breach aborts the write and removes the staging file. The record
 cap binds a stored document on the way in and on the way out: a record is
 checked against it before it is written and again, from the reported size,
-before it is read back. All eight are refusals of the input, never archive
+before it is read back. All nine are refusals of the input, never archive
 damage, and all carry `bucket` with a cap and an observed value, `cap_bytes`
 or `cap_count` with `observed_bytes` or `observed_count`.
 
 The five import caps also carry `input_index`, the position of the offending
-input in the invocation, never its name. `input.cap.tag_length` carries it too,
-because a tag comes from a repeatable flag and so does have a position.
+input in the invocation, never its name. `input.cap.restore_bytes` does not:
+its sum is over the whole manifest, so no single position was refused.
+`input.cap.tag_length` carries it too, because a tag comes from a repeatable
+flag and so does have a position.
 `input.cap.field_length` carries `field` instead, because a record field has no
 position in an input list, and `input.cap.tag_count` carries neither, because
 it is about how many tags there are rather than about any one of them.
@@ -301,6 +303,13 @@ it is about how many tags there are rather than about any one of them.
   bytes exceed the per-operation cap (proposed 512 MiB).
 - **`input.cap.import_files`**: input, not retryable. The import names more
   files than the per-operation cap (proposed 1000).
+- **`input.cap.restore_bytes`**: input, not retryable. The objects the export's
+  manifest names come to more than the restore cap (16 GiB). It bounds
+  `case import` and `archive import`, which replay an export rather than
+  reading files a user just named, and it is checked from the manifest's sum
+  before any copy is opened and before the writer lock is taken. Details:
+  `bucket`, `cap_bytes`, `observed_bytes`. The reasoning for the value is in
+  [architecture](architecture.md).
 - **`input.cap.record_size`**: input, not retryable. A record document,
   including a derived-metadata record, would exceed the record cap (1 MiB).
 - **`input.cap.filename_length`**: input, not retryable. A supplied original

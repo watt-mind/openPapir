@@ -43,6 +43,8 @@ pub mod codes {
     pub const INPUT_CAP_IMPORT_BYTES: &str = "input.cap.import_bytes";
     /// The import names more files than the per-operation cap.
     pub const INPUT_CAP_IMPORT_FILES: &str = "input.cap.import_files";
+    /// The objects an export names come to more than the restore cap.
+    pub const INPUT_CAP_RESTORE_BYTES: &str = "input.cap.restore_bytes";
     /// A record document would exceed the record cap.
     pub const INPUT_CAP_RECORD_SIZE: &str = "input.cap.record_size";
     /// A supplied original filename exceeds the attribute cap.
@@ -416,6 +418,7 @@ mod tests {
             (codes::INPUT_CAP_FILE_SIZE, Bucket::Input, 3),
             (codes::INPUT_CAP_IMPORT_BYTES, Bucket::Input, 3),
             (codes::INPUT_CAP_IMPORT_FILES, Bucket::Input, 3),
+            (codes::INPUT_CAP_RESTORE_BYTES, Bucket::Input, 3),
             (codes::INPUT_CAP_RECORD_SIZE, Bucket::Input, 3),
             (codes::INPUT_CAP_FILENAME_LENGTH, Bucket::Input, 3),
             (codes::INPUT_CAP_FIELD_LENGTH, Bucket::Input, 3),
