@@ -31,10 +31,10 @@ request.
 | `anstyle-wincon` | 3.0.11 | MIT OR Apache-2.0 |
 | `block-buffer` | 0.10.4 | MIT OR Apache-2.0 |
 | `cfg-if` | 1.0.4 | MIT OR Apache-2.0 |
-| `clap` | 4.6.6 | MIT OR Apache-2.0 |
-| `clap_builder` | 4.6.6 | MIT OR Apache-2.0 |
-| `clap_complete` | 4.6.9 | MIT OR Apache-2.0 |
-| `clap_derive` | 4.6.4 | MIT OR Apache-2.0 |
+| `clap` | 4.6.7 | MIT OR Apache-2.0 |
+| `clap_builder` | 4.6.7 | MIT OR Apache-2.0 |
+| `clap_complete` | 4.6.11 | MIT OR Apache-2.0 |
+| `clap_derive` | 4.6.7 | MIT OR Apache-2.0 |
 | `clap_lex` | 1.1.0 | MIT OR Apache-2.0 |
 | `clap_mangen` | 0.2.33 | MIT OR Apache-2.0 |
 | `colorchoice` | 1.0.5 | MIT OR Apache-2.0 |
@@ -46,7 +46,7 @@ request.
 | `heck` | 0.5.0 | MIT OR Apache-2.0 |
 | `is_terminal_polyfill` | 1.70.2 | MIT OR Apache-2.0 |
 | `itoa` | 1.0.18 | MIT OR Apache-2.0 |
-| `libc` | 0.2.189 | MIT OR Apache-2.0 |
+| `libc` | 0.2.191 | MIT OR Apache-2.0 |
 | `memchr` | 2.8.3 | Unlicense OR MIT |
 | `once_cell_polyfill` | 1.70.2 | MIT OR Apache-2.0 |
 | `proc-macro2` | 1.0.107 | MIT OR Apache-2.0 |
@@ -56,7 +56,7 @@ request.
 | `serde` | 1.0.229 | MIT OR Apache-2.0 |
 | `serde_core` | 1.0.229 | MIT OR Apache-2.0 |
 | `serde_derive` | 1.0.229 | MIT OR Apache-2.0 |
-| `serde_json` | 1.0.151 | MIT OR Apache-2.0 |
+| `serde_json` | 1.0.154 | MIT OR Apache-2.0 |
 | `sha2` | 0.10.9 | MIT OR Apache-2.0 |
 | `strsim` | 0.11.1 | MIT |
 | `syn` | 3.0.5 | MIT OR Apache-2.0 |
